@@ -4,13 +4,12 @@ from math import log, ceil, floor
 
 # --- Configuration ---
 CHUNK_SIZE = 64  # target number of values per leaf
-MIN_CHUNK_SIZE = 8
 BALANCE_RATIO = 1.5  # acceptable left/right imbalance factor
 
 
 # --- Core Node Structure ---
 class Node:
-    __slots__ = ('left', 'right', 'values', 'sum', 'length')
+    __slots__ = ("left", "right", "values", "sum", "length")
 
     def __init__(self, values: Optional[list[float]] = None):
         self.left: Optional[Node] = None
@@ -22,18 +21,19 @@ class Node:
     def is_leaf(self) -> bool:
         return self.values is not None
 
-    def recalc(self):
-        """Recalculate sum and length from children or values."""
-        if self.is_leaf():
-            self.sum = sum(self.values)
-            self.length = len(self.values)
-        else:
-            self.sum = (self.left.sum if self.left else 0.0) + (
-                self.right.sum if self.right else 0.0
-            )
-            self.length = (self.left.length if self.left else 0) + (
-                self.right.length if self.right else 0
-            )
+
+def recalc(node: Node):
+    """Recalculate sum and length from children or values."""
+    if node.is_leaf():
+        node.sum = sum(node.values or [])
+        node.length = len(node.values or [])
+    else:
+        node.sum = (node.left.sum if node.left else 0.0) + (
+            node.right.sum if node.right else 0.0
+        )
+        node.length = (node.left.length if node.left else 0) + (
+            node.right.length if node.right else 0
+        )
 
 
 # --- Helpers ---
@@ -83,7 +83,7 @@ def _build_balanced(values: list[float]) -> Optional[Node]:
             nn.left = leaves[i]
             if i + 1 < len(leaves):
                 nn.right = leaves[i + 1]
-            nn.recalc()
+            recalc(nn)
             pars.append(nn)
         leaves = pars
 
@@ -113,7 +113,7 @@ def _concat(a: Optional[Node], b: Optional[Node]) -> Optional[Node]:
     node = Node()
     node.left, node.right = a, b
     node.values = None
-    node.recalc()
+    recalc(nn)
     return _rebalance(node)
 
 
@@ -215,33 +215,49 @@ class SumRope:
 
     def get_range(self, start, end) -> list[float]:
         """
-        Yield items from leaf nodes in the tree from index `start` to `end` (exclusive),
-        without recursion. Assumes leaf nodes have a list of items and node.is_leaf().
-
-        start and end are absolute indices over the flattened items.
+        Get items from index `start` to `end` (exclusive).
+        Optimized to correctly track node offsets.
         """
         root = self.root
+        if not root:
+            return []
+
         if start < 0:
             start = root.length + start
         if end < 0:
             end = root.length + end
 
+        # Clamp to valid range
+        start = max(0, min(start, root.length))
+        end = max(0, min(end, root.length))
+
+        if start >= end:
+            return []
+
         ret = []
-        stack = [(root, 0, root.length)]  # (node, offset of first item in this subtree)
+        stack = [(root, 0)]  # (node, offset_in_sequence)
 
         while stack:
-            node, nstart, nend = stack.pop()
-            if not (nstart < end and nend > start):
+            node, offset = stack.pop()
+            node_end = offset + node.length
+
+            # Skip if this node doesn't overlap [start, end)
+            if node_end <= start or offset >= end:
                 continue
 
             if node.is_leaf():
-                ret += node.values[max(nstart, start) : min(nend, end)]
+                # Calculate which portion of this leaf we need
+                local_start = max(0, start - offset)
+                local_end = min(node.length, end - offset)
+                ret.extend(node.values[local_start:local_end])
             else:
-                # Push right first so left is processed first (pre-order DFS)
-                if node.right and node.right.length:
-                    stack.append((node.right, end - node.right.length, end))
-                if node.left and node.left.length:
-                    stack.append((node.left, start, start + node.left.length))
+                # Push right first so left is processed first (maintains order)
+                left_len = node.left.length if node.left else 0
+                if node.right:
+                    stack.append((node.right, offset + left_len))
+                if node.left:
+                    stack.append((node.left, offset))
+
         return ret
 
     def prefix_sum(self, index):
