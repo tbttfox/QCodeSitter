@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Union
 from math import log, ceil, floor
 
 # --- Configuration ---
@@ -8,43 +8,53 @@ BALANCE_RATIO = 1.5  # acceptable left/right imbalance factor
 
 
 # --- Core Node Structure ---
-class Node:
-    __slots__ = ("left", "right", "values", "sum", "length")
+class LeafNode:
+    __slots__ = ("values", "sum", "length")
 
-    def __init__(self, values: Optional[list[float]] = None):
-        self.left: Optional[Node] = None
-        self.right: Optional[Node] = None
-        self.values: Optional[list[float]] = values
-        self.sum = sum(values) if values else 0.0
-        self.length = len(values) if values else 0
+    def __init__(self, values: list[float]):
+        self.values: list[float] = values
+        self.sum = sum(values)
+        self.length = len(values)
 
 
-def recalc(node: Node):
-    """Recalculate sum and length from children or values."""
-    if node.values is not None:
-        node.sum = sum(node.values or [])
-        node.length = len(node.values or [])
-    else:
-        node.sum = (node.left.sum if node.left else 0.0) + (
-            node.right.sum if node.right else 0.0
-        )
-        node.length = (node.left.length if node.left else 0) + (
-            node.right.length if node.right else 0
-        )
+class BranchNode:
+    __slots__ = ("left", "right", "sum", "length")
+
+    def __init__(self, left: Optional[Node] = None, right: Optional[Node] = None):
+        self.left: Optional[Node] = left
+        self.right: Optional[Node] = right
+        self.sum = 0.0
+        self.length = 0
+
+
+Node = Union[LeafNode, BranchNode]
+
+
+def recalc(node: BranchNode):
+    """Recalculate sum and length from children."""
+    node.sum = (node.left.sum if node.left else 0.0) + (
+        node.right.sum if node.right else 0.0
+    )
+    node.length = (node.left.length if node.left else 0) + (
+        node.right.length if node.right else 0
+    )
 
 
 # --- Helpers ---
-def _flatten(root) -> list[float]:
+def _flatten(root: Optional[Node]) -> list[float]:
     """Collect all values under a node."""
+    if not root:
+        return []
+
     ret = []
-    stack = [root]  # (node, offset of first item in this subtree)
+    stack = [root]
 
     while stack:
         node = stack.pop()
 
-        if node.values is not None:
+        if isinstance(node, LeafNode):
             ret += node.values
-        else:
+        else:  # BranchNode
             # Push right first so left is processed first (pre-order DFS)
             if node.right:
                 stack.append(node.right)
@@ -67,16 +77,16 @@ def _build_balanced(values: list[float]) -> Optional[Node]:
         floor_count = num_chunks - ceil_count
         counts = [ceil(ideal_size)] * ceil_count + [floor(ideal_size)] * floor_count
 
-    leaves = []
+    leaves: list[Node] = []
     idx = 0
     for count in counts:
-        leaves.append(Node(values[idx : idx + count]))
+        leaves.append(LeafNode(values[idx : idx + count]))
         idx += count
 
     while len(leaves) > 1:
-        pars = []
+        pars: list[Node] = []
         for i in range(0, len(leaves), 2):
-            nn = Node()
+            nn = BranchNode()
             nn.left = leaves[i]
             if i + 1 < len(leaves):
                 nn.right = leaves[i + 1]
@@ -90,8 +100,10 @@ def _build_balanced(values: list[float]) -> Optional[Node]:
 
 def _rebalance(node: Optional[Node]) -> Optional[Node]:
     """Rebuild the node if it's too unbalanced."""
-    if not node or node.values is not None:
+    if not node or isinstance(node, LeafNode):
         return node
+
+    # node is a BranchNode
     left_len = node.left.length if node.left else 0
     right_len = node.right.length if node.right else 0
 
@@ -107,9 +119,7 @@ def _concat(a: Optional[Node], b: Optional[Node]) -> Optional[Node]:
         return b
     if not b:
         return a
-    node = Node()
-    node.left, node.right = a, b
-    node.values = None
+    node = BranchNode(a, b)
     recalc(node)
     return _rebalance(node)
 
@@ -118,13 +128,15 @@ def _split(node: Optional[Node], index: int) -> tuple[Optional[Node], Optional[N
     """Split the tree into [0:index] and [index:]."""
     if not node:
         return None, None
-    if node.values is not None:
+
+    if isinstance(node, LeafNode):
         left_vals = node.values[:index]
         right_vals = node.values[index:]
-        left = Node(left_vals) if left_vals else None
-        right = Node(right_vals) if right_vals else None
+        left = LeafNode(left_vals) if left_vals else None
+        right = LeafNode(right_vals) if right_vals else None
         return left, right
 
+    # node is a BranchNode
     left_len = node.left.length if node.left else 0
     if index < left_len:
         left_part, right_part = _split(node.left, index)
@@ -198,14 +210,15 @@ class SumRope:
         if index >= node.length:
             raise IndexError("SumRope index out of range")
 
-        while node is not None and node.values is None:
-            if index < node.left.length if node.left else 0:
+        while isinstance(node, BranchNode):
+            left_len = node.left.length if node.left else 0
+            if index < left_len:
                 node = node.left
             else:
-                index -= node.left.length if node.left else 0
+                index -= left_len
                 node = node.right
 
-        if node is not None and node.values is not None:
+        if isinstance(node, LeafNode):
             return node.values[index]
 
         raise IndexError("SumRope could not find Index")
@@ -243,12 +256,12 @@ class SumRope:
             if node_end <= start or offset >= end:
                 continue
 
-            if node.values is not None:
+            if isinstance(node, LeafNode):
                 # Calculate which portion of this leaf we need
                 local_start = max(0, start - offset)
                 local_end = min(node.length, end - offset)
                 ret.extend(node.values[local_start:local_end])
-            else:
+            else:  # BranchNode
                 # Push right first so left is processed first (maintains order)
                 left_len = node.left.length if node.left else 0
                 if node.right:
@@ -272,15 +285,20 @@ class SumRope:
             index = node.length + index
 
         total = 0
-        while node is not None and node.values is None:
-            if index < node.left.length:
+        while isinstance(node, BranchNode):
+            left_len = node.left.length if node.left else 0
+            left_sum = node.left.sum if node.left else 0.0
+            if index < left_len:
                 node = node.left
             else:
-                index -= node.left.length
-                total += node.left.sum
+                index -= left_len
+                total += left_sum
                 node = node.right
 
-        return total + sum(node.values[:index])
+        if isinstance(node, LeafNode):
+            return total + sum(node.values[:index])
+
+        return total
 
     def range_sum(self, start: int, end: int) -> float:
         """Return sum of values in [start:end)."""
