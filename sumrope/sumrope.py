@@ -18,13 +18,10 @@ class Node:
         self.sum = sum(values) if values else 0.0
         self.length = len(values) if values else 0
 
-    def is_leaf(self) -> bool:
-        return self.values is not None
-
 
 def recalc(node: Node):
     """Recalculate sum and length from children or values."""
-    if node.is_leaf():
+    if node.values is not None:
         node.sum = sum(node.values or [])
         node.length = len(node.values or [])
     else:
@@ -45,7 +42,7 @@ def _flatten(root) -> list[float]:
     while stack:
         node = stack.pop()
 
-        if node.is_leaf():
+        if node.values is not None:
             ret += node.values
         else:
             # Push right first so left is processed first (pre-order DFS)
@@ -93,7 +90,7 @@ def _build_balanced(values: list[float]) -> Optional[Node]:
 
 def _rebalance(node: Optional[Node]) -> Optional[Node]:
     """Rebuild the node if it's too unbalanced."""
-    if not node or node.is_leaf():
+    if not node or node.values is not None:
         return node
     left_len = node.left.length if node.left else 0
     right_len = node.right.length if node.right else 0
@@ -113,7 +110,7 @@ def _concat(a: Optional[Node], b: Optional[Node]) -> Optional[Node]:
     node = Node()
     node.left, node.right = a, b
     node.values = None
-    recalc(nn)
+    recalc(node)
     return _rebalance(node)
 
 
@@ -121,7 +118,7 @@ def _split(node: Optional[Node], index: int) -> tuple[Optional[Node], Optional[N
     """Split the tree into [0:index] and [index:]."""
     if not node:
         return None, None
-    if node.is_leaf():
+    if node.values is not None:
         left_vals = node.values[:index]
         right_vals = node.values[index:]
         left = Node(left_vals) if left_vals else None
@@ -201,17 +198,18 @@ class SumRope:
         if index >= node.length:
             raise IndexError("SumRope index out of range")
 
-        while not node.is_leaf() and node is not None:
+        while node is not None and node.values is None:
             if index < node.left.length if node.left else 0:
                 node = node.left
             else:
                 index -= node.left.length if node.left else 0
                 node = node.right
 
-        if node is None:
-            raise IndexError("SumRope could not find Index")
+        if node is not None and node.values is not None:
+            return node.values[index]
 
-        return node.values[index]
+        raise IndexError("SumRope could not find Index")
+
 
     def get_range(self, start, end) -> list[float]:
         """
@@ -245,7 +243,7 @@ class SumRope:
             if node_end <= start or offset >= end:
                 continue
 
-            if node.is_leaf():
+            if node.values is not None:
                 # Calculate which portion of this leaf we need
                 local_start = max(0, start - offset)
                 local_end = min(node.length, end - offset)
@@ -263,6 +261,8 @@ class SumRope:
     def prefix_sum(self, index):
         """Sum of items [0: index)"""
         node = self.root
+        if node is None:
+            raise ValueError("No data in node")
         if index >= node.length + 1:
             raise IndexError("SumRope index out of range")
 
@@ -272,7 +272,7 @@ class SumRope:
             index = node.length + index
 
         total = 0
-        while not node.is_leaf():
+        while node is not None and node.values is None:
             if index < node.left.length:
                 node = node.left
             else:
