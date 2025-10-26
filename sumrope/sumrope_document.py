@@ -1,4 +1,4 @@
-from Qt.QtGui import QTextDocument, QTextCursor, QTextBlock
+from Qt.QtGui import QTextDocument
 from Qt.QtCore import Slot
 from .sumrope import SumRope
 
@@ -33,8 +33,8 @@ class SumRopeDocument(QTextDocument):
         self._initialize_ropes()
 
         # Connect to document changes
-        # Use both signals: contentsChange gives us details about what changed,
-        # contentsChanged tells us the update is complete
+        # contentsChange gives us position/removed/added for incremental updates
+        # contentsChanged fires for operations that don't provide details (like QTextCursor)
         self.contentsChange.connect(self._on_contents_change)
         self.contentsChanged.connect(self._on_contents_changed)
 
@@ -60,56 +60,151 @@ class SumRopeDocument(QTextDocument):
 
     @Slot(int, int, int)
     def _on_contents_change(self, position: int, chars_removed: int, chars_added: int):
-        """Handle document content changes (fires during change).
+        """Handle document content changes incrementally.
 
         Args:
             position: Character position where change occurred
             chars_removed: Number of characters removed
             chars_added: Number of characters added
-
-        Note: This signal fires DURING the change. We use it to track which
-        lines were affected, but we update the ropes in _on_contents_changed
-        which fires after the change is complete.
         """
-        # Track which lines changed
-        # We need to do this here because we have the position/removed/added info
-        if chars_removed > 0 or chars_added > 0:
-            # The position might be at the end of document during deletion
-            doc_len = len(self.toPlainText())
-            if doc_len == 0:
-                # Empty document
-                start_block_num = 0
-                end_block_num = 0
-            else:
-                cursor = QTextCursor(self)
-                safe_pos = min(position, max(0, doc_len - 1))
-                cursor.setPosition(safe_pos)
-                start_block_num = cursor.block().blockNumber()
+        # Find which block the change starts at BEFORE the change
+        # We need to do this calculation based on the old rope state
+        old_block_count = len(self._char_rope)
 
-                # Estimate end block based on the change
-                end_pos = min(position + max(chars_removed, chars_added), doc_len)
-                if end_pos > 0:
-                    cursor.setPosition(min(end_pos, doc_len - 1))
-                    end_block_num = cursor.block().blockNumber()
+        # Find the block number containing 'position' in the old state
+        # Binary search: find the block where prefix_sum(i) <= position < prefix_sum(i+1)
+        left, right = 0, old_block_count
+        while left < right:
+            mid = (left + right) // 2
+            chars_before = int(self._char_rope.prefix_sum(mid))
+
+            if chars_before <= position:
+                left = mid + 1
+            else:
+                right = mid
+
+        start_block = max(0, left - 1)
+
+        # Calculate how many blocks were affected by the removal
+        if chars_removed > 0:
+            # Find which block contains position + chars_removed
+            end_pos = position + chars_removed
+
+            # Binary search for end block
+            left, right = start_block, old_block_count
+            while left < right:
+                mid = (left + right) // 2
+                chars_before = int(self._char_rope.prefix_sum(mid))
+
+                if chars_before < end_pos:
+                    left = mid + 1
                 else:
-                    end_block_num = start_block_num
+                    right = mid
+
+            end_block = max(start_block, min(left, old_block_count - 1))
+            blocks_removed = end_block - start_block + 1
+        else:
+            blocks_removed = 1  # At minimum, we're modifying the current block
+
+        # Now get the NEW state of the affected blocks from the document
+        # The document has already been updated at this point
+        new_char_counts = []
+        new_byte_counts = []
+
+        # We need to collect blocks until we've covered the entire changed region
+        # The changed region might span more or fewer blocks than before due to newline changes
+        block = self.findBlockByNumber(start_block)
+
+        if block.isValid():
+            # Collect blocks starting from start_block
+            # We need at least blocks_removed blocks, but may need more if newlines were added
+            # Continue until we run out of blocks or have covered enough blocks
+            while block.isValid():
+                text = block.text()
+                # Include newline in count except for last block
+                if block.next().isValid():
+                    text += '\n'
+
+                new_char_counts.append(float(len(text)))
+                new_byte_counts.append(float(len(text.encode('utf-8'))))
+
+                # We've collected at least blocks_removed blocks worth of new data
+                # Check if we should continue to the next block
+                if len(new_char_counts) >= blocks_removed:
+                    # If there's no next block, we're done
+                    next_block = block.next()
+                    if not next_block.isValid():
+                        break
+
+                    # If the next block wasn't in our original affected range, we're done
+                    # (it only would be if we removed fewer blocks than expected)
+                    if block.blockNumber() >= start_block + blocks_removed - 1:
+                        break
+
+                block = block.next()
+        else:
+            # No valid block, document might be empty
+            new_char_counts = [0.0]
+            new_byte_counts = [0.0]
+
+        # Update the ropes incrementally
+        self._char_rope.replace(start_block, blocks_removed, new_char_counts)
+        self._byte_rope.replace(start_block, blocks_removed, new_byte_counts)
+
+        # Track which lines changed
+        if chars_removed > 0 or chars_added > 0:
+            end_block_num = start_block + len(new_char_counts) - 1
 
             if self._changed_lines_start is None or self._changed_lines_end is None:
-                self._changed_lines_start = start_block_num
+                self._changed_lines_start = start_block
                 self._changed_lines_end = end_block_num
             else:
-                self._changed_lines_start = min(self._changed_lines_start, start_block_num)
+                self._changed_lines_start = min(self._changed_lines_start, start_block)
                 self._changed_lines_end = max(self._changed_lines_end, end_block_num)
 
     @Slot()
     def _on_contents_changed(self):
-        """Handle document content changes (fires after change is complete).
+        """Handle changes from operations that don't emit contentsChange details.
 
-        This signal fires AFTER the document has been updated, so we can
-        safely read the current state and update our ropes.
+        This handles operations like QTextCursor.insertText() which only emit
+        contentsChanged without position/removed/added info. We check if our
+        ropes are out of sync and reinitialize if needed.
+
+        Note: This is a fallback for QTextCursor operations. It's still O(n)
+        to reinitialize, but only happens for cursor operations, not normal
+        text changes which use the incremental _on_contents_change path.
         """
-        # Reinitialize ropes from current document state
-        self._initialize_ropes()
+        current_block_count = self.blockCount()
+        rope_block_count = len(self._char_rope)
+
+        # If block counts differ, we definitely need to resync
+        needs_resync = current_block_count != rope_block_count
+
+        # Even if block count is same, QTextCursor might have modified content
+        # within a block. Check by comparing character counts.
+        if not needs_resync and current_block_count > 0:
+            # Sample check: verify the first and last block
+            # This is O(1) and catches most desyncs
+            first_block = self.firstBlock()
+            if first_block.isValid():
+                first_text = first_block.text()
+                if first_block.next().isValid():
+                    first_text += '\n'
+                expected_chars = len(first_text)
+                actual_chars = int(self._char_rope.get_single(0))
+                if expected_chars != actual_chars:
+                    needs_resync = True
+
+        if needs_resync:
+            self._initialize_ropes()
+            # We can't track which lines changed without the position info
+            # so we mark the entire document as changed
+            if self._changed_lines_start is None or self._changed_lines_end is None:
+                self._changed_lines_start = 0
+                self._changed_lines_end = max(0, current_block_count - 1)
+            else:
+                self._changed_lines_start = min(self._changed_lines_start, 0)
+                self._changed_lines_end = max(self._changed_lines_end, max(0, current_block_count - 1))
 
     def _ensure_synced(self):
         """Ensure ropes are synchronized with document content."""
@@ -128,8 +223,20 @@ class SumRopeDocument(QTextDocument):
         """
         self._ensure_synced()
 
-        # Find which line contains this character position
-        line = self.char_to_line(char_pos)
+        # Find which line contains this character position using binary search
+        # This is the same logic as char_to_line but we keep the char_offset
+        left, right = 0, len(self._char_rope)
+
+        while left < right:
+            mid = (left + right) // 2
+            chars_before = int(self._char_rope.prefix_sum(mid))
+
+            if chars_before <= char_pos:
+                left = mid + 1
+            else:
+                right = mid
+
+        line = max(0, left - 1)
 
         # Get byte offset to start of this line
         byte_offset = int(self._byte_rope.prefix_sum(line))

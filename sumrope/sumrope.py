@@ -223,7 +223,6 @@ class SumRope:
 
         raise IndexError("SumRope could not find Index")
 
-
     def get_range(self, start, end) -> list[float]:
         """
         Get items from index `start` to `end` (exclusive).
