@@ -1,7 +1,17 @@
 from __future__ import annotations
 from collections.abc import Sequence
 from math import log, ceil, floor
-from typing import TypeVar, Callable, Generic, overload, cast
+from typing import (
+    Callable,
+    Generic,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+    cast,
+    overload,
+)
 from functools import reduce
 
 # --- Configuration ---
@@ -10,27 +20,27 @@ BALANCE_RATIO: float = 1.5  # acceptable left/right imbalance factor
 
 
 T = TypeVar("T")
-S = Callable[[T | None, T | None], T]
+S = Callable[[Optional[T], Optional[T]], T]
 N = Callable[[T], T]
 
 
 class LeafNode(Generic[T]):
-    __slots__: tuple[str, ...] = ("values", "sum", "length", "sumfunc")
+    __slots__: Tuple[str, ...] = ("values", "sum", "length", "sumfunc")
 
     def __init__(
         self,
         sumfunc: S[T],
-        values: list[T],
+        values: List[T],
     ):
-        self.values: list[T] = values
+        self.values: List[T] = values
         self.sumfunc: S[T] = sumfunc
         self.sum: T = reduce(self.sumfunc, values)
         self.length: int = len(values)
 
-    def flatten(self) -> list[T]:
+    def flatten(self) -> List[T]:
         return self.values
 
-    def split(self, index: int) -> tuple[LeafNode[T] | None, LeafNode[T] | None]:
+    def split(self, index: int) -> Tuple[Optional[LeafNode[T]], Optional[LeafNode[T]]]:
         left_vals = self.values[:index]
         right_vals = self.values[index:]
         left = LeafNode(self.sumfunc, left_vals) if left_vals else None
@@ -39,23 +49,23 @@ class LeafNode(Generic[T]):
 
 
 class BranchNode(Generic[T]):
-    __slots__: tuple[str, ...] = ("left", "right", "sum", "length", "sumfunc")
+    __slots__: Tuple[str, ...] = ("left", "right", "sum", "length", "sumfunc")
 
     def __init__(
         self,
         sumfunc: S[T],
-        left: Node[T] | None = None,
-        right: Node[T] | None = None,
+        left: ONode = None,
+        right: ONode = None,
     ):
-        self.left: Node[T] | None = left
-        self.right: Node[T] | None = right
+        self.left: ONode = left
+        self.right: ONode = right
         self.sumfunc: S[T] = sumfunc
         leftsum = self.left.sum if self.left else None
         rightsum = self.right.sum if self.right else None
         self.sum: T = self.sumfunc(leftsum, rightsum)
         self.length: int = 0
 
-    def rebalance(self) -> Node[T] | None:
+    def rebalance(self) -> ONode:
         """Rebuild the node if it's too unbalanced."""
         # node is a BranchNode
         left_len = self.left.length if self.left else 0
@@ -68,13 +78,13 @@ class BranchNode(Generic[T]):
             return _build_balanced(self.sumfunc, vals)
         return self
 
-    def flatten(self) -> list[T]:
+    def flatten(self) -> List[T]:
         """Collect all values under a node."""
-        flatleft: list[T] = self.left.flatten() if self.left is not None else []
-        flatright: list[T] = self.right.flatten() if self.right is not None else []
+        flatleft: List[T] = self.left.flatten() if self.left is not None else []
+        flatright: List[T] = self.right.flatten() if self.right is not None else []
         return flatleft + flatright
 
-    def split(self, index: int) -> tuple[Node[T] | None, Node[T] | None]:
+    def split(self, index: int) -> Tuple[ONode, ONode]:
         """Split the tree into [0:index] and [index:]."""
         # node is a BranchNode
         left_len = self.left.length if self.left else 0
@@ -99,10 +109,11 @@ class BranchNode(Generic[T]):
             )
 
 
-Node = LeafNode[T] | BranchNode[T]
+Node = Union[LeafNode[T], BranchNode[T]]
+ONode = Optional[Node]
 
 
-def _build_balanced(sumfunc: S[T], values: list[T]) -> Node[T] | None:
+def _build_balanced(sumfunc: S[T], values: List[T]) -> ONode:
     """Build a perfectly balanced tree."""
     if not values:
         return None
@@ -118,14 +129,14 @@ def _build_balanced(sumfunc: S[T], values: list[T]) -> Node[T] | None:
         floor_count = num_chunks - ceil_count
         counts = [ceil(ideal_size)] * ceil_count + [floor(ideal_size)] * floor_count
 
-    leaves: list[Node[T]] = []
+    leaves: List[Node[T]] = []
     idx = 0
     for count in counts:
         leaves.append(LeafNode(sumfunc, values[idx : idx + count]))
         idx += count
 
     while len(leaves) > 1:
-        pars: list[Node[T]] = []
+        pars: List[Node[T]] = []
         for i in range(0, len(leaves), 2):
             left = leaves[i]
             right = None if i + 1 >= len(leaves) else leaves[i + 1]
@@ -137,7 +148,7 @@ def _build_balanced(sumfunc: S[T], values: list[T]) -> Node[T] | None:
     return leaves[0]  # The root node
 
 
-def _rebalance(sumfunc: S[T], node: Node[T] | None) -> Node[T] | None:
+def _rebalance(sumfunc: S[T], node: ONode) -> ONode:
     """Rebuild the node if it's too unbalanced."""
     if not node or isinstance(node, LeafNode):
         return node
@@ -152,7 +163,7 @@ def _rebalance(sumfunc: S[T], node: Node[T] | None) -> Node[T] | None:
     return node
 
 
-def _concat(a: Node[T] | None, b: Node[T] | None) -> Node[T] | None:
+def _concat(a: ONode, b: ONode) -> ONode:
     """Join two trees, rebalancing if necessary."""
     if not a:
         return b
@@ -172,7 +183,7 @@ class SumRope(Generic[T]):
         self.sumfunc: S[T] = sumfunc
         self.negfunc: N[T] = negfunc
         self.zeroval: T = zeroval
-        self.root: Node[T] | None = _build_balanced(sumfunc, list(values))
+        self.root: ONode = _build_balanced(sumfunc, list(values))
 
     # --- Public API ---
     def __len__(self) -> int:
@@ -190,7 +201,7 @@ class SumRope(Generic[T]):
         mid = _build_balanced(self.sumfunc, list(new_values))
         self.root = _concat(_concat(left, mid), right)
 
-    def __getitem__(self, key: int | slice) -> T | list[T]:
+    def __getitem__(self, key: int | slice) -> T | List[T]:
         if isinstance(key, slice):
             start, stop, step = key.indices(len(self))
             if step != 1:
@@ -253,7 +264,7 @@ class SumRope(Generic[T]):
 
         raise IndexError("SumRope could not find Index")
 
-    def get_range(self, start: int, end: int) -> list[T]:
+    def get_range(self, start: int, end: int) -> List[T]:
         """
         Get items from index `start` to `end` (exclusive).
         Optimized to correctly track node offsets.
@@ -274,7 +285,7 @@ class SumRope(Generic[T]):
         if start >= end:
             return []
 
-        ret: list[T] = []
+        ret: List[T] = []
         stack = [(root, 0)]  # (node, offset_in_sequence)
 
         while stack:
@@ -338,7 +349,7 @@ class SumRope(Generic[T]):
         """Return sum of all values."""
         return self.root.sum if self.root else self.zeroval
 
-    def to_list(self) -> list[T]:
+    def to_list(self) -> List[T]:
         """Return all values as a flattened list"""
         if self.root is None:
             return []
