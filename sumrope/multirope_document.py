@@ -1,26 +1,7 @@
 from Qt.QtGui import QTextDocument
 from Qt.QtCore import Slot
-from .multirope import MultiRope
-from typing import Tuple, Optional
-
-
-CB = Tuple[float, float]  # Char/Byte pair
-OCB = Optional[CB]  # Optional Char/Byte pair
-ZO = (0, 0)  # zero offset
-
-
-def _sumfunc(a: OCB, b: OCB) -> CB:
-    if a is None:
-        if b is None:
-            return ZO
-        return b
-    if b is None:
-        return a
-    return (a[0] + b[0], a[1] + b[1])
-
-
-def _negfunc(a: CB):
-    return (-a[0], -a[1])
+from .multirope import MultiRope, IntPair
+from typing import Optional
 
 
 class SumRopeDocument(QTextDocument):
@@ -40,11 +21,11 @@ class SumRopeDocument(QTextDocument):
         super().__init__(parent)
 
         # Track the char/byte offsets per-line
-        self._offset_rope = MultiRope[CB](_sumfunc, _negfunc, ZO)
+        self._offset_rope: MultiRope = MultiRope()
 
         # Track the range of lines that have changed
-        self._changed_lines_start = None
-        self._changed_lines_end = None
+        self._changed_lines_start: Optional[int] = None
+        self._changed_lines_end: Optional[int] = None
 
         # Initialize with current document content
         self._initialize_ropes()
@@ -64,10 +45,10 @@ class SumRopeDocument(QTextDocument):
             text = block.text()
             # Include newline in count except for last block
             if block.next().isValid():
-                text += '\n'
-            pairs.append((len(text), len(text.encode('utf-8'))))
+                text += "\n"
+            pairs.append((len(text), len(text.encode("utf-8"))))
             block = block.next()
-        self._offset_rope = MultiRope[CB](_sumfunc, _negfunc, ZO, pairs)
+        self._offset_rope = MultiRope(pairs)
 
     @Slot(int, int, int)
     def _on_contents_change(self, position: int, chars_removed: int, chars_added: int):
@@ -84,34 +65,14 @@ class SumRopeDocument(QTextDocument):
 
         # Find the block number containing 'position' in the old state
         # Binary search: find the block where prefix_sum(i) <= position < prefix_sum(i+1)
-        left, right = 0, old_block_count
-        while left < right:
-            mid = (left + right) // 2
-            chars_before = int(self._char_rope.prefix_sum(mid))
-
-            if chars_before <= position:
-                left = mid + 1
-            else:
-                right = mid
-
+        left = self._offset_rope.bisect(position, 0)
         start_block = max(0, left - 1)
 
         # Calculate how many blocks were affected by the removal
         if chars_removed > 0:
             # Find which block contains position + chars_removed
             end_pos = position + chars_removed
-
-            # Binary search for end block
-            left, right = start_block, old_block_count
-            while left < right:
-                mid = (left + right) // 2
-                chars_before = int(self._char_rope.prefix_sum(mid))
-
-                if chars_before < end_pos:
-                    left = mid + 1
-                else:
-                    right = mid
-
+            left = self._offset_rope.bisect(end_pos, 0)
             end_block = max(start_block, min(left, old_block_count - 1))
             blocks_removed = end_block - start_block + 1
         else:
@@ -119,8 +80,7 @@ class SumRopeDocument(QTextDocument):
 
         # Now get the NEW state of the affected blocks from the document
         # The document has already been updated at this point
-        new_char_counts = []
-        new_byte_counts = []
+        new_counts: list[IntPair] = []
 
         # We need to collect blocks until we've covered the entire changed region
         # The changed region might span more or fewer blocks than before due to newline changes
@@ -134,14 +94,12 @@ class SumRopeDocument(QTextDocument):
                 text = block.text()
                 # Include newline in count except for last block
                 if block.next().isValid():
-                    text += '\n'
+                    text += "\n"
 
-                new_char_counts.append(float(len(text)))
-                new_byte_counts.append(float(len(text.encode('utf-8'))))
-
+                new_counts.append(IntPair(len(text), len(text.encode("utf-8"))))
                 # We've collected at least blocks_removed blocks worth of new data
                 # Check if we should continue to the next block
-                if len(new_char_counts) >= blocks_removed:
+                if len(new_counts) >= blocks_removed:
                     # If there's no next block, we're done
                     next_block = block.next()
                     if not next_block.isValid():
@@ -155,16 +113,14 @@ class SumRopeDocument(QTextDocument):
                 block = block.next()
         else:
             # No valid block, document might be empty
-            new_char_counts = [0.0]
-            new_byte_counts = [0.0]
+            new_counts = [IntPair()]
 
         # Update the ropes incrementally
-        self._char_rope.replace(start_block, blocks_removed, new_char_counts)
-        self._byte_rope.replace(start_block, blocks_removed, new_byte_counts)
+        self._offset_rope.replace(start_block, blocks_removed, new_counts)
 
         # Track which lines changed
         if chars_removed > 0 or chars_added > 0:
-            end_block_num = start_block + len(new_char_counts) - 1
+            end_block_num = start_block + len(new_counts) - 1
 
             if self._changed_lines_start is None or self._changed_lines_end is None:
                 self._changed_lines_start = start_block
@@ -186,7 +142,7 @@ class SumRopeDocument(QTextDocument):
         text changes which use the incremental _on_contents_change path.
         """
         current_block_count = self.blockCount()
-        rope_block_count = len(self._char_rope)
+        rope_block_count = len(self._offset_rope)
 
         # If block counts differ, we definitely need to resync
         needs_resync = current_block_count != rope_block_count
@@ -200,9 +156,9 @@ class SumRopeDocument(QTextDocument):
             if first_block.isValid():
                 first_text = first_block.text()
                 if first_block.next().isValid():
-                    first_text += '\n'
+                    first_text += "\n"
                 expected_chars = len(first_text)
-                actual_chars = int(self._char_rope.get_single(0))
+                actual_chars = self._offset_rope.get_single(0)[0]
                 if expected_chars != actual_chars:
                     needs_resync = True
 
@@ -222,7 +178,7 @@ class SumRopeDocument(QTextDocument):
     def _ensure_synced(self):
         """Ensure ropes are synchronized with document content."""
         current_block_count = self.blockCount()
-        if len(self._char_rope) != current_block_count:
+        if len(self._offset_rope) != current_block_count:
             self._initialize_ropes()
 
     def char_to_byte_offset(self, char_pos: int) -> int:
@@ -238,11 +194,11 @@ class SumRopeDocument(QTextDocument):
 
         # Find which line contains this character position using binary search
         # This is the same logic as char_to_line but we keep the char_offset
-        left, right = 0, len(self._char_rope)
+        left, right = 0, len(self._offset_rope)
 
         while left < right:
             mid = (left + right) // 2
-            chars_before = int(self._char_rope.prefix_sum(mid))
+            chars_before = self._offset_rope.prefix_sum(mid)[0]
 
             if chars_before <= char_pos:
                 left = mid + 1
@@ -251,11 +207,10 @@ class SumRopeDocument(QTextDocument):
 
         line = max(0, left - 1)
 
-        # Get byte offset to start of this line
-        byte_offset = int(self._byte_rope.prefix_sum(line))
-
-        # Get character offset to start of this line
-        char_offset = int(self._char_rope.prefix_sum(line))
+        # Get char/byte offset to start of this line
+        offset_pair = self._offset_rope.prefix_sum(line)
+        char_offset = offset_pair[0]
+        byte_offset = offset_pair[1]
 
         # Get the text of this line to calculate offset within line
         block = self.findBlockByNumber(line)
@@ -263,11 +218,11 @@ class SumRopeDocument(QTextDocument):
             chars_into_line = char_pos - char_offset
             line_text = block.text()
             if block.next().isValid():
-                line_text += '\n'
+                line_text += "\n"
 
             # Calculate byte offset within this line
             text_portion = line_text[:chars_into_line]
-            bytes_into_line = len(text_portion.encode('utf-8'))
+            bytes_into_line = len(text_portion.encode("utf-8"))
             return byte_offset + bytes_into_line
 
         return byte_offset
@@ -284,11 +239,11 @@ class SumRopeDocument(QTextDocument):
         self._ensure_synced()
 
         # Binary search through char_rope to find which line contains char_pos
-        left, right = 0, len(self._char_rope)
+        left, right = 0, len(self._offset_rope)
 
         while left < right:
             mid = (left + right) // 2
-            chars_before = int(self._char_rope.prefix_sum(mid))
+            chars_before = self._offset_rope.prefix_sum(mid)[0]
 
             if chars_before <= char_pos:
                 left = mid + 1
@@ -307,7 +262,19 @@ class SumRopeDocument(QTextDocument):
             Character position where the line starts
         """
         self._ensure_synced()
-        return int(self._char_rope.prefix_sum(line))
+        return self._offset_rope.prefix_sum(line)[0]
+
+    def line_to_byte(self, line: int) -> int:
+        """Convert line number to byte position of line start.
+
+        Args:
+            line: Line number (0-indexed)
+
+        Returns:
+            Byte position where the line starts
+        """
+        self._ensure_synced()
+        return self._offset_rope.prefix_sum(line)[1]
 
     def get_changed_byte_range(self, char_start: int, char_end: int) -> tuple[int, int]:
         """Get byte range corresponding to changed character range.
@@ -366,14 +333,14 @@ class SumRopeDocument(QTextDocument):
     def total_bytes(self) -> int:
         """Get total number of bytes in document (UTF-8 encoding)."""
         self._ensure_synced()
-        return int(self._byte_rope.total_sum())
+        return self._offset_rope.total_sum()[1]
 
     def total_chars(self) -> int:
         """Get total number of characters in document."""
         self._ensure_synced()
-        return int(self._char_rope.total_sum())
+        return self._offset_rope.total_sum()[0]
 
     def total_lines(self) -> int:
         """Get total number of lines in document."""
         self._ensure_synced()
-        return len(self._char_rope)
+        return len(self._offset_rope)

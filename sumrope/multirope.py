@@ -1,20 +1,12 @@
 from __future__ import annotations
 from collections.abc import Sequence
 from math import log, ceil, floor
-from operator import gt, add
 from typing import (
-    Callable,
-    Generic,
-    List,
     Optional,
-    Protocol,
-    Tuple,
-    TypeVar,
     Union,
     cast,
     overload,
 )
-from functools import reduce
 
 # --- Configuration ---
 CHUNK_SIZE: int = 64  # target number of values per leaf
@@ -23,12 +15,19 @@ BALANCE_RATIO: float = 1.5  # acceptable left/right imbalance factor
 
 class IntPair:
     def __init__(self, a: Union[IntPair, int] = 0, b: int = 0):
+        self.a: int
+        self.b: int
         if isinstance(a, IntPair):
             self.a = a.a
             self.b = a.b
         else:
             self.a = a
             self.b = b
+
+    def __getitem__(self, index: int) -> int:
+        if index == 1:
+            return self.a
+        return self.b
 
     def __add__(self, other: IntPair) -> IntPair:
         return IntPair(self.a + other.a, self.b + other.b)
@@ -38,34 +37,34 @@ class IntPair:
 
 
 class LeafNode:
-    __slots__: Tuple[str, ...] = ("values", "sum")
+    __slots__: tuple[str, ...] = ("values", "sum")
 
     def __init__(
         self,
-        values: List[IntPair],
+        values: list[IntPair],
     ):
-        self.values: List[IntPair] = values
-        self.sum: IntPair = reduce(add, values) if values else IntPair()
+        self.values: list[IntPair] = values
+        self.sum: IntPair = sum(values, start=IntPair())
 
     def __len__(self):
         return len(self.values)
 
-    def flatten(self) -> List[IntPair]:
+    def flatten(self) -> list[IntPair]:
         return self.values
 
-    def split(self, index: int) -> Tuple[Optional[LeafNode], Optional[LeafNode]]:
+    def split(self, index: int) -> tuple[Optional[LeafNode], Optional[LeafNode]]:
         left_vals = self.values[:index]
         right_vals = self.values[index:]
         left = LeafNode(left_vals) if left_vals else None
         right = LeafNode(right_vals) if right_vals else None
         return left, right
 
-    def bisect(self, value: int, key: Callable[[IntPair], int]) -> int:
+    def bisect(self, value: int, index: int) -> int:
         if value < 0:
             return 0
         c = 0
         for i, v in enumerate(self.values):
-            kv = key(v)
+            kv = v[index]
             if c <= value and c + kv > value:
                 return i
             c += kv
@@ -73,7 +72,7 @@ class LeafNode:
 
 
 class BranchNode:
-    __slots__: Tuple[str, ...] = ("left", "right", "sum", "length")
+    __slots__: tuple[str, ...] = ("left", "right", "sum", "length")
 
     def __init__(
         self,
@@ -103,15 +102,15 @@ class BranchNode:
             return _build_balanced(vals)
         return self
 
-    def flatten(self) -> List[IntPair]:
+    def flatten(self) -> list[IntPair]:
         """Collect all values under a node."""
-        flatleft: List[IntPair] = self.left.flatten() if self.left is not None else []
-        flatright: List[IntPair] = (
+        flatleft: list[IntPair] = self.left.flatten() if self.left is not None else []
+        flatright: list[IntPair] = (
             self.right.flatten() if self.right is not None else []
         )
         return flatleft + flatright
 
-    def split(self, index: int) -> Tuple[ONode, ONode]:
+    def split(self, index: int) -> tuple[ONode, ONode]:
         """Split the tree into [0:index] and [index:]."""
         # node is a BranchNode
         left_len = len(self.left) if self.left else 0
@@ -135,15 +134,15 @@ class BranchNode:
                 _rebalance(right_part),
             )
 
-    def bisect(self, value: int, key: Callable[[IntPair], int]) -> int:
+    def bisect(self, value: int, index: int) -> int:
         if self.left is not None:
-            if value > key(self.left.sum):
+            if value > self.left.sum[index]:
                 if self.right is not None:
-                    loff = key(self.left.sum)
-                    return self.right.bisect(value - loff, key) + loff
+                    loff = self.left.sum[index]
+                    return self.right.bisect(value - loff, index) + loff
                 return len(self.left)
         elif self.right is not None:
-            return self.right.bisect(value, key)
+            return self.right.bisect(value, index)
         return 0
 
 
@@ -151,7 +150,7 @@ Node = Union[LeafNode, BranchNode]
 ONode = Optional[Node]
 
 
-def _build_balanced(values: List[IntPair]) -> ONode:
+def _build_balanced(values: list[IntPair]) -> ONode:
     """Build a perfectly balanced tree."""
     if not values:
         return None
@@ -167,14 +166,14 @@ def _build_balanced(values: List[IntPair]) -> ONode:
         floor_count = num_chunks - ceil_count
         counts = [ceil(ideal_size)] * ceil_count + [floor(ideal_size)] * floor_count
 
-    leaves: List[Node] = []
+    leaves: list[Node] = []
     idx = 0
     for count in counts:
         leaves.append(LeafNode(values[idx : idx + count]))
         idx += count
 
     while len(leaves) > 1:
-        pars: List[Node] = []
+        pars: list[Node] = []
         for i in range(0, len(leaves), 2):
             left = leaves[i]
             right = None if i + 1 >= len(leaves) else leaves[i + 1]
@@ -234,7 +233,7 @@ class MultiRope:
         mid = _build_balanced(list(new_values))
         self.root = _concat(_concat(left, mid), right)
 
-    def __getitem__(self, key: Union[int, slice]) -> Union[IntPair, List[IntPair]]:
+    def __getitem__(self, key: Union[int, slice]) -> Union[IntPair, list[IntPair]]:
         if isinstance(key, slice):
             start, stop, step = key.indices(len(self))
             if step != 1:
@@ -299,7 +298,7 @@ class MultiRope:
 
         raise IndexError("SumRope could not find Index")
 
-    def get_range(self, start: int, end: int) -> List[IntPair]:
+    def get_range(self, start: int, end: int) -> list[IntPair]:
         """
         Get items from index `start` to `end` (exclusive).
         Optimized to correctly track node offsets.
@@ -320,7 +319,7 @@ class MultiRope:
         if start >= end:
             return []
 
-        ret: List[IntPair] = []
+        ret: list[IntPair] = []
         stack = [(root, 0)]  # (node, offset_in_sequence)
 
         while stack:
@@ -372,7 +371,7 @@ class MultiRope:
                 node = node.right
 
         if isinstance(node, LeafNode):
-            return total + reduce(add, node.values[:index])
+            return total + sum(node.values[:index], start=IntPair())
 
         return total
 
@@ -384,14 +383,15 @@ class MultiRope:
         """Return sum of all values."""
         return self.root.sum if self.root else IntPair()
 
-    def to_list(self) -> List[IntPair]:
+    def to_list(self) -> list[IntPair]:
         """Return all values as a flattened list"""
         if self.root is None:
             return []
         return self.root.flatten()
 
-    def bisect(self, sumval: IntPair, index: int):
-        item = self.root
-        for _ in range(100):
-            if item.left is not None:
-                pass
+    def bisect(self, value: int, index: int) -> int:
+        """Bisect the sum over the first or second index of the IntPair values
+        Essentially: Find the line of the given character or byte offset"""
+        if self.root is None:
+            return 0
+        return self.root.bisect(value, index)
