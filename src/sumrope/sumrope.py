@@ -9,11 +9,16 @@ from typing import (
 )
 
 # --- Configuration ---
-CHUNK_SIZE: int = 64  # target number of values per leaf
+CHUNK_SIZE: int = 4  # target number of values per leaf
 BALANCE_RATIO: float = 1.5  # acceptable left/right imbalance factor
 
+
 class IntGroup:
+    """A tuple-ish group of integers that can be added and subtracted"""
+
+    __slots__: tuple[str, ...] = ("_group",)
     size = 2
+
     def __init__(self, group: Optional[Union[list[int], IntGroup]] = None):
         self._group: list[int]
         if group is None:
@@ -36,6 +41,10 @@ class IntGroup:
             raise ValueError("The IntGroup Sizes do not match")
         return IntGroup([a - b for a, b in zip(self._group, other._group)])
 
+    def __repr__(self):
+        return f"<IntGroup {self._group}>"
+
+
 class LeafNode:
     __slots__: tuple[str, ...] = ("values", "sum")
 
@@ -44,7 +53,14 @@ class LeafNode:
         values: list[IntGroup],
     ):
         self.values: list[IntGroup] = values
-        self.sum: IntGroup = sum(values, start=IntGroup())
+        self.sum: IntGroup
+        self.update()
+
+    def update(self):
+        self.update_rec()
+
+    def update_rec(self):
+        self.sum = sum(self.values, start=IntGroup())
 
     def __len__(self):
         return len(self.values)
@@ -81,10 +97,25 @@ class BranchNode:
     ):
         self.left: ONode = left
         self.right: ONode = right
-        leftsum: IntGroup = self.left.sum if self.left else IntGroup()
-        rightsum: IntGroup = self.right.sum if self.right else IntGroup()
-        self.sum: IntGroup = leftsum + rightsum
-        self.length: int = 0
+        self.sum: IntGroup
+        self.length: int
+        self.update()
+
+    def update(self):
+        leftsum: IntGroup = IntGroup() if self.left is None else self.left.sum
+        rightsum: IntGroup = IntGroup() if self.right is None else self.right.sum
+        self.sum = leftsum + rightsum
+
+        leftlen: int = 0 if self.left is None else len(self.left)
+        rightlen: int = 0 if self.right is None else len(self.right)
+        self.length = leftlen + rightlen
+
+    def update_rec(self):
+        if self.left is not None:
+            self.left.update_rec()
+        if self.right is not None:
+            self.right.update_rec()
+        self.update()
 
     def __len__(self):
         return self.length
@@ -135,16 +166,18 @@ class BranchNode:
             )
 
     def bisect(self, value: int, index: int) -> int:
-        if self.left is not None:
-            if value > self.left.sum[index]:
-                if self.right is not None:
-                    loff = self.left.sum[index]
-                    return self.right.bisect(value - loff, index) + loff
-                return len(self.left)
-        elif self.right is not None:
+        if self.left is None:
+            if self.right is None:
+                return 0
             return self.right.bisect(value, index)
-        return 0
 
+        if value > self.left.sum[index]:
+            if self.right is None:
+                return len(self.left)
+            loff = self.left.sum[index]
+            return self.right.bisect(value - loff, index) + loff
+        else:
+            return self.left.bisect(value, index)
 
 Node = Union[LeafNode, BranchNode]
 ONode = Optional[Node]
@@ -155,9 +188,8 @@ def _build_balanced(values: list[IntGroup]) -> ONode:
     if not values:
         return None
 
-    # 1 << x is 2 ** x but for integers
-    num_chunks: int = 1 << ceil(log(len(values) / CHUNK_SIZE, 2))
-
+    shift = max(ceil(log(len(values) / CHUNK_SIZE, 2)), 0)
+    num_chunks: int = 1 << shift
     if num_chunks < 1:
         counts = [len(values)]
     else:
@@ -187,7 +219,7 @@ def _build_balanced(values: list[IntGroup]) -> ONode:
 
 def _rebalance(node: ONode) -> ONode:
     """Rebuild the node if it's too unbalanced."""
-    if not node or isinstance(node, LeafNode):
+    if node is None or isinstance(node, LeafNode):
         return node
 
     # node is a BranchNode
@@ -202,12 +234,11 @@ def _rebalance(node: ONode) -> ONode:
 
 def _concat(a: ONode, b: ONode) -> ONode:
     """Join two trees, rebalancing if necessary."""
-    if not a:
+    if a is None:
         return b
-    if not b:
+    if b is None:
         return a
-    node = BranchNode(a, b)
-    return _rebalance(node)
+    return BranchNode(a, b)
 
 
 # --- Main Rope Class ---
@@ -231,7 +262,7 @@ class SumRope:
             _, right = tail.split(old_count)
 
         mid = _build_balanced(list(new_values))
-        self.root = _concat(_concat(left, mid), right)
+        self.root = _rebalance(_concat(_concat(left, mid), right))
 
     def __getitem__(self, key: Union[int, slice]) -> Union[IntGroup, list[IntGroup]]:
         if isinstance(key, slice):
