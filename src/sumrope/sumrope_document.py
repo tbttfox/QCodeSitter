@@ -1,6 +1,6 @@
 from Qt.QtGui import QTextDocument
 from Qt.QtCore import Slot
-from .multirope import MultiRope, IntGroup
+from .sumrope import SumRope, IntGroup
 from typing import Optional
 
 
@@ -21,7 +21,7 @@ class SumRopeDocument(QTextDocument):
         super().__init__(parent)
 
         # Track the char/byte offsets per-line
-        self._offset_rope: MultiRope = MultiRope()
+        self._offset_rope: SumRope = SumRope()
 
         # Track the range of lines that have changed
         self._changed_lines_start: Optional[int] = None
@@ -48,7 +48,7 @@ class SumRopeDocument(QTextDocument):
                 text += "\n"
             pairs.append((len(text), len(text.encode("utf-8"))))
             block = block.next()
-        self._offset_rope = MultiRope(pairs)
+        self._offset_rope = SumRope(pairs)
 
     @Slot(int, int, int)
     def _on_contents_change(self, position: int, chars_removed: int, chars_added: int):

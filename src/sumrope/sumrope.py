@@ -211,7 +211,7 @@ def _concat(a: ONode, b: ONode) -> ONode:
 
 
 # --- Main Rope Class ---
-class MultiRope:
+class SumRope:
     """Dynamic sequence with efficient cumulative sums and chunk replacements."""
 
     def __init__(self, values: Sequence[IntGroup] = ()):
