@@ -1,6 +1,6 @@
 from Qt.QtGui import QTextDocument
 from Qt.QtCore import Slot
-from .multirope import MultiRope, IntPair
+from .multirope import MultiRope, IntGroup
 from typing import Optional
 
 
@@ -80,7 +80,7 @@ class SumRopeDocument(QTextDocument):
 
         # Now get the NEW state of the affected blocks from the document
         # The document has already been updated at this point
-        new_counts: list[IntPair] = []
+        new_counts: list[IntGroup] = []
 
         # We need to collect blocks until we've covered the entire changed region
         # The changed region might span more or fewer blocks than before due to newline changes
@@ -96,7 +96,7 @@ class SumRopeDocument(QTextDocument):
                 if block.next().isValid():
                     text += "\n"
 
-                new_counts.append(IntPair(len(text), len(text.encode("utf-8"))))
+                new_counts.append(IntGroup([len(text), len(text.encode("utf-8"))]))
                 # We've collected at least blocks_removed blocks worth of new data
                 # Check if we should continue to the next block
                 if len(new_counts) >= blocks_removed:
@@ -113,7 +113,7 @@ class SumRopeDocument(QTextDocument):
                 block = block.next()
         else:
             # No valid block, document might be empty
-            new_counts = [IntPair()]
+            new_counts = [IntGroup()]
 
         # Update the ropes incrementally
         self._offset_rope.replace(start_block, blocks_removed, new_counts)
@@ -310,7 +310,7 @@ class SumRopeDocument(QTextDocument):
 
         return (line_start, line_end)
 
-    def get_changed_lines(self) -> tuple[int, int] | None:
+    def get_changed_lines(self) -> Optional[tuple[int, int]]:
         """Get the range of lines that have been modified since last reset.
 
         Returns:

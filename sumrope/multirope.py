@@ -12,44 +12,44 @@ from typing import (
 CHUNK_SIZE: int = 64  # target number of values per leaf
 BALANCE_RATIO: float = 1.5  # acceptable left/right imbalance factor
 
-
-class IntPair:
-    def __init__(self, a: Union[IntPair, int] = 0, b: int = 0):
-        self.a: int
-        self.b: int
-        if isinstance(a, IntPair):
-            self.a = a.a
-            self.b = a.b
+class IntGroup:
+    size = 2
+    def __init__(self, group: Optional[Union[list[int], IntGroup]] = None):
+        self._group: list[int]
+        if group is None:
+            self._group = [0] * self.size
+        elif isinstance(group, IntGroup):
+            self._group = group._group[:]
         else:
-            self.a = a
-            self.b = b
+            self._group = list(group)
 
     def __getitem__(self, index: int) -> int:
-        if index == 1:
-            return self.a
-        return self.b
+        return self._group[index]
 
-    def __add__(self, other: IntPair) -> IntPair:
-        return IntPair(self.a + other.a, self.b + other.b)
+    def __add__(self, other: IntGroup) -> IntGroup:
+        if self.size != other.size:
+            raise ValueError("The IntGroup Sizes do not match")
+        return IntGroup([a + b for a, b in zip(self._group, other._group)])
 
-    def __sub__(self, other: IntPair) -> IntPair:
-        return IntPair(self.a - other.a, self.b - other.b)
-
+    def __sub__(self, other: IntGroup) -> IntGroup:
+        if self.size != other.size:
+            raise ValueError("The IntGroup Sizes do not match")
+        return IntGroup([a - b for a, b in zip(self._group, other._group)])
 
 class LeafNode:
     __slots__: tuple[str, ...] = ("values", "sum")
 
     def __init__(
         self,
-        values: list[IntPair],
+        values: list[IntGroup],
     ):
-        self.values: list[IntPair] = values
-        self.sum: IntPair = sum(values, start=IntPair())
+        self.values: list[IntGroup] = values
+        self.sum: IntGroup = sum(values, start=IntGroup())
 
     def __len__(self):
         return len(self.values)
 
-    def flatten(self) -> list[IntPair]:
+    def flatten(self) -> list[IntGroup]:
         return self.values
 
     def split(self, index: int) -> tuple[Optional[LeafNode], Optional[LeafNode]]:
@@ -81,9 +81,9 @@ class BranchNode:
     ):
         self.left: ONode = left
         self.right: ONode = right
-        leftsum: IntPair = self.left.sum if self.left else IntPair()
-        rightsum: IntPair = self.right.sum if self.right else IntPair()
-        self.sum: IntPair = leftsum + rightsum
+        leftsum: IntGroup = self.left.sum if self.left else IntGroup()
+        rightsum: IntGroup = self.right.sum if self.right else IntGroup()
+        self.sum: IntGroup = leftsum + rightsum
         self.length: int = 0
 
     def __len__(self):
@@ -102,10 +102,10 @@ class BranchNode:
             return _build_balanced(vals)
         return self
 
-    def flatten(self) -> list[IntPair]:
+    def flatten(self) -> list[IntGroup]:
         """Collect all values under a node."""
-        flatleft: list[IntPair] = self.left.flatten() if self.left is not None else []
-        flatright: list[IntPair] = (
+        flatleft: list[IntGroup] = self.left.flatten() if self.left is not None else []
+        flatright: list[IntGroup] = (
             self.right.flatten() if self.right is not None else []
         )
         return flatleft + flatright
@@ -150,7 +150,7 @@ Node = Union[LeafNode, BranchNode]
 ONode = Optional[Node]
 
 
-def _build_balanced(values: list[IntPair]) -> ONode:
+def _build_balanced(values: list[IntGroup]) -> ONode:
     """Build a perfectly balanced tree."""
     if not values:
         return None
@@ -214,14 +214,14 @@ def _concat(a: ONode, b: ONode) -> ONode:
 class MultiRope:
     """Dynamic sequence with efficient cumulative sums and chunk replacements."""
 
-    def __init__(self, values: Sequence[IntPair] = ()):
+    def __init__(self, values: Sequence[IntGroup] = ()):
         self.root: ONode = _build_balanced(list(values))
 
     # --- Public API ---
     def __len__(self) -> int:
         return len(self.root) if self.root else 0
 
-    def replace(self, start: int, old_count: int, new_values: Sequence[IntPair]):
+    def replace(self, start: int, old_count: int, new_values: Sequence[IntGroup]):
         """Replace old_count values starting at start with new_values."""
         left, tail, right = None, None, None
         if self.root is not None:
@@ -233,7 +233,7 @@ class MultiRope:
         mid = _build_balanced(list(new_values))
         self.root = _concat(_concat(left, mid), right)
 
-    def __getitem__(self, key: Union[int, slice]) -> Union[IntPair, list[IntPair]]:
+    def __getitem__(self, key: Union[int, slice]) -> Union[IntGroup, list[IntGroup]]:
         if isinstance(key, slice):
             start, stop, step = key.indices(len(self))
             if step != 1:
@@ -247,21 +247,21 @@ class MultiRope:
             return self.get_single(key)
 
     @overload
-    def __setitem__(self, key: int, value: IntPair) -> None: ...
+    def __setitem__(self, key: int, value: IntGroup) -> None: ...
 
     @overload
-    def __setitem__(self, key: slice, value: Sequence[IntPair]) -> None: ...
+    def __setitem__(self, key: slice, value: Sequence[IntGroup]) -> None: ...
 
     def __setitem__(
-        self, key: Union[int, slice], value: Union[IntPair, Sequence[IntPair]]
+        self, key: Union[int, slice], value: Union[IntGroup, Sequence[IntGroup]]
     ) -> None:
-        setval: Sequence[IntPair]
+        setval: Sequence[IntGroup]
         if isinstance(key, slice):
             start, stop, step = key.indices(len(self))
             if step != 1:
                 raise ValueError("Slice step must be 1")
             count = stop - start
-            setval = cast(Sequence[IntPair], value)
+            setval = cast(Sequence[IntGroup], value)
         else:
             start = key
             count = 1
@@ -269,7 +269,7 @@ class MultiRope:
                 key += len(self)
             if key < 0 or key >= len(self):
                 raise IndexError("Index out of range")
-            setval = [cast(IntPair, value)]
+            setval = [cast(IntGroup, value)]
 
         self.replace(start, count, setval)
 
@@ -277,7 +277,7 @@ class MultiRope:
     # Core access operations
     # ------------------------------------------------------------
 
-    def get_single(self, index: int) -> IntPair:
+    def get_single(self, index: int) -> IntGroup:
         node = self.root
         if node is None:
             raise IndexError("SumRope has no root")
@@ -298,7 +298,7 @@ class MultiRope:
 
         raise IndexError("SumRope could not find Index")
 
-    def get_range(self, start: int, end: int) -> list[IntPair]:
+    def get_range(self, start: int, end: int) -> list[IntGroup]:
         """
         Get items from index `start` to `end` (exclusive).
         Optimized to correctly track node offsets.
@@ -319,7 +319,7 @@ class MultiRope:
         if start >= end:
             return []
 
-        ret: list[IntPair] = []
+        ret: list[IntGroup] = []
         stack = [(root, 0)]  # (node, offset_in_sequence)
 
         while stack:
@@ -345,7 +345,7 @@ class MultiRope:
 
         return ret
 
-    def prefix_sum(self, index: int) -> IntPair:
+    def prefix_sum(self, index: int) -> IntGroup:
         """Sum of items [0: index)"""
         node = self.root
         if node is None:
@@ -354,15 +354,15 @@ class MultiRope:
             raise IndexError("SumRope index out of range")
 
         if index == 0:
-            return IntPair()
+            return IntGroup()
 
         elif index < 0:
             index = len(node) + index
 
-        total = IntPair()
+        total = IntGroup()
         while isinstance(node, BranchNode):
             left_len = len(node.left) if node.left else 0
-            left_sum = node.left.sum if node.left else IntPair()
+            left_sum = node.left.sum if node.left else IntGroup()
             if index < left_len:
                 node = node.left
             else:
@@ -371,26 +371,26 @@ class MultiRope:
                 node = node.right
 
         if isinstance(node, LeafNode):
-            return total + sum(node.values[:index], start=IntPair())
+            return total + sum(node.values[:index], start=IntGroup())
 
         return total
 
-    def range_sum(self, start: int, end: int) -> IntPair:
+    def range_sum(self, start: int, end: int) -> IntGroup:
         """Return sum of values in [start:end)."""
         return self.prefix_sum(end) - self.prefix_sum(start)
 
-    def total_sum(self) -> IntPair:
+    def total_sum(self) -> IntGroup:
         """Return sum of all values."""
-        return self.root.sum if self.root else IntPair()
+        return self.root.sum if self.root else IntGroup()
 
-    def to_list(self) -> list[IntPair]:
+    def to_list(self) -> list[IntGroup]:
         """Return all values as a flattened list"""
         if self.root is None:
             return []
         return self.root.flatten()
 
     def bisect(self, value: int, index: int) -> int:
-        """Bisect the sum over the first or second index of the IntPair values
+        """Bisect the sum over the first or second index of the IntGroup values
         Essentially: Find the line of the given character or byte offset"""
         if self.root is None:
             return 0
