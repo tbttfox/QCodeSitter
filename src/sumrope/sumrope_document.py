@@ -65,14 +65,14 @@ class SumRopeDocument(QTextDocument):
 
         # Find the block number containing 'position' in the old state
         # Binary search: find the block where prefix_sum(i) <= position < prefix_sum(i+1)
-        left = self._offset_rope.bisect(position, 0)
+        left, _lsum, _lval = self._offset_rope.get_line_and_offsets_for_sum(position, 0)
         start_block = max(0, left - 1)
 
         # Calculate how many blocks were affected by the removal
         if chars_removed > 0:
             # Find which block contains position + chars_removed
             end_pos = position + chars_removed
-            left = self._offset_rope.bisect(end_pos, 0)
+            left, _lsum, _lval = self._offset_rope.get_line_and_offsets_for_sum(end_pos, 0)
             end_block = max(start_block, min(left, old_block_count - 1))
             blocks_removed = end_block - start_block + 1
         else:

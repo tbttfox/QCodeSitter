@@ -81,7 +81,7 @@ class LeafNode:
 
     def get_line_and_offsets_for_sum(
         self, value: int, index: int
-    ) -> tuple[int, IntGroup]:
+    ) -> tuple[int, IntGroup, IntGroup]:
         """Get the line index for the given sum, and the sum values for that index
 
         Args:
@@ -93,15 +93,15 @@ class LeafNode:
             IntGroup: The sum value of that line. This value just comes along for free
         """
         if value < 0:
-            return 0, IntGroup()
+            return 0, IntGroup(), IntGroup()
 
         sm = IntGroup()
         for i, v in enumerate(self.values):
             c = sm[index]
             if c <= value and c + v[index] > value:
-                return i, sm
+                return i, sm, v
             sm += v
-        return len(self.values), self.sum
+        return len(self.values), self.sum, IntGroup()
 
 
 class BranchNode:
@@ -186,7 +186,7 @@ class BranchNode:
 
     def get_line_and_offsets_for_sum(
         self, value: int, index: int
-    ) -> tuple[int, IntGroup]:
+    ) -> tuple[int, IntGroup, IntGroup]:
         """Get the line index for the given sum, and the sum values for that index
 
         Args:
@@ -199,15 +199,15 @@ class BranchNode:
         """
         if self.left is None:
             if self.right is None:
-                return 0, IntGroup()
+                return 0, IntGroup(), IntGroup()
             return self.right.get_line_and_offsets_for_sum(value, index)
 
         if value > self.left.sum[index]:
             if self.right is None:
-                return len(self.left), self.left.sum
+                return len(self.left), self.left.sum, IntGroup()
             loff = self.left.sum[index]
-            rlen, roff = self.right.get_line_and_offsets_for_sum(value - loff, index)
-            return rlen + len(self.left), roff + self.left.sum
+            rlen, roff, rval = self.right.get_line_and_offsets_for_sum(value - loff, index)
+            return rlen + len(self.left), roff + self.left.sum, rval
         else:
             return self.left.get_line_and_offsets_for_sum(value, index)
 
@@ -455,7 +455,7 @@ class SumRope:
 
     def get_line_and_offsets_for_sum(
         self, value: int, index: int
-    ) -> tuple[int, IntGroup]:
+    ) -> tuple[int, IntGroup, IntGroup]:
         """Get the line index for the given sum, and the sum values for that index
 
         Args:
@@ -467,5 +467,5 @@ class SumRope:
             IntGroup: The sum value of that line. This value just comes along for free
         """
         if self.root is None:
-            return 0, IntGroup()
+            return 0, IntGroup(), IntGroup()
         return self.root.get_line_and_offsets_for_sum(value, index)
