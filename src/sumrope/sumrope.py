@@ -46,7 +46,7 @@ class IntGroup:
 
 
 class LeafNode:
-    __slots__: tuple[str, ...] = ("values", "sum")
+    __slots__: tuple[str, ...] = ("values", "sum", "_cs")
 
     def __init__(
         self,
@@ -57,34 +57,51 @@ class LeafNode:
         self.update()
 
     def update(self):
+        """Ensure that the sum is up to date"""
         self.update_rec()
 
     def update_rec(self):
+        """Ensure that the sum is up to date, recursively"""
         self.sum = sum(self.values, start=IntGroup())
 
     def __len__(self):
         return len(self.values)
 
     def flatten(self) -> list[IntGroup]:
+        """Get all of the values in one flat list"""
         return self.values
 
     def split(self, index: int) -> tuple[Optional[LeafNode], Optional[LeafNode]]:
+        """Split the current item into two leaf nodes at the given local index"""
         left_vals = self.values[:index]
         right_vals = self.values[index:]
         left = LeafNode(left_vals) if left_vals else None
         right = LeafNode(right_vals) if right_vals else None
         return left, right
 
-    def bisect(self, value: int, index: int) -> int:
+    def get_line_and_offsets_for_sum(
+        self, value: int, index: int
+    ) -> tuple[int, IntGroup]:
+        """Get the line index for the given sum, and the sum values for that index
+
+        Args:
+            value: The sum value to find the line index for
+            index: The IntPair index to search
+
+        Returns:
+            int: The line to insert at
+            IntGroup: The sum value of that line. This value just comes along for free
+        """
         if value < 0:
-            return 0
-        c = 0
+            return 0, IntGroup()
+
+        sm = IntGroup()
         for i, v in enumerate(self.values):
-            kv = v[index]
-            if c <= value and c + kv > value:
-                return i
-            c += kv
-        return len(self.values)
+            c = sm[index]
+            if c <= value and c + v[index] > value:
+                return i, sm
+            sm += v
+        return len(self.values), self.sum
 
 
 class BranchNode:
@@ -102,6 +119,7 @@ class BranchNode:
         self.update()
 
     def update(self):
+        """Ensure that the sum is up to date"""
         leftsum: IntGroup = IntGroup() if self.left is None else self.left.sum
         rightsum: IntGroup = IntGroup() if self.right is None else self.right.sum
         self.sum = leftsum + rightsum
@@ -111,6 +129,7 @@ class BranchNode:
         self.length = leftlen + rightlen
 
     def update_rec(self):
+        """Ensure that the sum is up to date, recursively"""
         if self.left is not None:
             self.left.update_rec()
         if self.right is not None:
@@ -165,19 +184,33 @@ class BranchNode:
                 _rebalance(right_part),
             )
 
-    def bisect(self, value: int, index: int) -> int:
+    def get_line_and_offsets_for_sum(
+        self, value: int, index: int
+    ) -> tuple[int, IntGroup]:
+        """Get the line index for the given sum, and the sum values for that index
+
+        Args:
+            value: The sum value to find the line index for
+            index: The IntPair index to search
+
+        Returns:
+            int: The line to insert at
+            IntGroup: The sum value of that line. This value just comes along for free
+        """
         if self.left is None:
             if self.right is None:
-                return 0
-            return self.right.bisect(value, index)
+                return 0, IntGroup()
+            return self.right.get_line_and_offsets_for_sum(value, index)
 
         if value > self.left.sum[index]:
             if self.right is None:
-                return len(self.left)
+                return len(self.left), self.left.sum
             loff = self.left.sum[index]
-            return self.right.bisect(value - loff, index) + loff
+            rlen, roff = self.right.get_line_and_offsets_for_sum(value - loff, index)
+            return rlen + len(self.left), roff + self.left.sum
         else:
-            return self.left.bisect(value, index)
+            return self.left.get_line_and_offsets_for_sum(value, index)
+
 
 Node = Union[LeafNode, BranchNode]
 ONode = Optional[Node]
@@ -420,9 +453,19 @@ class SumRope:
             return []
         return self.root.flatten()
 
-    def bisect(self, value: int, index: int) -> int:
-        """Bisect the sum over the first or second index of the IntGroup values
-        Essentially: Find the line of the given character or byte offset"""
+    def get_line_and_offsets_for_sum(
+        self, value: int, index: int
+    ) -> tuple[int, IntGroup]:
+        """Get the line index for the given sum, and the sum values for that index
+
+        Args:
+            value: The sum value to find the line index for
+            index: The IntPair index to search
+
+        Returns:
+            int: The line to insert at
+            IntGroup: The sum value of that line. This value just comes along for free
+        """
         if self.root is None:
-            return 0
-        return self.root.bisect(value, index)
+            return 0, IntGroup()
+        return self.root.get_line_and_offsets_for_sum(value, index)
