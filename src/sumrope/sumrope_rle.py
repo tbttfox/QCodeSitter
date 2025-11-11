@@ -52,9 +52,9 @@ class RLEGroup(LenPair):
     track of each character's length in bytes (RLE encoded)
     """
 
-    encoding: str = 'utf8'
+    encoding: str = "utf8"
     pattern: re.Pattern = re.compile(
-        r'[\x00-\x7f]+|[\x80-\u07ff]+|[\u0800-\uffff]+|[\U00010000-\U0010ffff]+'
+        r"[\x00-\x7f]+|[\x80-\u07ff]+|[\u0800-\uffff]+|[\U00010000-\U0010ffff]+"
     )
     __slots__: tuple[str, ...] = ("charlen", "bytelen", "rle")
 
@@ -75,6 +75,43 @@ class RLEGroup(LenPair):
             bytelen += size * count
         self.charlen: int = charlen
         self.bytelen: int = bytelen
+
+    def byte_to_char(self, b: int) -> int:
+        """Convert a local byte offset into a character offset"""
+        if b == 0:
+            return 0
+        charlen = 0
+        bytelen = 0
+        for size, count in self.rle:
+            bytejump = size * count
+            if b >= bytelen and b < bytelen + bytejump:
+                extra_chars = (b - bytelen) // size
+                return charlen + extra_chars
+            bytelen += bytejump
+            charlen += count
+        return charlen
+
+    def char_to_byte(self, c: int) -> int:
+        """Convert a local character offset into a byte offset"""
+        if c == 0:
+            return 0
+        charlen = 0
+        bytelen = 0
+        for size, count in self.rle:
+            if c >= charlen and c < charlen + count:
+                extra_bytes = (c - charlen) * size
+                return bytelen + extra_bytes
+            bytelen += size * count
+            charlen += count
+        return charlen
+
+    def byte_to_pair(self, b: int) -> LenPair:
+        char_offset = self.byte_to_char(b)
+        return LenPair([char_offset, b])
+
+    def char_to_pair(self, c: int) -> LenPair:
+        byte_offset = self.char_to_byte(c)
+        return LenPair([c, byte_offset])
 
 
 class LeafNode:
@@ -113,7 +150,7 @@ class LeafNode:
 
     def get_line_and_offsets_for_sum(
         self, value: int, index: int, history: list[Node]
-    ) -> tuple[int, LenPair, RLEGroup, list[Node]]:
+    ) -> tuple[int, LenPair, LenPair, RLEGroup, list[Node]]:
         """Get the line index for the given sum, and the sum values for that index
 
         Args:
@@ -123,18 +160,25 @@ class LeafNode:
         Returns:
             int: The line to insert at
             LenPair: The sum value of that line. This value just comes along for free
+            LenPair: The char and byte offsets at the given position
+            RLEGroup: The rle character group it would be inserted into
+            list[Node]: The node history getting to the Leaf with the RLEGroup
         """
         history.append(self)
         if value < 0:
-            return 0, LenPair(), RLEGroup(), history
+            return 0, LenPair(), LenPair(), RLEGroup(), history
 
         sm = LenPair()
         for i, v in enumerate(self.values):
             c = sm[index]
             if c <= value and c + v[index] > value:
-                return i, sm, v, history
+                if index == 0:
+                    indices = v.char_to_pair(value - c)
+                else:
+                    indices = v.byte_to_pair(value - c)
+                return i, sm, indices, v, history
             sm += v
-        return len(self.values), self.sum, RLEGroup(), history
+        return len(self.values), self.sum, self.sum, RLEGroup(), history
 
 
 class BranchNode:
@@ -219,7 +263,7 @@ class BranchNode:
 
     def get_line_and_offsets_for_sum(
         self, value: int, index: int, history: list[Node]
-    ) -> tuple[int, LenPair, RLEGroup, list[Node]]:
+    ) -> tuple[int, LenPair, LenPair, RLEGroup, list[Node]]:
         """Get the line index for the given sum, and the sum values for that index
 
         Args:
@@ -229,21 +273,30 @@ class BranchNode:
         Returns:
             int: The line to insert at
             LenPair: The sum value of that line. This value just comes along for free
+            LenPair: The char and byte offsets at the given position
+            RLEGroup: The rle character group it would be inserted into
+            list[Node]: The node history getting to the Leaf with the RLEGroup
         """
         history.append(self)
         if self.left is None:
             if self.right is None:
-                return 0, LenPair(), RLEGroup(), history
+                return 0, LenPair(), LenPair(), RLEGroup(), history
             return self.right.get_line_and_offsets_for_sum(value, index, history)
 
         if value > self.left.sum[index]:
             if self.right is None:
-                return len(self.left), self.left.sum, RLEGroup(), history
+                return len(self.left), self.left.sum, self.left.sum, RLEGroup(), history
             loff = self.left.sum[index]
-            rlen, roff, rval, _hist = self.right.get_line_and_offsets_for_sum(
+            rlen, roff, ridx, rval, _hist = self.right.get_line_and_offsets_for_sum(
                 value - loff, index, history
             )
-            return rlen + len(self.left), roff + self.left.sum, rval, history
+            return (
+                rlen + len(self.left),
+                roff + self.left.sum,
+                ridx + self.left.sum,
+                rval,
+                history,
+            )
         else:
             return self.left.get_line_and_offsets_for_sum(value, index, history)
 
@@ -495,7 +548,7 @@ class SumRope:
 
     def get_line_and_offsets_for_sum(
         self, value: int, index: int
-    ) -> tuple[int, LenPair, RLEGroup, list[Node]]:
+    ) -> tuple[int, LenPair, LenPair, RLEGroup, list[Node]]:
         """Get the line index for the given sum, and the sum values for that index
 
         Args:
@@ -505,10 +558,14 @@ class SumRope:
         Returns:
             int: The line to insert at
             LenPair: The sum value of that line. This value just comes along for free
+            LenPair: The char and byte offsets at the given position
             RLEGroup: The rle character group it would be inserted into
-
+            list[Node]: The node history getting to the Leaf with the RLEGroup
         """
         if self.root is None:
-            return 0, LenPair(), RLEGroup(), []
-        history: list[Node] = []
-        return self.root.get_line_and_offsets_for_sum(value, index, history)
+            return 0, LenPair(), LenPair(), RLEGroup(), []
+        hist: list[Node] = []
+        line_num, line_starts, char_idxs, line_group, history = (
+            self.root.get_line_and_offsets_for_sum(value, index, hist)
+        )
+        return line_num, line_starts, char_idxs, line_group, history
