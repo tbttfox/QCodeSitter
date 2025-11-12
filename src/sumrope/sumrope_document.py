@@ -1,6 +1,6 @@
 from Qt.QtGui import QTextDocument
 from Qt.QtCore import Slot
-from .sumrope_rle import SumRope, RLEGroup
+from .sumrope import SumRope, RLEGroup
 from typing import Optional
 
 
