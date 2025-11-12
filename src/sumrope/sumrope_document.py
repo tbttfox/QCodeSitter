@@ -75,8 +75,7 @@ class SumRopeDocument(QTextDocument):
             chars_added: Number of characters added
         """
         old_block_count = len(self._offset_rope)
-        left, _lsum, _chr_pos, _lval, _hist = self._offset_rope.query(position, 0)
-        start_block = max(0, left - 1)
+        start_block, _lsum, _chr_pos, _lval, _hist = self._offset_rope.query(position, 0)
 
         # Calculate how many blocks were affected by the removal
         if chars_removed > 0:
@@ -128,16 +127,16 @@ class SumRopeDocument(QTextDocument):
         _line, _line_starts, poses, _lval, _hist = self._offset_rope.query(char_pos, 0)
         return poses[1]
 
-    def byte_to_char_offset(self, char_pos: int) -> int:
-        """Convert character position to byte offset."""
+    def byte_to_char_offset(self, byte_pos: int) -> int:
+        """Convert byte position to character offset."""
         self._ensure_synced()
-        _line, _line_starts, poses, _lval, _hist = self._offset_rope.query(char_pos, 1)
+        _line, _line_starts, poses, _lval, _hist = self._offset_rope.query(byte_pos, 1)
         return poses[0]
 
     def char_to_line(self, char_pos: int) -> int:
         """Convert character position to line number (0-indexed)."""
         self._ensure_synced()
-        line, _line_starts, _poses, _lval, _hist = self._offset_rope.query(char_pos, 1)
+        line, _line_starts, _poses, _lval, _hist = self._offset_rope.query(char_pos, 0)
         return line
 
     def line_to_char(self, line: int) -> int:

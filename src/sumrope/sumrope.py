@@ -35,6 +35,8 @@ class LenPair:
     def __getitem__(self, index: int) -> int:
         if index == 0:
             return self.charlen
+        elif index != 1:
+            raise IndexError(f"Only 0 or 1 are allowed as indexes into a LenPair. Got: {index}")
         return self.bytelen
 
     def __add__(self, other: LenPair) -> LenPair:
@@ -103,7 +105,7 @@ class RLEGroup(LenPair):
                 return bytelen + extra_bytes
             bytelen += size * count
             charlen += count
-        return charlen
+        return bytelen
 
     def byte_to_pair(self, b: int) -> LenPair:
         char_offset = self.byte_to_char(b)
