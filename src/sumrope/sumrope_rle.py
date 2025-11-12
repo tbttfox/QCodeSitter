@@ -148,7 +148,7 @@ class LeafNode:
         right = LeafNode(right_vals) if right_vals else None
         return left, right
 
-    def get_line_and_offsets_for_sum(
+    def query(
         self, value: int, index: int, history: list[Node]
     ) -> tuple[int, LenPair, LenPair, RLEGroup, list[Node]]:
         """Get the line index for the given sum, and the sum values for that index
@@ -159,7 +159,7 @@ class LeafNode:
 
         Returns:
             int: The line to insert at
-            LenPair: The sum value of that line. This value just comes along for free
+            LenPair: The char and byte offsets for the beginning of the line
             LenPair: The char and byte offsets at the given position
             RLEGroup: The rle character group it would be inserted into
             list[Node]: The node history getting to the Leaf with the RLEGroup
@@ -261,7 +261,7 @@ class BranchNode:
                 _rebalance(right_part),
             )
 
-    def get_line_and_offsets_for_sum(
+    def query(
         self, value: int, index: int, history: list[Node]
     ) -> tuple[int, LenPair, LenPair, RLEGroup, list[Node]]:
         """Get the line index for the given sum, and the sum values for that index
@@ -272,7 +272,7 @@ class BranchNode:
 
         Returns:
             int: The line to insert at
-            LenPair: The sum value of that line. This value just comes along for free
+            LenPair: The char and byte offsets for the beginning of the line
             LenPair: The char and byte offsets at the given position
             RLEGroup: The rle character group it would be inserted into
             list[Node]: The node history getting to the Leaf with the RLEGroup
@@ -281,13 +281,13 @@ class BranchNode:
         if self.left is None:
             if self.right is None:
                 return 0, LenPair(), LenPair(), RLEGroup(), history
-            return self.right.get_line_and_offsets_for_sum(value, index, history)
+            return self.right.query(value, index, history)
 
         if value > self.left.sum[index]:
             if self.right is None:
                 return len(self.left), self.left.sum, self.left.sum, RLEGroup(), history
             loff = self.left.sum[index]
-            rlen, roff, ridx, rval, _hist = self.right.get_line_and_offsets_for_sum(
+            rlen, roff, ridx, rval, _hist = self.right.query(
                 value - loff, index, history
             )
             return (
@@ -298,7 +298,7 @@ class BranchNode:
                 history,
             )
         else:
-            return self.left.get_line_and_offsets_for_sum(value, index, history)
+            return self.left.query(value, index, history)
 
 
 Node = Union[LeafNode, BranchNode]
@@ -546,7 +546,7 @@ class SumRope:
             return []
         return self.root.flatten()
 
-    def get_line_and_offsets_for_sum(
+    def query(
         self, value: int, index: int
     ) -> tuple[int, LenPair, LenPair, RLEGroup, list[Node]]:
         """Get the line index for the given sum, and the sum values for that index
@@ -557,7 +557,7 @@ class SumRope:
 
         Returns:
             int: The line to insert at
-            LenPair: The sum value of that line. This value just comes along for free
+            LenPair: The char and byte offsets for the beginning of the line
             LenPair: The char and byte offsets at the given position
             RLEGroup: The rle character group it would be inserted into
             list[Node]: The node history getting to the Leaf with the RLEGroup
@@ -566,6 +566,6 @@ class SumRope:
             return 0, LenPair(), LenPair(), RLEGroup(), []
         hist: list[Node] = []
         line_num, line_starts, char_idxs, line_group, history = (
-            self.root.get_line_and_offsets_for_sum(value, index, hist)
+            self.root.query(value, index, hist)
         )
         return line_num, line_starts, char_idxs, line_group, history

@@ -1,6 +1,6 @@
 from Qt.QtGui import QTextDocument
 from Qt.QtCore import Slot
-from .sumrope_rle import SumRope, LenPair, RLEGroup
+from .sumrope_rle import SumRope, RLEGroup
 from typing import Optional
 
 
@@ -36,19 +36,34 @@ class SumRopeDocument(QTextDocument):
         self.contentsChange.connect(self._on_contents_change)
         self.contentsChanged.connect(self._on_contents_changed)
 
+    def build_block_range(self, start: int = 0, count: int = -1) -> list[RLEGroup]:
+        """Build the RLE groups for the lines in the given range.
+        If no range is given, do the whole document"""
+        new_blocks: list[RLEGroup] = []
+        block = self.findBlockByNumber(start)
+        if count == -1:
+            count = self.blockCount() - start
+        if block.isValid():
+            while block.isValid():
+                text = block.text()
+                if block.next().isValid():
+                    text += "\n"
+
+                new_blocks.append(RLEGroup(text))
+                if len(new_blocks) >= count:
+                    next_block = block.next()
+                    if not next_block.isValid():
+                        break
+
+                    # If the next block wasn't in our original affected range, we're done
+                    if block.blockNumber() >= start + count - 1:
+                        break
+                block = block.next()
+        return new_blocks
+
     def _initialize_ropes(self):
         """Initialize the SumRopes based on current document blocks."""
-        pairs = []
-
-        block = self.firstBlock()
-        while block.isValid():
-            text = block.text()
-            # Include newline in count except for last block
-            if block.next().isValid():
-                text += "\n"
-            pairs.append((len(text), len(text.encode("utf-8"))))
-            block = block.next()
-        self._offset_rope = SumRope(pairs)
+        self._offset_rope = SumRope(self.build_block_range())
 
     @Slot(int, int, int)
     def _on_contents_change(self, position: int, chars_removed: int, chars_added: int):
@@ -59,63 +74,20 @@ class SumRopeDocument(QTextDocument):
             chars_removed: Number of characters removed
             chars_added: Number of characters added
         """
-        # Find which block the change starts at BEFORE the change
-        # We need to do this calculation based on the old rope state
         old_block_count = len(self._offset_rope)
-
-        # Find the block number containing 'position' in the old state
-        # Binary search: find the block where prefix_sum(i) <= position < prefix_sum(i+1)
-        left, _lsum, _lval, _hist = self._offset_rope.get_line_and_offsets_for_sum(position, 0)
+        left, _lsum, _chr_pos, _lval, _hist = self._offset_rope.query(position, 0)
         start_block = max(0, left - 1)
 
         # Calculate how many blocks were affected by the removal
         if chars_removed > 0:
-            # Find which block contains position + chars_removed
             end_pos = position + chars_removed
-            left, _lsum, _lval, _hist = self._offset_rope.get_line_and_offsets_for_sum(end_pos, 0)
+            left, _lsum, _chr_pos, _lval, _hist = self._offset_rope.query(end_pos, 0)
             end_block = max(start_block, min(left, old_block_count - 1))
             blocks_removed = end_block - start_block + 1
         else:
-            blocks_removed = 1  # At minimum, we're modifying the current block
+            blocks_removed = 1
 
-        # Now get the NEW state of the affected blocks from the document
-        # The document has already been updated at this point
-        new_counts: list[RLEGroup] = []
-
-        # We need to collect blocks until we've covered the entire changed region
-        # The changed region might span more or fewer blocks than before due to newline changes
-        block = self.findBlockByNumber(start_block)
-
-        if block.isValid():
-            # Collect blocks starting from start_block
-            # We need at least blocks_removed blocks, but may need more if newlines were added
-            # Continue until we run out of blocks or have covered enough blocks
-            while block.isValid():
-                text = block.text()
-                # Include newline in count except for last block
-                if block.next().isValid():
-                    text += "\n"
-
-                new_counts.append(RLEGroup(text))
-                # We've collected at least blocks_removed blocks worth of new data
-                # Check if we should continue to the next block
-                if len(new_counts) >= blocks_removed:
-                    # If there's no next block, we're done
-                    next_block = block.next()
-                    if not next_block.isValid():
-                        break
-
-                    # If the next block wasn't in our original affected range, we're done
-                    # (it only would be if we removed fewer blocks than expected)
-                    if block.blockNumber() >= start_block + blocks_removed - 1:
-                        break
-
-                block = block.next()
-        else:
-            # No valid block, document might be empty
-            new_counts = [RLEGroup()]
-
-        # Update the ropes incrementally
+        new_counts = self.build_block_range(start_block, blocks_removed)
         self._offset_rope.replace(start_block, blocks_removed, new_counts)
 
         # Track which lines changed
@@ -141,138 +113,40 @@ class SumRopeDocument(QTextDocument):
         to reinitialize, but only happens for cursor operations, not normal
         text changes which use the incremental _on_contents_change path.
         """
-        current_block_count = self.blockCount()
-        rope_block_count = len(self._offset_rope)
-
-        # If block counts differ, we definitely need to resync
-        needs_resync = current_block_count != rope_block_count
-
-        # Even if block count is same, QTextCursor might have modified content
-        # within a block. Check by comparing character counts.
-        if not needs_resync and current_block_count > 0:
-            # Sample check: verify the first and last block
-            # This is O(1) and catches most desyncs
-            first_block = self.firstBlock()
-            if first_block.isValid():
-                first_text = first_block.text()
-                if first_block.next().isValid():
-                    first_text += "\n"
-                expected_chars = len(first_text)
-                actual_chars = self._offset_rope.get_single(0)[0]
-                if expected_chars != actual_chars:
-                    needs_resync = True
-
-        if needs_resync:
-            self._initialize_ropes()
-            # We can't track which lines changed without the position info
-            # so we mark the entire document as changed
-            if self._changed_lines_start is None or self._changed_lines_end is None:
-                self._changed_lines_start = 0
-                self._changed_lines_end = max(0, current_block_count - 1)
-            else:
-                self._changed_lines_start = min(self._changed_lines_start, 0)
-                self._changed_lines_end = max(
-                    self._changed_lines_end, max(0, current_block_count - 1)
-                )
+        # TODO: Detect this firing without a contents_change
+        # If that happens, just resynic everything
+        pass
 
     def _ensure_synced(self):
         """Ensure ropes are synchronized with document content."""
-        current_block_count = self.blockCount()
-        if len(self._offset_rope) != current_block_count:
+        if len(self._offset_rope) != self.blockCount():
             self._initialize_ropes()
 
     def char_to_byte_offset(self, char_pos: int) -> int:
-        """Convert character position to byte offset.
-
-        Args:
-            char_pos: Character position in document
-
-        Returns:
-            Byte offset corresponding to the character position
-        """
+        """Convert character position to byte offset."""
         self._ensure_synced()
+        _line, _line_starts, poses, _lval, _hist = self._offset_rope.query(char_pos, 0)
+        return poses[1]
 
-        # Find which line contains this character position using binary search
-        # This is the same logic as char_to_line but we keep the char_offset
-        left, right = 0, len(self._offset_rope)
-
-        while left < right:
-            mid = (left + right) // 2
-            chars_before = self._offset_rope.prefix_sum(mid)[0]
-
-            if chars_before <= char_pos:
-                left = mid + 1
-            else:
-                right = mid
-
-        line = max(0, left - 1)
-
-        # Get char/byte offset to start of this line
-        offset_pair = self._offset_rope.prefix_sum(line)
-        char_offset = offset_pair[0]
-        byte_offset = offset_pair[1]
-
-        # Get the text of this line to calculate offset within line
-        block = self.findBlockByNumber(line)
-        if block.isValid():
-            chars_into_line = char_pos - char_offset
-            line_text = block.text()
-            if block.next().isValid():
-                line_text += "\n"
-
-            # Calculate byte offset within this line
-            text_portion = line_text[:chars_into_line]
-            bytes_into_line = len(text_portion.encode("utf-8"))
-            return byte_offset + bytes_into_line
-
-        return byte_offset
+    def byte_to_char_offset(self, char_pos: int) -> int:
+        """Convert character position to byte offset."""
+        self._ensure_synced()
+        _line, _line_starts, poses, _lval, _hist = self._offset_rope.query(char_pos, 1)
+        return poses[0]
 
     def char_to_line(self, char_pos: int) -> int:
-        """Convert character position to line number (0-indexed).
-
-        Args:
-            char_pos: Character position in document
-
-        Returns:
-            Line number (0-indexed) containing the character
-        """
+        """Convert character position to line number (0-indexed)."""
         self._ensure_synced()
-
-        # Binary search through char_rope to find which line contains char_pos
-        left, right = 0, len(self._offset_rope)
-
-        while left < right:
-            mid = (left + right) // 2
-            chars_before = self._offset_rope.prefix_sum(mid)[0]
-
-            if chars_before <= char_pos:
-                left = mid + 1
-            else:
-                right = mid
-
-        return max(0, left - 1)
+        line, _line_starts, _poses, _lval, _hist = self._offset_rope.query(char_pos, 1)
+        return line
 
     def line_to_char(self, line: int) -> int:
-        """Convert line number to character position of line start.
-
-        Args:
-            line: Line number (0-indexed)
-
-        Returns:
-            Character position where the line starts
-        """
+        """Convert line number to character position of line start."""
         self._ensure_synced()
         return self._offset_rope.prefix_sum(line)[0]
 
     def line_to_byte(self, line: int) -> int:
-        """Convert line number to byte position of line start.
-
-        Args:
-            line: Line number (0-indexed)
-
-        Returns:
-            Byte position where the line starts
-        """
+        """Convert line number to byte position of line start."""
         self._ensure_synced()
         return self._offset_rope.prefix_sum(line)[1]
 
