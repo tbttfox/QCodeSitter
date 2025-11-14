@@ -7,7 +7,7 @@ name = "sumrope"
 version = "0.1.0"
 description = "Dynamic sequence with efficient cumulative sums"
 requires-python = ">=3.8"
-dependencies = []
+dependencies = ["Qt.py"]
 
 [project.optional-dependencies]
 test = [

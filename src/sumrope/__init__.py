@@ -1,4 +1,4 @@
-from .sumrope import SumRope, IntGroup
+from .sumrope import SumRope, LenPair, RLEGroup
 from .sumrope_document import SumRopeDocument
 
-__all__ = ["SumRope", "SumRopeDocument", "IntGroup"]
+__all__ = ["SumRope", "SumRopeDocument", "LenPair", "RLEGroup"]
