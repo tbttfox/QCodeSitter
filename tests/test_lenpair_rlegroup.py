@@ -90,8 +90,8 @@ class TestRLEGroup:
         from sumrope.sumrope import RLEGroup
         # Emoji takes multiple bytes
         group = RLEGroup("Hello 🌍")
-        assert group.charlen == 8  # 7 characters including space and emoji
-        assert group.bytelen > 8  # Emoji takes multiple bytes
+        assert group.charlen == 7  # 6 chars in "Hello " + 1 emoji character
+        assert group.bytelen > 7  # Emoji takes multiple bytes in UTF-8
 
     def test_byte_to_char_ascii(self):
         """Test converting byte offset to character offset with ASCII."""
