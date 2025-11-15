@@ -10,7 +10,7 @@ from typing import (
 )
 
 # --- Configuration ---
-CHUNK_SIZE: int = 4  # target number of values per leaf
+CHUNK_SIZE: int = 64  # target number of values per leaf
 BALANCE_RATIO: float = 1.5  # acceptable left/right imbalance factor
 
 

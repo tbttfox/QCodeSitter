@@ -1,4 +1,4 @@
-from Qt.QtGui import QTextDocument
+from Qt.QtGui import QTextDocument, QTextCursor
 from Qt.QtCore import Slot
 from .sumrope import SumRope, RLEGroup
 from typing import Optional
@@ -15,11 +15,17 @@ class SumRopeDocument(QTextDocument):
     - Which byte ranges were modified
     - Which character ranges were modified
     - Which line ranges were modified
+
+    NOTE:
+    If anything is changed programmatically using a QTextCursor, it is up to the programmer
+    to properly tell this document what range changed.
+    I don't actually know how to do that yet. It'll probably require new functions
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
+        self.cursor = QTextCursor(self)
         # Track the char/byte offsets per-line
         self._offset_rope: SumRope = SumRope()
 
@@ -31,39 +37,43 @@ class SumRopeDocument(QTextDocument):
         self._initialize_ropes()
 
         # Connect to document changes
-        # contentsChange gives us position/removed/added for incremental updates
-        # contentsChanged fires for operations that don't provide details (like QTextCursor)
         self.contentsChange.connect(self._on_contents_change)
-        self.contentsChanged.connect(self._on_contents_changed)
 
     def build_block_range(self, start: int = 0, count: int = -1) -> list[RLEGroup]:
         """Build the RLE groups for the lines in the given range.
         If no range is given, do the whole document"""
         new_blocks: list[RLEGroup] = []
         block = self.findBlockByNumber(start)
+        if not block.isValid():
+            return new_blocks
         if count == -1:
             count = self.blockCount() - start
-        if block.isValid():
-            while block.isValid():
-                text = block.text()
-                if block.next().isValid():
-                    text += "\n"
 
-                new_blocks.append(RLEGroup(text))
-                if len(new_blocks) >= count:
-                    next_block = block.next()
-                    if not next_block.isValid():
-                        break
+        while block.isValid():
+            text = block.text()
+            if block.next().isValid():
+                text += "\n"
 
-                    # If the next block wasn't in our original affected range, we're done
-                    if block.blockNumber() >= start + count - 1:
-                        break
-                block = block.next()
+            new_blocks.append(RLEGroup(text))
+            if len(new_blocks) >= count:
+                next_block = block.next()
+                if not next_block.isValid():
+                    break
+
+                # If the next block wasn't in our original affected range, we're done
+                if block.blockNumber() >= start + count - 1:
+                    break
+            block = block.next()
         return new_blocks
 
     def _initialize_ropes(self):
         """Initialize the SumRopes based on current document blocks."""
         self._offset_rope = SumRope(self.build_block_range())
+
+    def get_char_range(self, start: int, count: int) -> str:
+        self.cursor.setPosition(start)
+        self.cursor.setPosition(start + count, QTextCursor.KeepAnchor)
+        return self.cursor.selectedText()
 
     @Slot(int, int, int)
     def _on_contents_change(self, position: int, chars_removed: int, chars_added: int):
@@ -74,47 +84,14 @@ class SumRopeDocument(QTextDocument):
             chars_removed: Number of characters removed
             chars_added: Number of characters added
         """
-        old_block_count = len(self._offset_rope)
-        start_block, _lsum, _chr_pos, _lval, _hist = self._offset_rope.query(position, 0)
 
-        # Calculate how many blocks were affected by the removal
-        if chars_removed > 0:
-            end_pos = position + chars_removed
-            left, _lsum, _chr_pos, _lval, _hist = self._offset_rope.query(end_pos, 0)
-            end_block = max(start_block, min(left, old_block_count - 1))
-            blocks_removed = end_block - start_block + 1
-        else:
-            blocks_removed = 1
+        #start_block, _lsum, startPos, _lval, _hist = self._offset_rope.query(position, 0)
+        start_block = self.findBlock(position).blockNumber()
+        old_end_block, _lsum, oldEndPos, _lval, _hist = self._offset_rope.query(position + chars_removed, 0)
+        new_end_block = self.findBlock(position + chars_added).blockNumber()
 
-        new_counts = self.build_block_range(start_block, blocks_removed)
-        self._offset_rope.replace(start_block, blocks_removed, new_counts)
-
-        # Track which lines changed
-        if chars_removed > 0 or chars_added > 0:
-            end_block_num = start_block + len(new_counts) - 1
-
-            if self._changed_lines_start is None or self._changed_lines_end is None:
-                self._changed_lines_start = start_block
-                self._changed_lines_end = end_block_num
-            else:
-                self._changed_lines_start = min(self._changed_lines_start, start_block)
-                self._changed_lines_end = max(self._changed_lines_end, end_block_num)
-
-    @Slot()
-    def _on_contents_changed(self):
-        """Handle changes from operations that don't emit contentsChange details.
-
-        This handles operations like QTextCursor.insertText() which only emit
-        contentsChanged without position/removed/added info. We check if our
-        ropes are out of sync and reinitialize if needed.
-
-        Note: This is a fallback for QTextCursor operations. It's still O(n)
-        to reinitialize, but only happens for cursor operations, not normal
-        text changes which use the incremental _on_contents_change path.
-        """
-        # TODO: Detect this firing without a contents_change
-        # If that happens, just resynic everything
-        pass
+        rles = self.build_block_range(start_block, new_end_block - start_block + 1)
+        self._offset_rope.replace(start_block, old_end_block - start_block + 1, rles)
 
     def _ensure_synced(self):
         """Ensure ropes are synchronized with document content."""
