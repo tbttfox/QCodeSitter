@@ -36,7 +36,9 @@ class LenPair:
         if index == 0:
             return self.charlen
         elif index != 1:
-            raise IndexError(f"Only 0 or 1 are allowed as indexes into a LenPair. Got: {index}")
+            raise IndexError(
+                f"Only 0 or 1 are allowed as indexes into a LenPair. Got: {index}"
+            )
         return self.bytelen
 
     def __add__(self, other: LenPair) -> LenPair:
@@ -58,7 +60,7 @@ class RLEGroup(LenPair):
     pattern: re.Pattern = re.compile(
         r"[\x00-\x7f]+|[\x80-\u07ff]+|[\u0800-\uffff]+|[\U00010000-\U0010ffff]+"
     )
-    __slots__: tuple[str, ...] = ("charlen", "bytelen", "rle")
+    __slots__: tuple[str, ...] = ("charlen", "bytelen", "rle", "text", "prev", "post")
 
     def __init__(self, txt: Optional[str] = None):
         enc = self.encoding  # Moving into the current namespace
@@ -66,10 +68,15 @@ class RLEGroup(LenPair):
         # findall is marginally faster than finditer
         # I'm guessing because finditer constructs the re.Match objects
         self.rle: list[tuple[int, int]] = []
+        self.text = txt
         if txt is not None:
             self.rle = [
                 (len(seg[0].encode(enc)), len(seg)) for seg in self.pattern.findall(txt)
             ]
+
+        self.prev: Optional[RLEGroup] = None
+        self.post: Optional[RLEGroup] = None
+
         charlen = 0
         bytelen = 0
         for size, count in self.rle:
@@ -117,13 +124,15 @@ class RLEGroup(LenPair):
 
 
 class LeafNode:
-    __slots__: tuple[str, ...] = ("values", "sum")
+    __slots__: tuple[str, ...] = ("values", "sum", "begin", "end")
 
     def __init__(
         self,
-        values: list[RLEGroup],
+        values: Sequence[RLEGroup],
     ):
-        self.values: list[RLEGroup] = values
+        self.values: list[RLEGroup] = list(values)
+        self.begin: Optional[RLEGroup] = self.values[0]
+        self.end: Optional[RLEGroup] = self.values[-1].post
         self.sum: LenPair
         self.update()
 
@@ -182,20 +191,69 @@ class LeafNode:
             sm += v
         return len(self.values), self.sum, self.sum, RLEGroup(), history
 
+    def rebalance(self) -> ONode:
+        """Rebuild the node if it's too unbalanced."""
+        return self
+
 
 class BranchNode:
-    __slots__: tuple[str, ...] = ("left", "right", "sum", "length")
+    __slots__: tuple[str, ...] = ("_left", "_right", "sum", "length", "begin", "end")
 
     def __init__(
         self,
         left: ONode = None,
         right: ONode = None,
     ):
-        self.left: ONode = left
-        self.right: ONode = right
+        self._left: ONode = left
+        self._right: ONode = right
+
+        self.begin: Optional[RLEGroup] = None
+        self.end: Optional[RLEGroup] = None
+
+        if left is None:
+            if right is not None:
+                self.begin = right.begin
+                self.end = right.end
+        elif right is None:
+            self.begin = left.begin
+            self.end = left.end
+        else:
+            self.begin = left.begin
+            self.end = right.end
+
         self.sum: LenPair
         self.length: int
         self.update()
+
+    @property
+    def left(self):
+        return self._left
+
+    @left.setter
+    def left(self, value: ONode):
+        if value is None:
+            if self._right is None:
+                self.begin = None
+            else:
+                self.begin = self._right.begin
+        else:
+            self.begin = value.begin
+        self._left = value
+
+    @property
+    def right(self):
+        return self._right
+
+    @right.setter
+    def right(self, value: ONode):
+        if value is None:
+            if self._left is None:
+                self.end = None
+            else:
+                self.end = self._left.end
+        else:
+            self.end = value.end
+        self._right = value
 
     def update(self):
         """Ensure that the sum is up to date"""
@@ -248,20 +306,23 @@ class BranchNode:
                 return None, None
             left_part, right_part = self.left.split(index)
             new_right = _concat(right_part, self.right)
-            return (
-                _rebalance(left_part),
-                _rebalance(new_right),
-            )
+            if left_part is not None:
+                left_part.rebalance()
+            if new_right is not None:
+                new_right.rebalance()
+
+            return (left_part, new_right)
         else:
             if self.right is None:
                 return None, None
             right_index = index - left_len
             left_part, right_part = self.right.split(right_index)
             new_left = _concat(self.left, left_part)
-            return (
-                _rebalance(new_left),
-                _rebalance(right_part),
-            )
+            if new_left is not None:
+                new_left.rebalance()
+            if right_part is not None:
+                right_part.rebalance()
+            return (new_left, right_part)
 
     def query(
         self, value: int, index: int, history: list[Node]
@@ -307,10 +368,16 @@ Node = Union[LeafNode, BranchNode]
 ONode = Optional[Node]
 
 
-def _build_balanced(values: list[RLEGroup]) -> ONode:
+def _build_balanced(values: Sequence[RLEGroup]) -> ONode:
     """Build a perfectly balanced tree."""
     if not values:
         return None
+
+    for i in range(1, len(values)):
+        post = values[i]
+        prev = values[i - 1]
+        post.prev = prev
+        prev.post = post
 
     shift = max(ceil(log(len(values) / CHUNK_SIZE, 2)), 0)
     num_chunks: int = 1 << shift
@@ -341,21 +408,6 @@ def _build_balanced(values: list[RLEGroup]) -> ONode:
     return leaves[0]  # The root node
 
 
-def _rebalance(node: ONode) -> ONode:
-    """Rebuild the node if it's too unbalanced."""
-    if node is None or isinstance(node, LeafNode):
-        return node
-
-    # node is a BranchNode
-    left_len = len(node.left) if node.left else 0
-    right_len = len(node.right) if node.right else 0
-
-    if (left_len * BALANCE_RATIO < right_len) or (right_len * BALANCE_RATIO < left_len):
-        vals = node.flatten()
-        return _build_balanced(vals)
-    return node
-
-
 def _concat(a: ONode, b: ONode) -> ONode:
     """Join two trees, rebalancing if necessary."""
     if a is None:
@@ -370,7 +422,7 @@ class SumRope:
     """Dynamic sequence with efficient cumulative sums and chunk replacements."""
 
     def __init__(self, values: Sequence[RLEGroup] = ()):
-        self.root: ONode = _build_balanced(list(values))
+        self.root: ONode = _build_balanced(values)
 
     @classmethod
     def from_text(cls, txt):
@@ -390,7 +442,10 @@ class SumRope:
             _, right = tail.split(old_count)
 
         mid = _build_balanced(list(new_values))
-        self.root = _rebalance(_concat(_concat(left, mid), right))
+
+        self.root = _concat(_concat(left, mid), right)
+        if self.root is not None:
+            self.root.rebalance()
 
     def __getitem__(self, key: Union[int, slice]) -> Union[LenPair, list[LenPair]]:
         if isinstance(key, slice):
@@ -567,7 +622,7 @@ class SumRope:
         if self.root is None:
             return 0, LenPair(), LenPair(), RLEGroup(), []
         hist: list[Node] = []
-        line_num, line_starts, char_idxs, line_group, history = (
-            self.root.query(value, index, hist)
+        line_num, line_starts, char_idxs, line_group, history = self.root.query(
+            value, index, hist
         )
         return line_num, line_starts, char_idxs, line_group, history
