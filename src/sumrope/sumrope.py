@@ -2,12 +2,15 @@ from __future__ import annotations
 from collections.abc import Sequence
 from math import log, ceil, floor
 import re
-from typing import (
-    Optional,
-    Union,
-    cast,
-    overload,
-)
+from typing import Optional, Union, cast, overload, NamedTuple, TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    # Don't require treesitter
+    class Point(NamedTuple):
+        row: int
+        column: int
+
 
 # --- Configuration ---
 CHUNK_SIZE: int = 64  # target number of values per leaf
@@ -60,7 +63,14 @@ class RLEGroup(LenPair):
     pattern: re.Pattern = re.compile(
         r"[\x00-\x7f]+|[\x80-\u07ff]+|[\u0800-\uffff]+|[\U00010000-\U0010ffff]+"
     )
-    __slots__: tuple[str, ...] = ("charlen", "bytelen", "rle", "text", "prev", "post")
+    __slots__: tuple[str, ...] = (
+        "charlen",
+        "bytelen",
+        "rle",
+        "text_bytes",
+        "prev",
+        "post",
+    )
 
     def __init__(self, txt: Optional[str] = None):
         enc = self.encoding  # Moving into the current namespace
@@ -68,11 +78,12 @@ class RLEGroup(LenPair):
         # findall is marginally faster than finditer
         # I'm guessing because finditer constructs the re.Match objects
         self.rle: list[tuple[int, int]] = []
-        self.text = txt
+        self.text_bytes: bytes = b''
         if txt is not None:
             self.rle = [
                 (len(seg[0].encode(enc)), len(seg)) for seg in self.pattern.findall(txt)
             ]
+            self.text_bytes = txt.encode(enc)
 
         self.prev: Optional[RLEGroup] = None
         self.post: Optional[RLEGroup] = None
@@ -160,8 +171,10 @@ class LeafNode:
         return left, right
 
     def query(
-        self, value: int, index: int, history: list[Node]
-    ) -> tuple[int, LenPair, LenPair, RLEGroup, list[Node]]:
+        self,
+        value: int,
+        index: int,
+    ) -> tuple[int, LenPair, LenPair, RLEGroup]:
         """Get the line index for the given sum, and the sum values for that index
 
         Args:
@@ -173,11 +186,9 @@ class LeafNode:
             LenPair: The char and byte offsets for the beginning of the line
             LenPair: The char and byte offsets at the given position
             RLEGroup: The rle character group it would be inserted into
-            list[Node]: The node history getting to the Leaf with the RLEGroup
         """
-        history.append(self)
         if value < 0:
-            return 0, LenPair(), LenPair(), RLEGroup(), history
+            return 0, LenPair(), LenPair(), RLEGroup()
 
         sm = LenPair()
         for i, v in enumerate(self.values):
@@ -187,9 +198,9 @@ class LeafNode:
                     indices = v.char_to_pair(value - c)
                 else:
                     indices = v.byte_to_pair(value - c)
-                return i, sm, indices, v, history
+                return i, sm, indices, v
             sm += v
-        return len(self.values), self.sum, self.sum, RLEGroup(), history
+        return len(self.values), self.sum, self.sum, RLEGroup()
 
     def rebalance(self) -> ONode:
         """Rebuild the node if it's too unbalanced."""
@@ -310,7 +321,6 @@ class BranchNode:
                 left_part.rebalance()
             if new_right is not None:
                 new_right.rebalance()
-
             return (left_part, new_right)
         else:
             if self.right is None:
@@ -324,9 +334,7 @@ class BranchNode:
                 right_part.rebalance()
             return (new_left, right_part)
 
-    def query(
-        self, value: int, index: int, history: list[Node]
-    ) -> tuple[int, LenPair, LenPair, RLEGroup, list[Node]]:
+    def query(self, value: int, index: int) -> tuple[int, LenPair, LenPair, RLEGroup]:
         """Get the line index for the given sum, and the sum values for that index
 
         Args:
@@ -338,30 +346,25 @@ class BranchNode:
             LenPair: The char and byte offsets for the beginning of the line
             LenPair: The char and byte offsets at the given position
             RLEGroup: The rle character group it would be inserted into
-            list[Node]: The node history getting to the Leaf with the RLEGroup
         """
-        history.append(self)
         if self.left is None:
             if self.right is None:
-                return 0, LenPair(), LenPair(), RLEGroup(), history
-            return self.right.query(value, index, history)
+                return 0, LenPair(), LenPair(), RLEGroup()
+            return self.right.query(value, index)
 
         if value > self.left.sum[index]:
             if self.right is None:
-                return len(self.left), self.left.sum, self.left.sum, RLEGroup(), history
+                return len(self.left), self.left.sum, self.left.sum, RLEGroup()
             loff = self.left.sum[index]
-            rlen, roff, ridx, rval, _hist = self.right.query(
-                value - loff, index, history
-            )
+            rlen, roff, ridx, rval = self.right.query(value - loff, index)
             return (
                 rlen + len(self.left),
                 roff + self.left.sum,
                 ridx + self.left.sum,
                 rval,
-                history,
             )
         else:
-            return self.left.query(value, index, history)
+            return self.left.query(value, index)
 
 
 Node = Union[LeafNode, BranchNode]
@@ -424,6 +427,10 @@ class SumRope:
     def __init__(self, values: Sequence[RLEGroup] = ()):
         self.root: ONode = _build_balanced(values)
 
+        # Predict the next row that TreeSitter will ask for
+        self._ts_row_prediction: Optional[RLEGroup] = None
+        self._ts_row_num_prediction: Optional[int] = None
+
     @classmethod
     def from_text(cls, txt):
         return cls([RLEGroup(line + "\n") for line in txt.split("\n")])
@@ -447,7 +454,10 @@ class SumRope:
         if self.root is not None:
             self.root.rebalance()
 
-    def __getitem__(self, key: Union[int, slice]) -> Union[LenPair, list[LenPair]]:
+        self._ts_row_prediction = None
+        self._ts_row_num_prediction = None
+
+    def __getitem__(self, key: Union[int, slice]) -> Union[RLEGroup, list[RLEGroup]]:
         if isinstance(key, slice):
             start, stop, step = key.indices(len(self))
             if step != 1:
@@ -491,7 +501,7 @@ class SumRope:
     # Core access operations
     # ------------------------------------------------------------
 
-    def get_single(self, index: int) -> LenPair:
+    def get_single(self, index: int) -> RLEGroup:
         node = self.root
         if node is None:
             raise IndexError("SumRope has no root")
@@ -512,7 +522,7 @@ class SumRope:
 
         raise IndexError("SumRope could not find Index")
 
-    def get_range(self, start: int, end: int) -> list[LenPair]:
+    def get_range(self, start: int, end: int) -> list[RLEGroup]:
         """
         Get items from index `start` to `end` (exclusive).
         Optimized to correctly track node offsets.
@@ -533,7 +543,7 @@ class SumRope:
         if start >= end:
             return []
 
-        ret: list[LenPair] = []
+        ret: list[RLEGroup] = []
         stack = [(root, 0)]  # (node, offset_in_sequence)
 
         while stack:
@@ -603,9 +613,7 @@ class SumRope:
             return []
         return self.root.flatten()
 
-    def query(
-        self, value: int, index: int
-    ) -> tuple[int, LenPair, LenPair, RLEGroup, list[Node]]:
+    def query(self, value: int, index: int) -> tuple[int, LenPair, LenPair, RLEGroup]:
         """Get the line index for the given sum, and the sum values for that index
 
         Args:
@@ -617,12 +625,34 @@ class SumRope:
             LenPair: The char and byte offsets for the beginning of the line
             LenPair: The char and byte offsets at the given position
             RLEGroup: The rle character group it would be inserted into
-            list[Node]: The node history getting to the Leaf with the RLEGroup
         """
         if self.root is None:
-            return 0, LenPair(), LenPair(), RLEGroup(), []
-        hist: list[Node] = []
-        line_num, line_starts, char_idxs, line_group, history = self.root.query(
-            value, index, hist
-        )
-        return line_num, line_starts, char_idxs, line_group, history
+            return 0, LenPair(), LenPair(), RLEGroup()
+        line_num, line_starts, char_idxs, line_group = self.root.query(value, index)
+        return line_num, line_starts, char_idxs, line_group
+
+    def treesitter_callback(
+        self, _byte_offset: int, ts_point: Point, _user_data=None
+    ) -> bytes:
+        """A callback funcion that can be passed to a tree_sitter `Parser` object to
+        efficiently read the stored bytes. Keeps track of the last line read by treesitter
+        and queues up the expected next line
+        """
+        rlegrp: Optional[RLEGroup] = None
+
+        if self._ts_row_num_prediction is not None:
+            if self._ts_row_num_prediction == ts_point.row:
+                rlegrp = self._ts_row_prediction
+
+        if rlegrp is None:
+            try:
+                rlegrp = self.get_single(ts_point.row)
+            except IndexError:
+                self._ts_row_prediction = None
+                self._ts_row_num_prediction = None
+                return b''
+
+        # Guess the next line to be requested by treesitter
+        self._ts_row_num_prediction = ts_point.row + 1
+        self._ts_row_prediction = rlegrp.post
+        return rlegrp.text_bytes[ts_point.column :]
