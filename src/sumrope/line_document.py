@@ -1,46 +1,85 @@
 from Qt.QtGui import QTextDocument, QTextCursor, QTextBlock
 from Qt.QtCore import Slot
 from typing import Generator, Optional, Sequence
-from tree_sitter import Parser, Point
+
+import tree_sitter_python as tspython
+from tree_sitter import Language, Parser, Point
+
 from math import ceil, floor, log
 import numpy as np
 import bisect
 
+PY_LANGUAGE = Language(tspython.language())
+
+
+def _zcs(ary) -> np.ndarray:
+    """leading Zero Cumulative Summation"""
+    return np.concatenate(([0], np.cumsum(ary)))
+
 
 class ChunkedLineTracker:
-    def __init__(self, line_lengths: Sequence[int], chunk_size: int = 10000):
+    def __init__(self, chunk_size: int = 10000):
         self.chunk_size = chunk_size
-        self.chunks = []  # List of numpy arrays
-        self.chunk_totals = []  # Total chars in each chunk
-        chunk_lengths = []
+        self.chunks = []
+        self.chunk_cumsums: list[Optional[np.ndarray]] = []
+        self.chunk_totals = []
+        self.chunk_ranges = []
 
-        # Initialize chunks
-
-
-
-        arr = np.array(line_lengths, dtype=np.int32)
-        for i in range(0, len(arr), chunk_size):
-            chunk = arr[i : i + chunk_size]
-            self.chunks.append(chunk)
-            self.chunk_totals.append(np.sum(chunk))
-            chunk_lengths.append(len(chunk))
-        self.chunk_ranges = np.concatenate(([0], np.cumsum(chunk_lengths))).tolist()
-
-    def get_chunk_for_line(self, line):
+    def get_chunk_for_line(self, line: int) -> int:
+        """Get the index of the chunk containing the given line"""
         return bisect.bisect_right(self.chunk_ranges, line) - 1
 
-    def prefix_sum(self, line: int) -> int:
-        chunk_idx = self.get_chunk_for_line(line)
-        offset = self.chunk_ranges[chunk_idx] - line
+    def get_line_for_character(self, charidx: int) -> int:
+        """Get the line that contains the given character index"""
+        chunk_idx = None
+        offset = charidx
+        for i, tot in enumerate(self.chunk_totals):
+            if offset < tot:
+                chunk_idx = i
+                break
+            offset -= tot
+        if chunk_idx is None:
+            raise IndexError("Character index out of range")
+
+        css = self.chunk_cumsums[chunk_idx]
+        if css is None:
+            css = _zcs(self.chunks[chunk_idx])
+            self.chunk_cumsums[chunk_idx] = css
+
+        return np.searchsorted(css, [offset], "right")[0] - 1
+
+    def total_sum(self) -> int:
+        return sum(self.chunk_totals)
+
+    def prefix_sum(self, count: int) -> int:
+        """Get the sum of the first `count` lines"""
+        chunk_idx = self.get_chunk_for_line(count)
+        offset = self.chunk_ranges[chunk_idx] - count
         return sum(self.chunk_totals[:chunk_idx]) + np.sum(
             self.chunks[chunk_idx][:offset]
         )
 
-    def replace_lines(self, start_line, end_line, new_line_lengths):
+    def range_sum(self, start: int, end: int) -> int:
+        """Get the sum of the values between start and end"""
+        return self.prefix_sum(end) - self.prefix_sum(start)
+
+    def replace_lines(
+        self, start_line: int, end_line: int, new_line_lengths: Sequence[int]
+    ):
         """Replace the INCLUSIVE range of lines with the given new line lengths
         Meaning I'm replacing this range of lines `range(start_line, end_line + 1)`
         """
         assert end_line >= start_line
+
+        if not self.chunks:
+            new_chunk = np.array(new_line_lengths)
+            self.chunks = [new_chunk]
+            self.chunk_cumsums = [None]
+            self.chunk_totals = [np.sum(new_chunk)]
+            self.chunk_ranges = _zcs([len(c) for c in self.chunks])
+            self._rebalance(0)
+            return
+
         start_chunk_idx = self.get_chunk_for_line(start_line)
         end_chunk_idx = self.get_chunk_for_line(end_line)
 
@@ -52,29 +91,33 @@ class ChunkedLineTracker:
 
         new_chunk = np.concatenate((pre_chunk, new_line_lengths, post_chunk))
         self.chunks[start_chunk_idx : end_chunk_idx + 1] = [new_chunk]
+        self.chunk_cumsums[start_chunk_idx : end_chunk_idx + 1] = [None]
         self.chunk_totals[start_chunk_idx : end_chunk_idx + 1] = [np.sum(new_chunk)]
         chunk_lengths = [len(c) for c in self.chunks]
-        self.chunk_ranges = np.concatenate(([0], np.cumsum(chunk_lengths))).tolist()
-
+        self.chunk_ranges = _zcs(chunk_lengths)
         self._rebalance(start_chunk_idx)
 
     def _merge_chunk_with_right(self, left_idx: int):
+        """Merge a chunk with the chunk to its right"""
         new_chunk = np.concatenate((self.chunks[left_idx], self.chunks[left_idx + 1]))
         new_total = np.sum(new_chunk)
         self.chunks[left_idx : left_idx + 2] = [new_chunk]
+        self.chunk_cumsums[left_idx : left_idx + 2] = [None]
         self.chunk_totals[left_idx : left_idx + 2] = [new_total]
         chunk_lengths = [len(c) for c in self.chunks]
-        self.chunk_ranges = np.concatenate(([0], np.cumsum(chunk_lengths))).tolist()
+        self.chunk_ranges = _zcs(chunk_lengths)
 
-    def _get_nice_counts(self, chunksize, num_chunks):
+    def _get_nice_counts(self, totalsize, num_chunks):
+        """Get the sizes of each chunk given the total size and the number of chunks"""
         if num_chunks < 1:
-            return [chunksize]
-        ideal_size = chunksize / num_chunks
-        ceil_count = chunksize - (floor(ideal_size) * num_chunks)
+            return [totalsize]
+        ideal_size = totalsize / num_chunks
+        ceil_count = totalsize - (floor(ideal_size) * num_chunks)
         floor_count = num_chunks - ceil_count
         return [ceil(ideal_size)] * ceil_count + [floor(ideal_size)] * floor_count
 
     def _split_chunk(self, chunk_idx: int, num_chunks: int):
+        """Split the given chunk into `num_chunks` parts"""
         chunksize = len(self.chunks[chunk_idx])
         counts = self._get_nice_counts(chunksize, num_chunks)
 
@@ -87,11 +130,13 @@ class ChunkedLineTracker:
             new_totals.append(np.sum(new_chunks[-1]))
             ptr += count
         self.chunks[chunk_idx : chunk_idx + 1] = new_chunks
+        self.chunk_cumsums[chunk_idx : chunk_idx + 1] = [None] * len(new_chunks)
         self.chunk_totals[chunk_idx : chunk_idx + 1] = new_totals
         chunk_lengths = [len(c) for c in self.chunks]
-        self.chunk_ranges = np.concatenate(([0], np.cumsum(chunk_lengths))).tolist()
+        self.chunk_ranges = _zcs(chunk_lengths)
 
     def _rebalance(self, chunk_idx):
+        """Make sure that this chunk is about the right size"""
         chunksize = len(self.chunks[chunk_idx])
         if chunksize < self.chunk_size / 2:
             # combine with my smallest neighbor
@@ -134,8 +179,14 @@ class SumRopeDocument(QTextDocument):
         self._ts_row_prediction: Optional[QTextBlock] = None
         self._ts_row_num_prediction: Optional[int] = None
         self.cursor = QTextCursor(self)
-        self.contentsChange.connect(self._on_contents_change)
         self.old_line_count = 0
+        self.old_char_count = 0
+        self.tracker = ChunkedLineTracker()
+
+        self.parser = Parser(PY_LANGUAGE)
+        self.tree = self.parser.parse(self.treesitter_callback)
+
+        self.contentsChange.connect(self._on_contents_change)
 
     def iter_line_range(
         self, start: int = 0, count: int = -1
@@ -178,32 +229,47 @@ class SumRopeDocument(QTextDocument):
         start_line = start_block.blockNumber()
         new_end_line = new_end_block.blockNumber()
 
+        end_is_last = not new_end_block.next().isValid()
+
         old_line_count = self.old_line_count
         new_line_count = self.blockCount()
+        self.old_line_count = new_line_count
 
         line_delta = new_line_count - old_line_count
         old_end_line = new_end_line + line_delta
 
-        # TODO: Get the line byte offsets
+        new_line_bytelens = [
+            len(line.encode("utf8"))
+            for line in self.iter_line_range(start_line, new_end_line)
+        ]
+        if end_is_last:
+            old_end_byte = self.tracker.total_sum()
+        else:
+            old_end_byte = self.tracker.prefix_sum(old_end_line + 1)
+        self.tracker.replace_lines(start_line, old_end_line, new_line_bytelens)
+        if end_is_last:
+            new_end_byte = self.tracker.total_sum()
+        else:
+            new_end_byte = self.tracker.prefix_sum(new_end_line + 1)
 
-        start_line, _lsum, start_pos, _lval = self._offset_rope.query(position, 0)
-        old_end_line, _lsum, old_end_pos, _lval = self._offset_rope.query(
-            position + chars_removed, 0
+        start_byte = self.tracker.prefix_sum(start_line)
+
+        self.tree.edit(
+            start_byte=start_byte,
+            old_end_byte=old_end_byte,
+            new_end_byte=new_end_byte,
+            start_point=(start_line, 0),
+            old_end_point=(old_end_line + 1, 0),
+            new_end_point=(new_end_line + 1, 0),
         )
+        old_tree = self.tree
+        self.tree = self.parser.parse(self.treesitter_callback, old_tree)
 
-        new_end_block_num = self.findBlock(position + chars_added).blockNumber()
-        rles = self.build_block_range(start_line, new_end_block_num - start_line + 1)
-        self._offset_rope.replace(start_line, old_end_line - start_line + 1, rles)
+        # TODO: apply the changed ranges
 
-        new_end_line, _lsum, new_end_pos, _lval = self._offset_rope.query(
-            position + chars_added, 0
-        )
-
-    def treesitter_callback(
-        self, _byte_offset: int, ts_point: Point, _user_data=None
-    ) -> bytes:
+    def treesitter_callback(self, _byte_offset: int, ts_point: Point) -> bytes:
         """A callback to pass to the tree-sitter `Parser` constructor
-        for efficient access to the underlying byte data.
+        for efficient access to the underlying byte data without duplicating it
         """
         curblock: Optional[QTextBlock] = None
         if self._ts_row_num_prediction is not None:
@@ -216,11 +282,11 @@ class SumRopeDocument(QTextDocument):
             except IndexError:
                 self._ts_row_prediction = None
                 self._ts_row_num_prediction = None
-                return b''
+                return b""
 
         # Guess the next line to be requested by treesitter
         self._ts_row_num_prediction = ts_point.row + 1
         self._ts_row_prediction = curblock.next()
 
-        linebytes = curblock.text().encode('utf8')
+        linebytes = curblock.text().encode("utf8")
         return linebytes[ts_point.column :]
