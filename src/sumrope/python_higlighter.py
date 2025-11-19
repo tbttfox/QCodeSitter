@@ -39,29 +39,6 @@ class ByteOffsetTracker:
         return char_offset + char_offset_in_line
 
 
-def create_python_format_rules(
-    format_specs: dict[str, dict[str, Any]],
-) -> dict[str, QTextCharFormat]:
-    """Create formatting rules for Python syntax highlighting.
-
-    Format specification: each entry maps a capture name to formatting options.
-    Options: color (hex), bold (bool), italic (bool)
-    """
-    formats = {}
-    for name, spec in format_specs.items():
-        fmt = QTextCharFormat()
-        if "color" in spec:
-            fmt.setForeground(QColor(spec["color"]))
-        if spec.get("bold", False):
-            fmt.setFontWeight(QFont.Bold)
-        if spec.get("italic", False):
-            fmt.setFontItalic(True)
-        if "background" in spec:
-            fmt.setBackground(QColor(spec["background"]))
-        formats[name] = fmt
-    return formats
-
-
 class PythonSyntaxHighlighter:
     """Manages syntax highlighting for Python code using tree-sitter."""
 
@@ -75,7 +52,31 @@ class PythonSyntaxHighlighter:
         self.query = Query(language, tspython.HIGHLIGHTS_QUERY)
         self.query_cursor = QueryCursor(self.query)
 
-        self.format_rules = create_python_format_rules(FORMAT_SPECS)
+        self.format_rules = self.load_python_format_rules(FORMAT_SPECS)
+
+    @classmethod
+    def load_python_format_rules(
+        cls,
+        format_specs: dict[str, dict[str, Any]],
+    ) -> dict[str, QTextCharFormat]:
+        """Load formatting rules for Python syntax highlighting.
+
+        Format specification: each entry maps a capture name to formatting options.
+        Options: color (hex), bold (bool), italic (bool)
+        """
+        formats = {}
+        for name, spec in format_specs.items():
+            fmt = QTextCharFormat()
+            if "color" in spec:
+                fmt.setForeground(QColor(spec["color"]))
+            if spec.get("bold", False):
+                fmt.setFontWeight(QFont.Bold)
+            if spec.get("italic", False):
+                fmt.setFontItalic(True)
+            if "background" in spec:
+                fmt.setBackground(QColor(spec["background"]))
+            formats[name] = fmt
+        return formats
 
     def highlight_ranges(self, old_tree: Optional[Tree], new_tree: Tree) -> None:
         """Apply syntax highlighting to changed ranges in the document.

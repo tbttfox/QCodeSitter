@@ -1,13 +1,21 @@
-from Qt.QtGui import QTextDocument, QTextCursor, QTextBlock
-from Qt.QtCore import Slot
-from typing import Generator, Optional, Sequence
-
-import tree_sitter_python as tspython
-from tree_sitter import Language, Parser, Point
-
-from math import ceil, floor
-import numpy as np
 import bisect
+from math import ceil, floor
+from typing import Generator, Optional, Sequence, Any
+
+import numpy as np
+from Qt.QtGui import (
+    QColor,
+    QFont,
+    QTextBlock,
+    QTextCharFormat,
+    QTextCursor,
+    QTextDocument,
+)
+from Qt.QtCore import Slot
+import tree_sitter_python as tspython
+from tree_sitter import Language, Parser, Point, Tree, Query, QueryCursor
+
+from .hl_groups import FORMAT_SPECS
 
 PY_LANGUAGE = Language(tspython.language())
 
@@ -71,10 +79,14 @@ class ChunkedLineTracker:
 
         return np.searchsorted(css, [offset], "right")[0] - 1
 
+    def get_line_for_byte(self, byteidx: int) -> int:
+        # TODO
+        return 0
+
     def total_sum(self) -> int:
         return sum(self.chunk_totals)
 
-    def prefix_sum(self, count: int) -> int:
+    def line_to_byte(self, count: int) -> int:
         """Get the sum of the first `count` lines"""
         chunk_idx = self.get_chunk_for_line(count)
         offset = self.chunk_ranges[chunk_idx] - count
@@ -84,7 +96,7 @@ class ChunkedLineTracker:
 
     def range_sum(self, start: int, end: int) -> int:
         """Get the sum of the values between start and end"""
-        return self.prefix_sum(end) - self.prefix_sum(start)
+        return self.line_to_byte(end) - self.line_to_byte(start)
 
     def replace_lines(
         self, start_line: int, end_line: int, new_line_lengths: Sequence[int]
@@ -179,6 +191,114 @@ class ChunkedLineTracker:
             self._split_chunk(chunk_idx, num_chunks)
 
 
+class PythonSyntaxHighlighter:
+    """Manages syntax highlighting for Python code using tree-sitter."""
+
+    def __init__(
+        self, language: Language, document: QTextDocument, tracker: ChunkedLineTracker
+    ):
+        self.language = language
+        self.document = document
+        self.tracker = tracker
+
+        self.query = Query(language, tspython.HIGHLIGHTS_QUERY)
+        self.query_cursor = QueryCursor(self.query)
+
+        self.format_rules = self.load_python_format_rules(FORMAT_SPECS)
+
+    def point_to_char(self, point: Point) -> tuple[int, int]:
+        """Get the line-local and document-global character offset of a tsPoint"""
+        line = point.row
+        line_b = self.tracker.line_to_byte(line)
+        local_b = point.column
+        global_b = line_b + local_b
+
+
+
+
+
+
+
+    @classmethod
+    def load_python_format_rules(
+        cls,
+        format_specs: dict[str, dict[str, Any]],
+    ) -> dict[str, QTextCharFormat]:
+        """Load formatting rules for Python syntax highlighting.
+
+        Format specification: each entry maps a capture name to formatting options.
+        Options: color (hex), bold (bool), italic (bool)
+        """
+        formats = {}
+        for name, spec in format_specs.items():
+            fmt = QTextCharFormat()
+            if "color" in spec:
+                fmt.setForeground(QColor(spec["color"]))
+            if spec.get("bold", False):
+                fmt.setFontWeight(QFont.Bold)
+            if spec.get("italic", False):
+                fmt.setFontItalic(True)
+            if "background" in spec:
+                fmt.setBackground(QColor(spec["background"]))
+            formats[name] = fmt
+        return formats
+
+    def highlight_ranges(self, old_tree: Optional[Tree], new_tree: Tree) -> None:
+        """Apply syntax highlighting to changed ranges in the document.
+
+        Args:
+            old_tree: Previous tree-sitter parse tree (None if first parse)
+            new_tree: New tree-sitter parse tree
+        """
+        # Get changed ranges
+        if old_tree is None:
+            # First parse - highlight everything
+            changed_ranges = [(Point(0, 0), new_tree.root_node.end_point)]
+        else:
+            changed_ranges = new_tree.changed_ranges(old_tree)
+            changed_ranges = [(r.start_point, r.end_point) for r in changed_ranges]
+
+        # Process each changed range
+        for start_point, end_point in changed_ranges:
+            self._highlight_range(new_tree, start_point, end_point)
+
+    def _highlight_range(self, tree: Tree, start_point: Point, end_point: Point):
+        """Highlight a specific byte range in the document."""
+        # Clear formatting in this range first
+        start_char = self.tracker.point_to_char(start_byte)
+        end_char = self.tracker.point_to_char(end_byte)
+
+        clear_format = QTextCharFormat()
+        cursor = QTextCursor(self.document)
+        cursor.setPosition(start_char)
+        cursor.setPosition(end_char, QTextCursor.KeepAnchor)
+        cursor.setCharFormat(clear_format)
+
+        # Execute the query using QueryCursor
+        # Set the byte range for the query
+        self.query_cursor.set_byte_range(start_byte, end_byte)
+
+        # Execute the query on the tree's root node
+        captures = self.query_cursor.captures(tree.root_node)
+
+        # Apply formatting for each capture
+        for capture_name, nodes in captures.items():
+            # Get the format for this capture type
+            format_obj = self.format_rules.get(capture_name)
+            if not format_obj:
+                continue
+            for node in nodes:
+                # Convert byte offsets to character offsets
+                node_start_char = self.tracker.byte_to_char(node.start_byte)
+                node_end_char = self.tracker.byte_to_char(node.end_byte)
+
+                # Apply the format
+                cursor = QTextCursor(self.document)
+                cursor.setPosition(node_start_char)
+                cursor.setPosition(node_end_char, QTextCursor.KeepAnchor)
+                cursor.setCharFormat(format_obj)
+
+
 class SumRopeDocument(QTextDocument):
     """QTextDocument subclass that tracks byte and character counts per line using SumRopes.
 
@@ -232,11 +352,6 @@ class SumRopeDocument(QTextDocument):
                 break
             block = nextblock
 
-    def get_char_range(self, start: int, count: int) -> str:
-        self.cursor.setPosition(start)
-        self.cursor.setPosition(start + count, QTextCursor.KeepAnchor)
-        return self.cursor.selectedText()
-
     @Slot(int, int, int)
     def _on_contents_change(self, position: int, chars_removed: int, chars_added: int):
         """Handle document content changes incrementally.
@@ -268,14 +383,14 @@ class SumRopeDocument(QTextDocument):
         if end_is_last:
             old_end_byte = self.tracker.total_sum()
         else:
-            old_end_byte = self.tracker.prefix_sum(old_end_line + 1)
+            old_end_byte = self.tracker.line_to_byte(old_end_line + 1)
         self.tracker.replace_lines(start_line, old_end_line, new_line_bytelens)
         if end_is_last:
             new_end_byte = self.tracker.total_sum()
         else:
-            new_end_byte = self.tracker.prefix_sum(new_end_line + 1)
+            new_end_byte = self.tracker.line_to_byte(new_end_line + 1)
 
-        start_byte = self.tracker.prefix_sum(start_line)
+        start_byte = self.tracker.line_to_byte(start_line)
 
         self.tree.edit(
             start_byte=start_byte,
