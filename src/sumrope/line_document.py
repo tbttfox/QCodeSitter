@@ -5,11 +5,28 @@ from typing import Generator, Optional, Sequence
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser, Point
 
-from math import ceil, floor, log
+from math import ceil, floor
 import numpy as np
 import bisect
 
 PY_LANGUAGE = Language(tspython.language())
+
+
+# fmt: off
+NODE_TYPE_INV = {
+    "comment": ["comment"],
+    "function": ["function_definition"],
+    "keyword": [
+        "as", "async", "await", "break", "class", "continue", "def",
+        "elif", "else", "except", "false", "finally", "for", "from",
+        "if", "import", "lambda", "none", "raise", "return", "true",
+        "try", "while", "with", "yield",
+    ],
+    "number": ["float", "integer"],
+    "string": ["string"],
+}
+NODE_TYPE_MAP = {vi: k for k, v in NODE_TYPE_INV.items() for vi in v}
+# fmt: on
 
 
 def _zcs(ary) -> np.ndarray:
@@ -18,12 +35,18 @@ def _zcs(ary) -> np.ndarray:
 
 
 class ChunkedLineTracker:
-    def __init__(self, chunk_size: int = 10000):
-        self.chunk_size = chunk_size
-        self.chunks = []
+    def __init__(self, data: Optional[Sequence[int]] = None, chunk_size: int = 10000):
+        self.chunk_size: int = chunk_size
+        self.chunks: list[np.ndarray] = []
         self.chunk_cumsums: list[Optional[np.ndarray]] = []
-        self.chunk_totals = []
-        self.chunk_ranges = []
+        self.chunk_totals: list[int] = []
+        self.chunk_ranges: np.ndarray = np.array([])
+        if data is not None:
+            ary = np.array(data)
+            self.chunks.append(ary)
+            self.chunk_cumsums.append(None)
+            self.chunk_totals.append(ary.sum())
+            self.chunk_ranges = np.array([0, len(ary)])
 
     def get_chunk_for_line(self, line: int) -> int:
         """Get the index of the chunk containing the given line"""
@@ -265,7 +288,12 @@ class SumRopeDocument(QTextDocument):
         old_tree = self.tree
         self.tree = self.parser.parse(self.treesitter_callback, old_tree)
 
-        # TODO: apply the changed ranges
+        for changed_range in old_tree.changed_ranges(self.tree):
+            print("Changed range:")
+            print(f"  Start point {changed_range.start_point}")
+            print(f"  Start byte {changed_range.start_byte}")
+            print(f"  End point {changed_range.end_point}")
+            print(f"  End byte {changed_range.end_byte}")
 
     def treesitter_callback(self, _byte_offset: int, ts_point: Point) -> bytes:
         """A callback to pass to the tree-sitter `Parser` constructor
