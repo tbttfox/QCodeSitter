@@ -37,50 +37,6 @@ def load_python_format_rules(
     return formats
 
 
-def ansi_to_rgb(code):
-    for code in range(0, 16):
-        if code > 8:
-            level = 255
-        elif code == 7:
-            level = 229
-        else:
-            level = 205
-        r = 127 if code == 8 else level if (code & 1) != 0 else 92 if code == 12 else 0
-        g = 127 if code == 8 else level if (code & 2) != 0 else 92 if code == 12 else 0
-        b = 127 if code == 8 else 238 if code == 4 else level if (code & 4) != 0 else 0
-        print(f"{code:3d}: {r:02X} {g:02X} {b:02X}")
-
-    for red in range(0, 6):
-        for green in range(0, 6):
-            for blue in range(0, 6):
-                code = 16 + (red * 36) + (green * 6) + blue
-                r = red   * 40 + 55 if red   != 0 else 0
-                g = green * 40 + 55 if green != 0 else 0
-                b = blue  * 40 + 55 if blue  != 0 else 0
-
-    code = 232
-    for gray in range(0, 24):
-        level = gray * 10 + 8
-        code = 232 + gray
-        print(f"{code:3d}: {level:02X} {level:02X} {level:02X}")
-
-
-
-
-# fmt: off
-ANSI_COLORS = {
-    '30': QColor("black"), '40': QColor("black"),
-    '31': QColor("red"),   '41': QColor("red"),
-    '32': QColor("green"), '42': QColor("green"),
-    '33': QColor("yellow"),'43': QColor("yellow"),
-    '34': QColor("blue"),  '44': QColor("blue"),
-    '35': QColor("magenta"), '45': QColor("magenta"),
-    '36': QColor("cyan"),  '46': QColor("cyan"),
-    '37': QColor("white"), '47': QColor("white"),
-}
-# fmt: on
-
-
 
 class SingleLineHighlighter(QSyntaxHighlighter):
     """A qsyntaxhighlighter that formats a single line"""

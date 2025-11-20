@@ -236,15 +236,8 @@ class PythonSyntaxHighlighter:
         # Get changed ranges
         if old_tree is None:
             # First parse - highlight everything
-            changed_ranges = [
-                (
-                    0,
-                    Point(0, 0),
-                    new_tree.root_node.end_byte,
-                    new_tree.root_node.end_point,
-                )
-            ]
-
+            root = new_tree.root_node
+            changed_ranges = [(0, Point(0, 0), root.end_byte, root.end_point)]
         else:
             changed_ranges = new_tree.changed_ranges(old_tree)
             changed_ranges = [
@@ -356,7 +349,7 @@ class SumRopeDocument(QTextDocument):
             block = nextblock
 
     @Slot(int, int, int)
-    def _on_contents_change(self, position: int, chars_removed: int, chars_added: int):
+    def _on_contents_change(self, position: int, _chars_removed: int, chars_added: int):
         """Handle document content changes incrementally.
 
         Args:
