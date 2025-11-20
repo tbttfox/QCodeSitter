@@ -20,23 +20,6 @@ from .hl_groups import FORMAT_SPECS
 PY_LANGUAGE = Language(tspython.language())
 
 
-# fmt: off
-NODE_TYPE_INV = {
-    "comment": ["comment"],
-    "function": ["function_definition"],
-    "keyword": [
-        "as", "async", "await", "break", "class", "continue", "def",
-        "elif", "else", "except", "false", "finally", "for", "from",
-        "if", "import", "lambda", "none", "raise", "return", "true",
-        "try", "while", "with", "yield",
-    ],
-    "number": ["float", "integer"],
-    "string": ["string"],
-}
-NODE_TYPE_MAP = {vi: k for k, v in NODE_TYPE_INV.items() for vi in v}
-# fmt: on
-
-
 def _zcs(ary) -> np.ndarray:
     """leading Zero Cumulative Summation"""
     return np.concatenate(([0], np.cumsum(ary)))
@@ -48,40 +31,34 @@ class ChunkedLineTracker:
         self.chunks: list[np.ndarray] = []
         self.chunk_cumsums: list[Optional[np.ndarray]] = []
         self.chunk_totals: list[int] = []
-        self.chunk_ranges: np.ndarray = np.array([])
+        self.chunk_line_ranges: np.ndarray = np.array([])
+        self.chunk_byte_ranges: np.ndarray = np.array([])
         if data is not None:
             ary = np.array(data)
             self.chunks.append(ary)
             self.chunk_cumsums.append(None)
             self.chunk_totals.append(ary.sum())
-            self.chunk_ranges = np.array([0, len(ary)])
+            self.chunk_line_ranges = np.array([0, len(ary)])
+            self.chunk_byte_ranges = np.array([0, self.chunk_totals[0]])
 
     def get_chunk_for_line(self, line: int) -> int:
         """Get the index of the chunk containing the given line"""
-        return bisect.bisect_right(self.chunk_ranges, line) - 1
+        return bisect.bisect_right(self.chunk_line_ranges, line) - 1
 
-    def get_line_for_character(self, charidx: int) -> int:
-        """Get the line that contains the given character index"""
-        chunk_idx = None
-        offset = charidx
-        for i, tot in enumerate(self.chunk_totals):
-            if offset < tot:
-                chunk_idx = i
-                break
-            offset -= tot
-        if chunk_idx is None:
-            raise IndexError("Character index out of range")
+    def get_chunk_for_byte(self, byteidx: int) -> int:
+        """Get the index of the chunk containing the given line"""
+        return bisect.bisect_right(self.chunk_byte_ranges, byteidx) - 1
+
+    def get_line_for_byte(self, byteidx: int) -> int:
+        chunk_idx = self.get_chunk_for_byte(byteidx)
+        start_byte = self.chunk_byte_ranges[chunk_idx]
 
         css = self.chunk_cumsums[chunk_idx]
         if css is None:
             css = _zcs(self.chunks[chunk_idx])
             self.chunk_cumsums[chunk_idx] = css
 
-        return np.searchsorted(css, [offset], "right")[0] - 1
-
-    def get_line_for_byte(self, byteidx: int) -> int:
-        # TODO
-        return 0
+        return np.searchsorted(css, [byteidx - start_byte], "right")[0] - 1
 
     def total_sum(self) -> int:
         return sum(self.chunk_totals)
@@ -89,7 +66,7 @@ class ChunkedLineTracker:
     def line_to_byte(self, count: int) -> int:
         """Get the sum of the first `count` lines"""
         chunk_idx = self.get_chunk_for_line(count)
-        offset = self.chunk_ranges[chunk_idx] - count
+        offset = self.chunk_line_ranges[chunk_idx] - count
         return sum(self.chunk_totals[:chunk_idx]) + np.sum(
             self.chunks[chunk_idx][:offset]
         )
@@ -111,15 +88,16 @@ class ChunkedLineTracker:
             self.chunks = [new_chunk]
             self.chunk_cumsums = [None]
             self.chunk_totals = [np.sum(new_chunk)]
-            self.chunk_ranges = _zcs([len(c) for c in self.chunks])
+            self.chunk_line_ranges = np.array([0, len(new_chunk)])
+            self.chunk_byte_ranges = np.array([0, self.chunk_totals[0]])
             self._rebalance(0)
             return
 
         start_chunk_idx = self.get_chunk_for_line(start_line)
         end_chunk_idx = self.get_chunk_for_line(end_line)
 
-        start_offset = self.chunk_ranges[start_chunk_idx] - start_line
-        end_offset = self.chunk_ranges[end_chunk_idx] - end_line
+        start_offset = self.chunk_line_ranges[start_chunk_idx] - start_line
+        end_offset = self.chunk_line_ranges[end_chunk_idx] - end_line
 
         pre_chunk = self.chunks[start_chunk_idx][:start_offset]
         post_chunk = self.chunks[end_chunk_idx][end_offset:]
@@ -129,7 +107,8 @@ class ChunkedLineTracker:
         self.chunk_cumsums[start_chunk_idx : end_chunk_idx + 1] = [None]
         self.chunk_totals[start_chunk_idx : end_chunk_idx + 1] = [np.sum(new_chunk)]
         chunk_lengths = [len(c) for c in self.chunks]
-        self.chunk_ranges = _zcs(chunk_lengths)
+        self.chunk_line_ranges = _zcs(chunk_lengths)
+        self.chunk_byte_ranges = _zcs(self.chunk_totals)
         self._rebalance(start_chunk_idx)
 
     def _merge_chunk_with_right(self, left_idx: int):
@@ -140,7 +119,8 @@ class ChunkedLineTracker:
         self.chunk_cumsums[left_idx : left_idx + 2] = [None]
         self.chunk_totals[left_idx : left_idx + 2] = [new_total]
         chunk_lengths = [len(c) for c in self.chunks]
-        self.chunk_ranges = _zcs(chunk_lengths)
+        self.chunk_line_ranges = _zcs(chunk_lengths)
+        self.chunk_byte_ranges = _zcs(self.chunk_totals)
 
     def _get_nice_counts(self, totalsize, num_chunks):
         """Get the sizes of each chunk given the total size and the number of chunks"""
@@ -168,7 +148,8 @@ class ChunkedLineTracker:
         self.chunk_cumsums[chunk_idx : chunk_idx + 1] = [None] * len(new_chunks)
         self.chunk_totals[chunk_idx : chunk_idx + 1] = new_totals
         chunk_lengths = [len(c) for c in self.chunks]
-        self.chunk_ranges = _zcs(chunk_lengths)
+        self.chunk_line_ranges = _zcs(chunk_lengths)
+        self.chunk_byte_ranges = _zcs(self.chunk_totals)
 
     def _rebalance(self, chunk_idx):
         """Make sure that this chunk is about the right size"""
@@ -197,27 +178,29 @@ class PythonSyntaxHighlighter:
     def __init__(
         self, language: Language, document: QTextDocument, tracker: ChunkedLineTracker
     ):
-        self.language = language
-        self.document = document
-        self.tracker = tracker
+        self.language: Language = language
+        self.document: QTextDocument = document
+        self.tracker: ChunkedLineTracker = tracker
 
         self.query = Query(language, tspython.HIGHLIGHTS_QUERY)
         self.query_cursor = QueryCursor(self.query)
 
         self.format_rules = self.load_python_format_rules(FORMAT_SPECS)
 
-    def point_to_char(self, point: Point) -> tuple[int, int]:
-        """Get the line-local and document-global character offset of a tsPoint"""
-        line = point.row
+    def point_to_char(self, point: Point) -> int:
+        """Get the document-global character offset of a tsPoint"""
+        block = self.document.findBlockByNumber(point.row)
+        local_c = len(block.text().encode("utf8")[: point.column].decode("utf8"))
+        return block.position() + local_c
+
+    def point_to_byte(self, point: Point) -> int:
+        """Get the document-global byte offset of a tsPoint"""
+        return self.tracker.line_to_byte(point.row) + point.column
+
+    def byte_to_char(self, byteidx):
+        line = self.tracker.get_line_for_byte(byteidx)
         line_b = self.tracker.line_to_byte(line)
-        local_b = point.column
-        global_b = line_b + local_b
-
-
-
-
-
-
+        return self.point_to_char(Point(line, byteidx - line_b))
 
     @classmethod
     def load_python_format_rules(
@@ -253,20 +236,40 @@ class PythonSyntaxHighlighter:
         # Get changed ranges
         if old_tree is None:
             # First parse - highlight everything
-            changed_ranges = [(Point(0, 0), new_tree.root_node.end_point)]
+            changed_ranges = [
+                (
+                    0,
+                    Point(0, 0),
+                    new_tree.root_node.end_byte,
+                    new_tree.root_node.end_point,
+                )
+            ]
+
         else:
             changed_ranges = new_tree.changed_ranges(old_tree)
-            changed_ranges = [(r.start_point, r.end_point) for r in changed_ranges]
+            changed_ranges = [
+                (r.start_byte, r.start_point, r.end_byte, r.end_point)
+                for r in changed_ranges
+            ]
 
         # Process each changed range
-        for start_point, end_point in changed_ranges:
-            self._highlight_range(new_tree, start_point, end_point)
+        for start_byte, start_point, end_byte, end_point in changed_ranges:
+            self._highlight_range(
+                new_tree, start_byte, start_point, end_byte, end_point
+            )
 
-    def _highlight_range(self, tree: Tree, start_point: Point, end_point: Point):
+    def _highlight_range(
+        self,
+        tree: Tree,
+        start_byte: int,
+        start_point: Point,
+        end_byte: int,
+        end_point: Point,
+    ):
         """Highlight a specific byte range in the document."""
         # Clear formatting in this range first
-        start_char = self.tracker.point_to_char(start_byte)
-        end_char = self.tracker.point_to_char(end_byte)
+        start_char = self.point_to_char(start_point)
+        end_char = self.point_to_char(end_point)
 
         clear_format = QTextCharFormat()
         cursor = QTextCursor(self.document)
@@ -289,8 +292,8 @@ class PythonSyntaxHighlighter:
                 continue
             for node in nodes:
                 # Convert byte offsets to character offsets
-                node_start_char = self.tracker.byte_to_char(node.start_byte)
-                node_end_char = self.tracker.byte_to_char(node.end_byte)
+                node_start_char = self.byte_to_char(node.start_byte)
+                node_end_char = self.byte_to_char(node.end_byte)
 
                 # Apply the format
                 cursor = QTextCursor(self.document)
