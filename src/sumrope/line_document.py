@@ -506,7 +506,7 @@ class SumRopeDocument(QTextDocument):
         """
         starttime = time.time()
         print("OCC")
-
+        ic(position, chars_removed, chars_added)
         if self.isEmpty():
             self.old_line_count = 1
             self.tracker.set([0])
@@ -530,13 +530,15 @@ class SumRopeDocument(QTextDocument):
         # Short-circuit if just doing normal typing
         if chars_removed == 0 and chars_added == 1:
             curline = start_block.text()
+            linepos = position - start_block.position()
+
             line_start_byte = self.tracker.line_to_byte(start_line)
-            line_byte_offset = len(curline[:position].encode('utf8'))
+            line_byte_offset = len(curline[:linepos].encode('utf8'))
             start_byte = line_start_byte + line_byte_offset
 
             if line_delta == 0:
                 # The character typed was not a newline
-                bytes_added = len(curline[position].encode('utf8'))
+                bytes_added = len(curline[linepos].encode('utf8'))
                 end_byte = start_byte + bytes_added
                 line_full_bytes = len(curline.encode('utf8')) + nl_offset
                 new_line_bytelens = [line_full_bytes]
