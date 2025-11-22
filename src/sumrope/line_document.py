@@ -1,23 +1,54 @@
+import re
 import bisect
 from math import ceil, floor
+import time
 from typing import Generator, Optional, Sequence, Any
 
 import numpy as np
+from Qt.QtCore import Slot
 from Qt.QtGui import (
     QColor,
     QFont,
+    QSyntaxHighlighter,
     QTextBlock,
     QTextCharFormat,
     QTextCursor,
     QTextDocument,
 )
-from Qt.QtCore import Slot
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser, Point, Tree, Query, QueryCursor
+from stransi import Escape, SetAttribute, SetColor
+from stransi.attribute import Attribute
+from stransi.color import ColorRole
+
+from icecream import ic
 
 from .hl_groups import FORMAT_SPECS
 
 PY_LANGUAGE = Language(tspython.language())
+
+
+def load_python_format_rules(
+    format_specs: dict[str, dict[str, Any]],
+) -> dict[str, QTextCharFormat]:
+    """Load formatting rules for Python syntax highlighting.
+
+    Format specification: each entry maps a capture name to formatting options.
+    Options: color (hex), bold (bool), italic (bool)
+    """
+    formats = {}
+    for name, spec in format_specs.items():
+        fmt = QTextCharFormat()
+        if "color" in spec:
+            fmt.setForeground(QColor(spec["color"]))
+        if spec.get("bold", False):
+            fmt.setFontWeight(QFont.Bold)
+        if spec.get("italic", False):
+            fmt.setFontItalic(True)
+        if "background" in spec:
+            fmt.setBackground(QColor(spec["background"]))
+        formats[name] = fmt
+    return formats
 
 
 def _zcs(ary) -> np.ndarray:
@@ -27,19 +58,24 @@ def _zcs(ary) -> np.ndarray:
 
 class ChunkedLineTracker:
     def __init__(self, data: Optional[Sequence[int]] = None, chunk_size: int = 10000):
+        self.chunks: list[np.ndarray]
+        self.chunk_cumsums: list[Optional[np.ndarray]]
+        self.chunk_totals: list[int]
+        self.chunk_line_ranges: np.ndarray
+        self.chunk_byte_ranges: np.ndarray
         self.chunk_size: int = chunk_size
-        self.chunks: list[np.ndarray] = []
-        self.chunk_cumsums: list[Optional[np.ndarray]] = []
-        self.chunk_totals: list[int] = []
-        self.chunk_line_ranges: np.ndarray = np.array([])
-        self.chunk_byte_ranges: np.ndarray = np.array([])
-        if data is not None:
-            ary = np.array(data)
-            self.chunks.append(ary)
-            self.chunk_cumsums.append(None)
-            self.chunk_totals.append(ary.sum())
-            self.chunk_line_ranges = np.array([0, len(ary)])
-            self.chunk_byte_ranges = np.array([0, self.chunk_totals[0]])
+
+        data = [0] if data is None else data
+        self.set(data)
+
+    def set(self, data):
+        ary = np.array(data)
+        self.chunks = [ary]
+        self.chunk_cumsums = [None]
+        self.chunk_totals = [ary.sum()]
+        self.chunk_line_ranges = np.array([0, len(ary)])
+        self.chunk_byte_ranges = np.array([0, self.chunk_totals[0]])
+        self._rebalance(0)
 
     def get_chunk_for_line(self, line: int) -> int:
         """Get the index of the chunk containing the given line"""
@@ -51,8 +87,13 @@ class ChunkedLineTracker:
 
     def get_line_for_byte(self, byteidx: int) -> int:
         chunk_idx = self.get_chunk_for_byte(byteidx)
-        start_byte = self.chunk_byte_ranges[chunk_idx]
+        if chunk_idx >= len(self.chunks):
+            return self.chunk_line_ranges[-1] - 1
 
+        if byteidx >= self.chunk_byte_ranges[chunk_idx + 1]:
+            return self.chunk_line_ranges[chunk_idx + 1] - 1
+
+        start_byte = self.chunk_byte_ranges[chunk_idx]
         css = self.chunk_cumsums[chunk_idx]
         if css is None:
             css = _zcs(self.chunks[chunk_idx])
@@ -63,10 +104,10 @@ class ChunkedLineTracker:
     def total_sum(self) -> int:
         return sum(self.chunk_totals)
 
-    def line_to_byte(self, count: int) -> int:
-        """Get the sum of the first `count` lines"""
-        chunk_idx = self.get_chunk_for_line(count)
-        offset = self.chunk_line_ranges[chunk_idx] - count
+    def line_to_byte(self, line: int) -> int:
+        """Get the sum of the first `line` lines"""
+        chunk_idx = self.get_chunk_for_line(line)
+        offset = self.chunk_line_ranges[chunk_idx] - line
         return sum(self.chunk_totals[:chunk_idx]) + np.sum(
             self.chunks[chunk_idx][:offset]
         )
@@ -76,28 +117,23 @@ class ChunkedLineTracker:
         return self.line_to_byte(end) - self.line_to_byte(start)
 
     def replace_lines(
-        self, start_line: int, end_line: int, new_line_lengths: Sequence[int]
+        self, start_line: int, post_line: int, new_line_lengths: Sequence[int]
     ):
-        """Replace the INCLUSIVE range of lines with the given new line lengths
-        Meaning I'm replacing this range of lines `range(start_line, end_line + 1)`
+        """Replace the range of lines with the given new line lengths
+        The rough equivalent of self[start_line: post_line] = new_line_lengths
         """
-        assert end_line >= start_line
-
+        assert post_line >= start_line
         if not self.chunks:
-            new_chunk = np.array(new_line_lengths)
-            self.chunks = [new_chunk]
-            self.chunk_cumsums = [None]
-            self.chunk_totals = [np.sum(new_chunk)]
-            self.chunk_line_ranges = np.array([0, len(new_chunk)])
-            self.chunk_byte_ranges = np.array([0, self.chunk_totals[0]])
-            self._rebalance(0)
+            self.set(new_line_lengths)
             return
 
+        # Get the chunk range.  end_chunk_idx is *INCLUSIVE*
         start_chunk_idx = self.get_chunk_for_line(start_line)
-        end_chunk_idx = self.get_chunk_for_line(end_line)
+        end_chunk_idx = self.get_chunk_for_line(post_line - 1)
 
-        start_offset = self.chunk_line_ranges[start_chunk_idx] - start_line
-        end_offset = self.chunk_line_ranges[end_chunk_idx] - end_line
+        # Get how far into each chunk the start and end lines are
+        start_offset = start_line - self.chunk_line_ranges[start_chunk_idx]
+        end_offset = post_line - self.chunk_line_ranges[end_chunk_idx]
 
         pre_chunk = self.chunks[start_chunk_idx][:start_offset]
         post_chunk = self.chunks[end_chunk_idx][end_offset:]
@@ -170,6 +206,115 @@ class ChunkedLineTracker:
             # split evenly so I'm as close to chunk_size as possible
             num_chunks = max(1, chunksize // self.chunk_size)
             self._split_chunk(chunk_idx, num_chunks)
+
+    def printall(self):
+        # fmt: off
+        print(
+            "\nself.chunk_size:", self.chunk_size,
+            "\nself.chunks:", self.chunks,
+            "\nself.chunk_cumsums:", self.chunk_cumsums,
+            "\nself.chunk_totals:", self.chunk_totals,
+            "\nself.chunk_line_ranges:", self.chunk_line_ranges,
+            "\nself.chunk_byte_ranges:", self.chunk_byte_ranges,
+        )
+        # fmt: on
+
+
+class SingleLineHighlighter(QSyntaxHighlighter):
+    """A QSyntaxHighlighter that formats a single line"""
+
+    # Regex to match common ANSI escape sequences
+    ansi_splitter = re.compile(r'(\x1b\[[0-9;]*m)')
+    byte_splitter = re.compile(
+        r'[\x00-\x7f]+|[\x80-\u07ff]+|[\u0800-\uffff]+|[\U00010000-\U0010ffff]+'
+    )
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.format_rules = load_python_format_rules(FORMAT_SPECS)
+        self.language = Language(tspython.language())
+        self.parser = Parser(self.language)
+        self.query = Query(self.language, tspython.HIGHLIGHTS_QUERY)
+        self.query_cursor = QueryCursor(self.query)
+
+    def build_charmap(self, text):
+        """Build a mapping from byte index to character index as a list"""
+        charmap = []
+        charidx = 0
+        for seg in self.byte_splitter.findall(text):
+            bytesize = len(seg[0].encode('utf8'))
+            charcount = len(seg)
+            for _ in range(charcount):
+                charmap.extend([charidx] * bytesize)
+                charidx += 1
+        return charmap
+
+    def extract_ansi(self, text: str) -> tuple[str, list[tuple[str, int, int]]]:
+        """Extract the ansi codes from some text, keeping track of their character offsets"""
+        sp = self.ansi_splitter.split(text)
+        curidx = 0
+        codes = []
+        chunks = []
+        curcode = ("\033[0m", 0)
+        for i, seg in enumerate(sp):
+            if i % 2:  # Ansi code
+                curcode = (seg, curidx)
+            else:  # regular text
+                chunks.append(text)
+                curidx += len(text)
+                codes.append((curcode[0], curcode[1], curidx))
+        return ''.join(chunks), codes
+
+    def highlightBlock(self, text: str):
+        """Apply highlighting to a single block (line)"""
+        text, ansi = self.extract_ansi(text)
+        bstr = text.encode('utf8')
+        tree = self.parser.parse(bstr)
+        self.query_cursor.set_byte_range(0, tree.root_node.end_byte)
+        captures = self.query_cursor.captures(tree.root_node)
+        charmap = self.build_charmap(text)
+
+        # Apply formatting for each capture
+        for capture_name, nodes in captures.items():
+            # Get the format for this capture type
+            format_obj = self.format_rules.get(capture_name)
+            if not format_obj:
+                continue
+            for node in nodes:
+                # Convert byte offsets to character offsets
+                startchar = charmap[node.start_byte]
+                endchar = charmap[node.end_byte]
+                self.setFormat(startchar, endchar - startchar, format_obj)
+
+        current_format = QTextCharFormat()
+        for codes, start, end in ansi:
+            for s in Escape(codes).instructions():
+                if isinstance(s, SetAttribute):
+                    if s.attribute == Attribute.NORMAL:
+                        current_format = QTextCharFormat()
+                    elif s.attribute == Attribute.BOLD:
+                        current_format.setFontWeight(QFont.Weight.Bold)
+                    elif s.attribute == Attribute.DIM:
+                        current_format.setFontWeight(QFont.Weight.Light)
+                    elif s.attribute == Attribute.NEITHER_BOLD_NOR_DIM:
+                        current_format.setFontWeight(QFont.Weight.Normal)
+                    elif s.attribute == Attribute.ITALIC:
+                        current_format.setFontItalic(True)
+                    elif s.attribute == Attribute.NOT_ITALIC:
+                        current_format.setFontItalic(False)
+                    elif s.attribute == Attribute.UNDERLINE:
+                        current_format.setFontUnderline(True)
+                    elif s.attribute == Attribute.NOT_UNDERLINE:
+                        current_format.setFontUnderline(False)
+                elif isinstance(s, SetColor):
+                    if s.color is not None:
+                        ocolor = s.color.rgb
+                        color = QColor.fromRgbF(ocolor.red, ocolor.green, ocolor.blue)
+                        if s.role == ColorRole.FOREGROUND:
+                            current_format.setForeground(color)
+                        elif s.role == ColorRole.BACKGROUND:
+                            current_format.setBackground(color)
+            self.setFormat(start, end - start, current_format)
 
 
 class PythonSyntaxHighlighter:
@@ -322,6 +467,8 @@ class SumRopeDocument(QTextDocument):
         self.old_char_count = 0
         self.tracker = ChunkedLineTracker()
 
+        self.highlighter = PythonSyntaxHighlighter(PY_LANGUAGE, self, self.tracker)
+
         self.parser = Parser(PY_LANGUAGE)
         self.tree = self.parser.parse(self.treesitter_callback)
 
@@ -349,7 +496,7 @@ class SumRopeDocument(QTextDocument):
             block = nextblock
 
     @Slot(int, int, int)
-    def _on_contents_change(self, position: int, _chars_removed: int, chars_added: int):
+    def _on_contents_change(self, position: int, chars_removed: int, chars_added: int):
         """Handle document content changes incrementally.
 
         Args:
@@ -357,54 +504,130 @@ class SumRopeDocument(QTextDocument):
             chars_removed: Number of characters removed
             chars_added: Number of characters added
         """
+        starttime = time.time()
+        print("OCC")
+
+        if self.isEmpty():
+            self.old_line_count = 1
+            self.tracker.set([0])
+            return
+
         start_block = self.findBlock(position)
         new_end_block = self.findBlock(position + chars_added)
+        if not new_end_block.isValid():
+            new_end_block = self.lastBlock()
 
         start_line = start_block.blockNumber()
         new_end_line = new_end_block.blockNumber()
-
-        end_is_last = not new_end_block.next().isValid()
-
         old_line_count = self.old_line_count
         new_line_count = self.blockCount()
         self.old_line_count = new_line_count
-
         line_delta = new_line_count - old_line_count
-        old_end_line = new_end_line + line_delta
+        old_end_line = new_end_line - line_delta
+        end_is_last = not new_end_block.next().isValid()
+        nl_offset = 0 if end_is_last else 1
+
+        # Short-circuit if just doing normal typing
+        if chars_removed == 0 and chars_added == 1:
+            curline = start_block.text()
+            line_start_byte = self.tracker.line_to_byte(start_line)
+            line_byte_offset = len(curline[:position].encode('utf8'))
+            start_byte = line_start_byte + line_byte_offset
+
+            if line_delta == 0:
+                # The character typed was not a newline
+                bytes_added = len(curline[position].encode('utf8'))
+                end_byte = start_byte + bytes_added
+                line_full_bytes = len(curline.encode('utf8')) + nl_offset
+                new_line_bytelens = [line_full_bytes]
+                new_end_point = Point(start_line, line_byte_offset + bytes_added)
+            else:
+                # The character typed WAS a newline
+                end_byte = start_byte + 1
+                line_full_bytes = len(curline.encode('utf8')) + 1
+                next_line_full_bytes = (
+                    len(new_end_block.next().text().encode('utf8')) + nl_offset
+                )
+                new_line_bytelens = [line_full_bytes, next_line_full_bytes]
+                new_end_point = Point(start_line + line_delta, 0)
+
+            print("PRE")
+            self.tracker.printall()
+            self.tracker.replace_lines(start_line, start_line + 1, new_line_bytelens)
+            print("POST")
+            self.tracker.printall()
+            print("-------------------")
+
+            self.tree.edit(
+                start_byte=start_byte,
+                old_end_byte=start_byte,
+                new_end_byte=end_byte,
+                start_point=Point(start_line, line_byte_offset),
+                old_end_point=Point(start_line, line_byte_offset),
+                new_end_point=new_end_point,
+            )
+            old_tree = self.tree
+            self.tree = self.parser.parse(self.treesitter_callback, old_tree)
+            self.highlighter.highlight_ranges(old_tree, self.tree)
+            endtime = time.time()
+            print("TOOK-1", endtime - starttime)
+            return
+
+        # TODO: Maybe short-circuit backspace and delete?
 
         new_line_bytelens = [
             len(line.encode("utf8"))
-            for line in self.iter_line_range(start_line, new_end_line)
+            for line in self.iter_line_range(start_line, new_end_line + 1)
         ]
+
         if end_is_last:
             old_end_byte = self.tracker.total_sum()
         else:
             old_end_byte = self.tracker.line_to_byte(old_end_line + 1)
-        self.tracker.replace_lines(start_line, old_end_line, new_line_bytelens)
+
+        import __main__
+
+        __main__.__dict__.update(locals())
+        __main__.__dict__['doc'] = self
+
+        print("PRE")
+        self.tracker.printall()
+        self.tracker.replace_lines(start_line, old_end_line + 1, new_line_bytelens)
+        print("POST")
+        self.tracker.printall()
+        print("-------------------")
+
         if end_is_last:
             new_end_byte = self.tracker.total_sum()
         else:
             new_end_byte = self.tracker.line_to_byte(new_end_line + 1)
-
         start_byte = self.tracker.line_to_byte(start_line)
 
         self.tree.edit(
             start_byte=start_byte,
             old_end_byte=old_end_byte,
             new_end_byte=new_end_byte,
-            start_point=(start_line, 0),
-            old_end_point=(old_end_line + 1, 0),
-            new_end_point=(new_end_line + 1, 0),
+            start_point=Point(start_line, 0),
+            old_end_point=Point(old_end_line + 1, 0),
+            new_end_point=Point(new_end_line + 1, 0),
         )
+
+        print(
+            "EDIT",
+            start_byte,
+            old_end_byte,
+            new_end_byte,
+            Point(start_line, 0),
+            Point(old_end_line + 1, 0),
+            Point(new_end_line + 1, 0),
+        )
+
         old_tree = self.tree
         self.tree = self.parser.parse(self.treesitter_callback, old_tree)
+        self.highlighter.highlight_ranges(old_tree, self.tree)
 
-        for changed_range in old_tree.changed_ranges(self.tree):
-            print("Changed range:")
-            print(f"  Start point {changed_range.start_point}")
-            print(f"  Start byte {changed_range.start_byte}")
-            print(f"  End point {changed_range.end_point}")
-            print(f"  End byte {changed_range.end_byte}")
+        endtime = time.time()
+        print("TOOK", endtime - starttime)
 
     def treesitter_callback(self, _byte_offset: int, ts_point: Point) -> bytes:
         """A callback to pass to the tree-sitter `Parser` constructor

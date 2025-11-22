@@ -1,4 +1,3 @@
-
 import sys
 
 path = r'D:\temp\preditor_treesitter\sumrope\src'
@@ -13,11 +12,17 @@ for d in todel:
 
 
 
-
 run_workbox('sumrope/reload')
 import preditor
 
-from sumrope import SumRope, LenPair, RLEGroup, SumRopeDocument
+from sumrope import (
+    ChunkedLineTracker,
+    SingleLineHighlighter,
+    PythonSyntaxHighlighter,
+    SumRopeDocument,
+    FORMAT_SPECS,
+)
+
 from Qt.QtWidgets import QPlainTextEdit, QDialog, QVBoxLayout, QPlainTextDocumentLayout
 
 inst = preditor.instance()
@@ -35,8 +40,3 @@ mydoc.setDocumentLayout(doclay)
 edit.setDocument(mydoc)
 lay.addWidget(edit)
 dlg.show()
-
-
-
-
-
