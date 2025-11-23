@@ -76,6 +76,7 @@ class ChunkedLineTracker:
             Including a leading 0
         chunk_size: The target size of each chunk
     """
+
     def __init__(self, data: Optional[Sequence[int]] = None, chunk_size: int = 10000):
         self.chunks: list[np.ndarray]
         self.chunk_cumsums: list[Optional[np.ndarray]]
@@ -439,8 +440,8 @@ class PythonSyntaxHighlighter:
 
         print("HIGHLIGHTING")
         print("HL-CLEAR")
-        print(f'str: "{txt[start_char: end_char]}"')
-        print(f'byt: {bbb[start_byte: end_byte]}')
+        print(f'str: "{txt[start_char:end_char]}"')
+        print(f"byt: {bbb[start_byte:end_byte]}")
 
         clear_format = QTextCharFormat()
         cursor = QTextCursor(self.document)
@@ -466,8 +467,8 @@ class PythonSyntaxHighlighter:
                 node_start_char = self.byte_to_char(node.start_byte)
                 node_end_char = self.byte_to_char(node.end_byte)
                 print("UPD", capture_name, node_start_char, node_end_char)
-                print(f'str: "{txt[node_start_char: node_end_char]}"')
-                print(f'byt: {bbb[node.start_byte: node.end_byte]}')
+                print(f'str: "{txt[node_start_char:node_end_char]}"')
+                print(f"byt: {bbb[node.start_byte : node.end_byte]}")
 
                 # Apply the format
                 cursor = QTextCursor(self.document)
@@ -531,6 +532,110 @@ class SumRopeDocument(QTextDocument):
                 break
             block = nextblock
 
+    def _single_char_change(self, position, chars_added, chars_removed):
+        (
+            start_block,
+            start_line,
+            nl_offset,
+            line_delta,
+            new_end_block,
+            old_end_line,
+            new_end_line,
+            end_is_last,
+        ) = self._get_common_change_data(position, chars_added)
+        curline = start_block.text()
+        linepos = position - start_block.position()
+
+        line_start_byte = self.tracker.line_to_byte(start_line)
+        line_byte_offset = len(curline[:linepos].encode())
+        start_byte = line_start_byte + line_byte_offset
+        start_point = Point(start_line, line_byte_offset)
+        new_line_bytelen = len(curline.encode()) + nl_offset
+        old_line_bytelen = self.tracker.line_bytelength(start_line)
+
+        if chars_removed == 0:
+            old_end_byte = start_byte
+            old_end_point = start_point
+            end_line = start_line + 1
+            if line_delta == 0:
+                # The character typed was not a newline
+                byte_delta = new_line_bytelen - old_line_bytelen
+                new_end_byte = old_end_byte + byte_delta
+                line_full_bytes = len(curline.encode()) + nl_offset
+                new_line_bytelens = [line_full_bytes]
+                new_end_point = Point(start_line, line_byte_offset + byte_delta)
+            else:
+                # The character typed WAS a newline
+                new_end_byte = start_byte + 1
+                line_full_bytes = len(curline.encode()) + 1
+                next_line_full_bytes = (
+                    len(new_end_block.next().text().encode()) + nl_offset
+                )
+                new_line_bytelens = [line_full_bytes, next_line_full_bytes]
+                new_end_point = Point(start_line + 1, 0)
+
+        else:
+            new_end_byte = start_byte
+            new_line_bytelens = [new_line_bytelen]
+            new_end_point = Point(start_line, line_byte_offset)
+            if line_delta == 0:
+                # The character removed was not a newline
+                byte_delta = new_line_bytelen - old_line_bytelen
+                old_end_byte = new_end_byte - byte_delta
+                old_end_point = Point(start_line, line_byte_offset - byte_delta)
+                end_line = start_line + 1
+            else:
+                # The character removed WAS a newline
+                old_end_byte = new_end_byte + 1
+                old_end_point = Point(start_line + 1, 0)
+                end_line = start_line + 2
+
+        # print("PRE")
+        # self.tracker.printall()
+        self.tracker.replace_lines(start_line, end_line, new_line_bytelens)
+        # print("POST")
+        # self.tracker.printall()
+        # print("-------------------")
+        self.tree.edit(
+            start_byte=start_byte,
+            old_end_byte=old_end_byte,
+            new_end_byte=new_end_byte,
+            start_point=start_point,
+            old_end_point=old_end_point,
+            new_end_point=new_end_point,
+        )
+        old_tree = self.tree
+        self.tree = self.parser.parse(self.treesitter_callback, old_tree)
+        # print(str(self.tree.root_node))
+        self.highlighter.highlight_ranges(old_tree, self.tree)
+
+    def _get_common_change_data(self, position, chars_added):
+        start_block = self.findBlock(position)
+        new_end_block = self.findBlock(position + chars_added)
+        if not new_end_block.isValid():
+            new_end_block = self.lastBlock()
+
+        start_line = start_block.blockNumber()
+        new_end_line = new_end_block.blockNumber()
+        old_line_count = self.old_line_count
+        new_line_count = self.blockCount()
+        self.old_line_count = new_line_count
+        line_delta = new_line_count - old_line_count
+        old_end_line = new_end_line - line_delta
+        end_is_last = not new_end_block.next().isValid()
+        nl_offset = 0 if end_is_last else 1
+
+        return (
+            start_block,
+            start_line,
+            nl_offset,
+            line_delta,
+            new_end_block,
+            old_end_line,
+            new_end_line,
+            end_is_last,
+        )
+
     @Slot(int, int, int)
     def _on_contents_change(self, position: int, chars_removed: int, chars_added: int):
         """Handle document content changes incrementally.
@@ -548,123 +653,23 @@ class SumRopeDocument(QTextDocument):
             self.tracker.set([0])
             return
 
-        start_block = self.findBlock(position)
-        new_end_block = self.findBlock(position + chars_added)
-        if not new_end_block.isValid():
-            new_end_block = self.lastBlock()
-
-        start_line = start_block.blockNumber()
-        new_end_line = new_end_block.blockNumber()
-        old_line_count = self.old_line_count
-        new_line_count = self.blockCount()
-        self.old_line_count = new_line_count
-        line_delta = new_line_count - old_line_count
-        old_end_line = new_end_line - line_delta
-        end_is_last = not new_end_block.next().isValid()
-        nl_offset = 0 if end_is_last else 1
-
-        # Short-circuit if just doing normal typing
-        # and backspacing
-        if chars_removed == 0 and chars_added == 1:
-            curline = start_block.text()
-            linepos = position - start_block.position()
-
-            line_start_byte = self.tracker.line_to_byte(start_line)
-            line_byte_offset = len(curline[:linepos].encode())
-            start_byte = line_start_byte + line_byte_offset
-            start_point = Point(start_line, line_byte_offset)
-
-            if line_delta == 0:
-                # The character typed was not a newline
-                bytes_added = len(curline[linepos].encode())
-                end_byte = start_byte + bytes_added
-                line_full_bytes = len(curline.encode()) + nl_offset
-                new_line_bytelens = [line_full_bytes]
-                new_end_point = Point(start_line, line_byte_offset + bytes_added)
-            else:
-                # The character typed WAS a newline
-                end_byte = start_byte + 1
-                line_full_bytes = len(curline.encode()) + 1
-                next_line_full_bytes = (
-                    len(new_end_block.next().text().encode()) + nl_offset
-                )
-                new_line_bytelens = [line_full_bytes, next_line_full_bytes]
-                new_end_point = Point(start_line + line_delta, 0)
-
-            #print("PRE")
-            #self.tracker.printall()
-            self.tracker.replace_lines(start_line, start_line + 1, new_line_bytelens)
-            #print("POST")
-            #self.tracker.printall()
-            #print("-------------------")
-
-            self.tree.edit(
-                start_byte=start_byte,
-                old_end_byte=start_byte,
-                new_end_byte=end_byte,
-                start_point=start_point,
-                old_end_point=start_point,
-                new_end_point=new_end_point,
-            )
-            old_tree = self.tree
-            self.tree = self.parser.parse(self.treesitter_callback, old_tree)
-            #print(str(self.tree.root_node))
-            self.highlighter.highlight_ranges(old_tree, self.tree)
-            endtime = time.time()
-            print("TOOK-1", endtime - starttime)
+        # Short-circuit if just doing normal typing and backspacing
+        if (chars_removed == 0 and chars_added == 1) or (
+            chars_removed == 1 and chars_added == 0
+        ):
+            self._single_char_change(position, chars_added, chars_removed)
             return
 
-        elif chars_removed == 1 and chars_added == 0:
-            curline = start_block.text()
-            linepos = position - start_block.position()
-
-            line_start_byte = self.tracker.line_to_byte(start_line)
-            line_byte_offset = len(curline[:linepos].encode())
-            start_byte = line_start_byte + line_byte_offset
-            start_point = Point(start_line, line_byte_offset)
-
-            old_line_bytelen = self.tracker.line_bytelength(start_line)
-            new_line_bytelen = len(curline.encode()) + nl_offset
-
-            if line_delta == 0:
-                # The character removed was not a newline
-                byte_delta = new_line_bytelen - old_line_bytelen
-                new_end_byte = start_byte
-                old_end_byte = new_end_byte - byte_delta
-                new_line_bytelens = [new_line_bytelen]
-                old_end_point = Point(start_line, line_byte_offset - byte_delta)
-                new_end_point = Point(start_line, line_byte_offset)
-                end_line = start_line + 1
-            else:
-                # The character removed WAS a newline
-                new_end_byte = start_byte
-                old_end_byte = new_end_byte + 1
-                new_line_bytelens = [new_line_bytelen]
-                old_end_point = Point(start_line + 1, 0)
-                new_end_point = Point(start_line, line_byte_offset)
-                end_line = start_line + 2
-
-            #print("PRE")
-            #self.tracker.printall()
-            self.tracker.replace_lines(start_line, end_line, new_line_bytelens)
-            #print("POST")
-            #self.tracker.printall()
-            #print("-------------------")
-            self.tree.edit(
-                start_byte=start_byte,
-                old_end_byte=old_end_byte,
-                new_end_byte=new_end_byte,
-                start_point=start_point,
-                old_end_point=old_end_point,
-                new_end_point=new_end_point,
-            )
-            old_tree = self.tree
-            self.tree = self.parser.parse(self.treesitter_callback, old_tree)
-            #print(str(self.tree.root_node))
-            self.highlighter.highlight_ranges(old_tree, self.tree)
-            endtime = time.time()
-            print("TOOK-1", endtime - starttime)
-            return
+        (
+            start_block,
+            start_line,
+            nl_offset,
+            line_delta,
+            new_end_block,
+            old_end_line,
+            new_end_line,
+            end_is_last,
+        ) = self._get_common_change_data(position, chars_added)
 
         new_line_bytelens = [
             len(line.encode())
@@ -676,16 +681,16 @@ class SumRopeDocument(QTextDocument):
         else:
             old_end_byte = self.tracker.line_to_byte(old_end_line + 1)
 
-        #import __main__
-        #__main__.__dict__.update(locals())
-        #__main__.__dict__["doc"] = self
+        # import __main__
+        # __main__.__dict__.update(locals())
+        # __main__.__dict__["doc"] = self
 
-        #print("PRE")
-        #self.tracker.printall()
+        # print("PRE")
+        # self.tracker.printall()
         self.tracker.replace_lines(start_line, old_end_line + 1, new_line_bytelens)
-        #print("POST")
-        #self.tracker.printall()
-        #print("-------------------")
+        # print("POST")
+        # self.tracker.printall()
+        # print("-------------------")
 
         if end_is_last:
             new_end_byte = self.tracker.total_sum()
