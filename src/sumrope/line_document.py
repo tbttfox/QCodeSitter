@@ -21,8 +21,6 @@ from stransi import Escape, SetAttribute, SetColor
 from stransi.attribute import Attribute
 from stransi.color import ColorRole
 
-from icecream import ic
-
 from .hl_groups import FORMAT_SPECS
 
 PY_LANGUAGE = Language(tspython.language())
@@ -57,6 +55,27 @@ def _zcs(ary) -> np.ndarray:
 
 
 class ChunkedLineTracker:
+    """Keep track of line/byte relationships in a QTextDocument
+    This is done by storing the byte-length of each line
+
+    These lenghts are stored in chunks about the size of the `chunk_size` argument
+    And there's metadata about these chunks stored in other lists to make getting
+    and setting information faster
+
+    If any chunk gets to either double or half the chunk_size it will split or merge
+    to keep things generally consistent.
+
+    Properties:
+        chunks: A chunked list of line-lengths in bytes
+        chunks_cumsums: The cumulative sum of each chunk. Including a leading 0
+            These are lazily calculated.
+        chunk_totals: The total number of bytes in each chunk
+        chunk_line_ranges: The cumulative sum of the line count of each chunk
+            Including a leading 0
+        chunk_byte_ranges: The cumulative sum of the byte count of each chunk
+            Including a leading 0
+        chunk_size: The target size of each chunk
+    """
     def __init__(self, data: Optional[Sequence[int]] = None, chunk_size: int = 10000):
         self.chunks: list[np.ndarray]
         self.chunk_cumsums: list[Optional[np.ndarray]]
@@ -100,6 +119,12 @@ class ChunkedLineTracker:
             self.chunk_cumsums[chunk_idx] = css
 
         return np.searchsorted(css, [byteidx - start_byte], "right")[0] - 1
+
+    def line_bytelength(self, line: int) -> int:
+        """Get the bytelength of the given line"""
+        chunk_idx = self.get_chunk_for_line(line)
+        offset = self.chunk_line_ranges[chunk_idx] - line
+        return self.chunks[chunk_idx][offset]  # type: ignore
 
     def total_sum(self) -> int:
         return sum(self.chunk_totals)
@@ -224,9 +249,9 @@ class SingleLineHighlighter(QSyntaxHighlighter):
     """A QSyntaxHighlighter that formats a single line"""
 
     # Regex to match common ANSI escape sequences
-    ansi_splitter = re.compile(r'(\x1b\[[0-9;]*m)')
+    ansi_splitter = re.compile(r"(\x1b\[[0-9;]*m)")
     byte_splitter = re.compile(
-        r'[\x00-\x7f]+|[\x80-\u07ff]+|[\u0800-\uffff]+|[\U00010000-\U0010ffff]+'
+        r"[\x00-\x7f]+|[\x80-\u07ff]+|[\u0800-\uffff]+|[\U00010000-\U0010ffff]+"
     )
 
     def __init__(self, parent=None):
@@ -242,7 +267,7 @@ class SingleLineHighlighter(QSyntaxHighlighter):
         charmap = []
         charidx = 0
         for seg in self.byte_splitter.findall(text):
-            bytesize = len(seg[0].encode('utf8'))
+            bytesize = len(seg[0].encode())
             charcount = len(seg)
             for _ in range(charcount):
                 charmap.extend([charidx] * bytesize)
@@ -263,12 +288,12 @@ class SingleLineHighlighter(QSyntaxHighlighter):
                 chunks.append(text)
                 curidx += len(text)
                 codes.append((curcode[0], curcode[1], curidx))
-        return ''.join(chunks), codes
+        return "".join(chunks), codes
 
     def highlightBlock(self, text: str):
         """Apply highlighting to a single block (line)"""
         text, ansi = self.extract_ansi(text)
-        bstr = text.encode('utf8')
+        bstr = text.encode()
         tree = self.parser.parse(bstr)
         self.query_cursor.set_byte_range(0, tree.root_node.end_byte)
         captures = self.query_cursor.captures(tree.root_node)
@@ -335,7 +360,7 @@ class PythonSyntaxHighlighter:
     def point_to_char(self, point: Point) -> int:
         """Get the document-global character offset of a tsPoint"""
         block = self.document.findBlockByNumber(point.row)
-        local_c = len(block.text().encode("utf8")[: point.column].decode("utf8"))
+        local_c = len(block.text().encode()[: point.column].decode())
         return block.position() + local_c
 
     def point_to_byte(self, point: Point) -> int:
@@ -405,9 +430,17 @@ class PythonSyntaxHighlighter:
         end_point: Point,
     ):
         """Highlight a specific byte range in the document."""
+        txt = self.document.toPlainText()
+        bbb = txt.encode()
+
         # Clear formatting in this range first
         start_char = self.point_to_char(start_point)
         end_char = self.point_to_char(end_point)
+
+        print("HIGHLIGHTING")
+        print("HL-CLEAR")
+        print(f'str: "{txt[start_char: end_char]}"')
+        print(f'byt: {bbb[start_byte: end_byte]}')
 
         clear_format = QTextCharFormat()
         cursor = QTextCursor(self.document)
@@ -432,6 +465,9 @@ class PythonSyntaxHighlighter:
                 # Convert byte offsets to character offsets
                 node_start_char = self.byte_to_char(node.start_byte)
                 node_end_char = self.byte_to_char(node.end_byte)
+                print("UPD", capture_name, node_start_char, node_end_char)
+                print(f'str: "{txt[node_start_char: node_end_char]}"')
+                print(f'byt: {bbb[node.start_byte: node.end_byte]}')
 
                 # Apply the format
                 cursor = QTextCursor(self.document)
@@ -504,10 +540,10 @@ class SumRopeDocument(QTextDocument):
             chars_removed: Number of characters removed
             chars_added: Number of characters added
         """
+        print("\nCCC")
         starttime = time.time()
-        print("OCC")
-        ic(position, chars_removed, chars_added)
         if self.isEmpty():
+            print("Empty")
             self.old_line_count = 1
             self.tracker.set([0])
             return
@@ -528,57 +564,110 @@ class SumRopeDocument(QTextDocument):
         nl_offset = 0 if end_is_last else 1
 
         # Short-circuit if just doing normal typing
+        # and backspacing
         if chars_removed == 0 and chars_added == 1:
             curline = start_block.text()
             linepos = position - start_block.position()
 
             line_start_byte = self.tracker.line_to_byte(start_line)
-            line_byte_offset = len(curline[:linepos].encode('utf8'))
+            line_byte_offset = len(curline[:linepos].encode())
             start_byte = line_start_byte + line_byte_offset
+            start_point = Point(start_line, line_byte_offset)
 
             if line_delta == 0:
                 # The character typed was not a newline
-                bytes_added = len(curline[linepos].encode('utf8'))
+                bytes_added = len(curline[linepos].encode())
                 end_byte = start_byte + bytes_added
-                line_full_bytes = len(curline.encode('utf8')) + nl_offset
+                line_full_bytes = len(curline.encode()) + nl_offset
                 new_line_bytelens = [line_full_bytes]
                 new_end_point = Point(start_line, line_byte_offset + bytes_added)
             else:
                 # The character typed WAS a newline
                 end_byte = start_byte + 1
-                line_full_bytes = len(curline.encode('utf8')) + 1
+                line_full_bytes = len(curline.encode()) + 1
                 next_line_full_bytes = (
-                    len(new_end_block.next().text().encode('utf8')) + nl_offset
+                    len(new_end_block.next().text().encode()) + nl_offset
                 )
                 new_line_bytelens = [line_full_bytes, next_line_full_bytes]
                 new_end_point = Point(start_line + line_delta, 0)
 
-            print("PRE")
-            self.tracker.printall()
+            #print("PRE")
+            #self.tracker.printall()
             self.tracker.replace_lines(start_line, start_line + 1, new_line_bytelens)
-            print("POST")
-            self.tracker.printall()
-            print("-------------------")
+            #print("POST")
+            #self.tracker.printall()
+            #print("-------------------")
 
             self.tree.edit(
                 start_byte=start_byte,
                 old_end_byte=start_byte,
                 new_end_byte=end_byte,
-                start_point=Point(start_line, line_byte_offset),
-                old_end_point=Point(start_line, line_byte_offset),
+                start_point=start_point,
+                old_end_point=start_point,
                 new_end_point=new_end_point,
             )
             old_tree = self.tree
             self.tree = self.parser.parse(self.treesitter_callback, old_tree)
+            #print(str(self.tree.root_node))
             self.highlighter.highlight_ranges(old_tree, self.tree)
             endtime = time.time()
             print("TOOK-1", endtime - starttime)
             return
 
-        # TODO: Maybe short-circuit backspace and delete?
+        elif chars_removed == 1 and chars_added == 0:
+            curline = start_block.text()
+            linepos = position - start_block.position()
+
+            line_start_byte = self.tracker.line_to_byte(start_line)
+            line_byte_offset = len(curline[:linepos].encode())
+            start_byte = line_start_byte + line_byte_offset
+            start_point = Point(start_line, line_byte_offset)
+
+            old_line_bytelen = self.tracker.line_bytelength(start_line)
+            new_line_bytelen = len(curline.encode()) + nl_offset
+
+            if line_delta == 0:
+                # The character removed was not a newline
+                byte_delta = new_line_bytelen - old_line_bytelen
+                new_end_byte = start_byte
+                old_end_byte = new_end_byte - byte_delta
+                new_line_bytelens = [new_line_bytelen]
+                old_end_point = Point(start_line, line_byte_offset - byte_delta)
+                new_end_point = Point(start_line, line_byte_offset)
+                end_line = start_line + 1
+            else:
+                # The character removed WAS a newline
+                new_end_byte = start_byte
+                old_end_byte = new_end_byte + 1
+                new_line_bytelens = [new_line_bytelen]
+                old_end_point = Point(start_line + 1, 0)
+                new_end_point = Point(start_line, line_byte_offset)
+                end_line = start_line + 2
+
+            #print("PRE")
+            #self.tracker.printall()
+            self.tracker.replace_lines(start_line, end_line, new_line_bytelens)
+            #print("POST")
+            #self.tracker.printall()
+            #print("-------------------")
+            self.tree.edit(
+                start_byte=start_byte,
+                old_end_byte=old_end_byte,
+                new_end_byte=new_end_byte,
+                start_point=start_point,
+                old_end_point=old_end_point,
+                new_end_point=new_end_point,
+            )
+            old_tree = self.tree
+            self.tree = self.parser.parse(self.treesitter_callback, old_tree)
+            #print(str(self.tree.root_node))
+            self.highlighter.highlight_ranges(old_tree, self.tree)
+            endtime = time.time()
+            print("TOOK-1", endtime - starttime)
+            return
 
         new_line_bytelens = [
-            len(line.encode("utf8"))
+            len(line.encode())
             for line in self.iter_line_range(start_line, new_end_line + 1)
         ]
 
@@ -587,17 +676,16 @@ class SumRopeDocument(QTextDocument):
         else:
             old_end_byte = self.tracker.line_to_byte(old_end_line + 1)
 
-        import __main__
+        #import __main__
+        #__main__.__dict__.update(locals())
+        #__main__.__dict__["doc"] = self
 
-        __main__.__dict__.update(locals())
-        __main__.__dict__['doc'] = self
-
-        print("PRE")
-        self.tracker.printall()
+        #print("PRE")
+        #self.tracker.printall()
         self.tracker.replace_lines(start_line, old_end_line + 1, new_line_bytelens)
-        print("POST")
-        self.tracker.printall()
-        print("-------------------")
+        #print("POST")
+        #self.tracker.printall()
+        #print("-------------------")
 
         if end_is_last:
             new_end_byte = self.tracker.total_sum()
@@ -652,5 +740,7 @@ class SumRopeDocument(QTextDocument):
         self._ts_row_num_prediction = ts_point.row + 1
         self._ts_row_prediction = curblock.next()
 
-        linebytes = curblock.text().encode("utf8")
+        suffix = b"\n" if self._ts_row_prediction.isValid() else b""
+        linebytes = curblock.text().encode() + suffix
+
         return linebytes[ts_point.column :]
