@@ -3,6 +3,7 @@ import bisect
 from math import ceil, floor
 import time
 from typing import Generator, Optional, Sequence, Any
+import difflib
 
 import numpy as np
 from Qt.QtCore import Slot
@@ -361,7 +362,10 @@ class PythonSyntaxHighlighter:
     def point_to_char(self, point: Point) -> int:
         """Get the document-global character offset of a tsPoint"""
         block = self.document.findBlockByNumber(point.row)
-        local_c = len(block.text().encode()[: point.column].decode())
+        btxt = block.text()
+        if block.next().isValid():
+            btxt += "\n"
+        local_c = len(btxt.encode()[: point.column].decode())
         return block.position() + local_c
 
     def point_to_byte(self, point: Point) -> int:
@@ -438,10 +442,33 @@ class PythonSyntaxHighlighter:
         start_char = self.point_to_char(start_point)
         end_char = self.point_to_char(end_point)
 
-        print("HIGHLIGHTING")
-        print("HL-CLEAR")
-        print(f'str: "{txt[start_char:end_char]}"')
-        print(f"byt: {bbb[start_byte:end_byte]}")
+        trn = txt[start_char:end_char].encode()
+        brn = bbb[start_byte:end_byte]
+        if trn != brn:
+            print("WTF IS HAPPENING")
+            print("start_point", start_point)
+            print("end_point", end_point)
+            print("start_byte", start_byte)
+            print("end_byte", end_byte)
+            print("start_char", start_char)
+            print("end_char", end_char)
+
+            print(f"str: {trn}")
+            print(f"byt: {brn}")
+
+            block = self.document.findBlockByNumber(start_point.row)
+            print("BLOCK", block, "blockpos", block.position())
+            local_c = len(block.text().encode()[: start_point.column].decode())
+            print("LOCALC", local_c)
+            start_charx = block.position() + local_c
+            print("CHARX", start_charx)
+            print("TRACKER")
+            print("chunks", self.tracker.chunks)
+            print("chunk_cumsums", self.tracker.chunk_cumsums)
+            print("chunk_totals", self.tracker.chunk_totals)
+            print("chunk_line_ranges", self.tracker.chunk_line_ranges)
+            print("chunk_byte_ranges", self.tracker.chunk_byte_ranges)
+            print("chunk_size", self.tracker.chunk_size)
 
         clear_format = QTextCharFormat()
         cursor = QTextCursor(self.document)
@@ -466,9 +493,9 @@ class PythonSyntaxHighlighter:
                 # Convert byte offsets to character offsets
                 node_start_char = self.byte_to_char(node.start_byte)
                 node_end_char = self.byte_to_char(node.end_byte)
-                print("UPD", capture_name, node_start_char, node_end_char)
-                print(f'str: "{txt[node_start_char:node_end_char]}"')
-                print(f"byt: {bbb[node.start_byte : node.end_byte]}")
+
+                #trn = txt[node_start_char:node_end_char].encode()
+                #brn = bbb[node.start_byte : node.end_byte]
 
                 # Apply the format
                 cursor = QTextCursor(self.document)
@@ -497,8 +524,8 @@ class SumRopeDocument(QTextDocument):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._ts_row_prediction: Optional[QTextBlock] = None
-        self._ts_row_num_prediction: Optional[int] = None
+        self._ts_prediction: dict[int, QTextBlock] = {}
+
         self.cursor = QTextCursor(self)
         self.old_line_count = 0
         self.old_char_count = 0
@@ -510,6 +537,8 @@ class SumRopeDocument(QTextDocument):
         self.tree = self.parser.parse(self.treesitter_callback)
 
         self.contentsChange.connect(self._on_contents_change)
+
+        self._prev = ""
 
     def iter_line_range(
         self, start: int = 0, count: int = -1
@@ -531,6 +560,14 @@ class SumRopeDocument(QTextDocument):
             if outputted == count:
                 break
             block = nextblock
+
+    def _test_diff(self):
+        prevtext = self._prev
+        curtext = self.toPlainText()
+        self._prev = curtext
+        changes = difflib.ndiff(prevtext, curtext)
+        output_list = [(i, li) for i, li in enumerate(changes) if li[0] != " "]
+        print("DIFF", output_list)
 
     def _single_char_change(self, position, chars_added, chars_removed):
         (
@@ -645,10 +682,11 @@ class SumRopeDocument(QTextDocument):
             chars_removed: Number of characters removed
             chars_added: Number of characters added
         """
-        print("\nCCC")
+        self._ts_prediction = {}
+        # self._test_diff()
+
         starttime = time.time()
         if self.isEmpty():
-            print("Empty")
             self.old_line_count = 1
             self.tracker.set([0])
             return
@@ -707,45 +745,26 @@ class SumRopeDocument(QTextDocument):
             new_end_point=Point(new_end_line + 1, 0),
         )
 
-        print(
-            "EDIT",
-            start_byte,
-            old_end_byte,
-            new_end_byte,
-            Point(start_line, 0),
-            Point(old_end_line + 1, 0),
-            Point(new_end_line + 1, 0),
-        )
-
         old_tree = self.tree
         self.tree = self.parser.parse(self.treesitter_callback, old_tree)
         self.highlighter.highlight_ranges(old_tree, self.tree)
-
-        endtime = time.time()
-        print("TOOK", endtime - starttime)
 
     def treesitter_callback(self, _byte_offset: int, ts_point: Point) -> bytes:
         """A callback to pass to the tree-sitter `Parser` constructor
         for efficient access to the underlying byte data without duplicating it
         """
-        curblock: Optional[QTextBlock] = None
-        if self._ts_row_num_prediction is not None:
-            if self._ts_row_num_prediction == ts_point.row:
-                curblock = self._ts_row_prediction
-
+        curblock: Optional[QTextBlock] = self._ts_prediction.get(ts_point.row)
         if curblock is None:
             try:
                 curblock = self.findBlockByNumber(ts_point.row)
             except IndexError:
-                self._ts_row_prediction = None
-                self._ts_row_num_prediction = None
+                self._ts_prediction = {}
                 return b""
 
-        # Guess the next line to be requested by treesitter
-        self._ts_row_num_prediction = ts_point.row + 1
-        self._ts_row_prediction = curblock.next()
-
-        suffix = b"\n" if self._ts_row_prediction.isValid() else b""
+        self._ts_prediction[ts_point.row] = curblock
+        nxt = curblock.next()
+        self._ts_prediction[ts_point.row + 1] = nxt
+        suffix = b"\n" if nxt.isValid() else b""
         linebytes = curblock.text().encode() + suffix
 
         return linebytes[ts_point.column :]
