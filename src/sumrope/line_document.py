@@ -138,10 +138,6 @@ class ChunkedLineTracker:
             self.chunks[chunk_idx][:offset]
         )
 
-    def range_sum(self, start: int, end: int) -> int:
-        """Get the sum of the values between start and end"""
-        return self.line_to_byte(end) - self.line_to_byte(start)
-
     def replace_lines(
         self, start_line: int, post_line: int, new_line_lengths: Sequence[int]
     ):
