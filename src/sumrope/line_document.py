@@ -125,7 +125,7 @@ class ChunkedLineTracker:
     def line_bytelength(self, line: int) -> int:
         """Get the bytelength of the given line"""
         chunk_idx = self.get_chunk_for_line(line)
-        offset = self.chunk_line_ranges[chunk_idx] - line
+        offset = line - self.chunk_line_ranges[chunk_idx]
         return self.chunks[chunk_idx][offset]  # type: ignore
 
     def total_sum(self) -> int:
@@ -134,7 +134,7 @@ class ChunkedLineTracker:
     def line_to_byte(self, line: int) -> int:
         """Get the sum of the first `line` lines"""
         chunk_idx = self.get_chunk_for_line(line)
-        offset = self.chunk_line_ranges[chunk_idx] - line
+        offset = line - self.chunk_line_ranges[chunk_idx]
         return sum(self.chunk_totals[:chunk_idx]) + np.sum(
             self.chunks[chunk_idx][:offset]
         )
@@ -435,40 +435,39 @@ class PythonSyntaxHighlighter:
         end_point: Point,
     ):
         """Highlight a specific byte range in the document."""
-        txt = self.document.toPlainText()
-        bbb = txt.encode()
+        # txt = self.document.toPlainText()
+        # bbb = txt.encode()
 
         # Clear formatting in this range first
         start_char = self.point_to_char(start_point)
         end_char = self.point_to_char(end_point)
 
-        trn = txt[start_char:end_char].encode()
-        brn = bbb[start_byte:end_byte]
-        if trn != brn:
-            print("WTF IS HAPPENING")
-            print("start_point", start_point)
-            print("end_point", end_point)
-            print("start_byte", start_byte)
-            print("end_byte", end_byte)
-            print("start_char", start_char)
-            print("end_char", end_char)
+        # trn = txt[start_char:end_char].encode()
+        # brn = bbb[start_byte:end_byte]
+        #print("WTF IS HAPPENING")
+        #print("start_point", start_point)
+        #print("end_point", end_point)
+        #print("start_byte", start_byte)
+        #print("end_byte", end_byte)
+        #print("start_char", start_char)
+        #print("end_char", end_char)
 
-            print(f"str: {trn}")
-            print(f"byt: {brn}")
+        #print(f"str: {trn}")
+        #print(f"byt: {brn}")
 
-            block = self.document.findBlockByNumber(start_point.row)
-            print("BLOCK", block, "blockpos", block.position())
-            local_c = len(block.text().encode()[: start_point.column].decode())
-            print("LOCALC", local_c)
-            start_charx = block.position() + local_c
-            print("CHARX", start_charx)
-            print("TRACKER")
-            print("chunks", self.tracker.chunks)
-            print("chunk_cumsums", self.tracker.chunk_cumsums)
-            print("chunk_totals", self.tracker.chunk_totals)
-            print("chunk_line_ranges", self.tracker.chunk_line_ranges)
-            print("chunk_byte_ranges", self.tracker.chunk_byte_ranges)
-            print("chunk_size", self.tracker.chunk_size)
+        block = self.document.findBlockByNumber(start_point.row)
+        #print("BLOCK", block, "blockpos", block.position())
+        local_c = len(block.text().encode()[: start_point.column].decode())
+        #print("LOCALC", local_c)
+        start_charx = block.position() + local_c
+        #print("CHARX", start_charx)
+        #print("TRACKER")
+        #print("chunks", self.tracker.chunks)
+        #print("chunk_cumsums", self.tracker.chunk_cumsums)
+        #print("chunk_totals", self.tracker.chunk_totals)
+        #print("chunk_line_ranges", self.tracker.chunk_line_ranges)
+        #print("chunk_byte_ranges", self.tracker.chunk_byte_ranges)
+        #print("chunk_size", self.tracker.chunk_size)
 
         clear_format = QTextCharFormat()
         cursor = QTextCursor(self.document)
@@ -494,8 +493,8 @@ class PythonSyntaxHighlighter:
                 node_start_char = self.byte_to_char(node.start_byte)
                 node_end_char = self.byte_to_char(node.end_byte)
 
-                #trn = txt[node_start_char:node_end_char].encode()
-                #brn = bbb[node.start_byte : node.end_byte]
+                # trn = txt[node_start_char:node_end_char].encode()
+                # brn = bbb[node.start_byte : node.end_byte]
 
                 # Apply the format
                 cursor = QTextCursor(self.document)
@@ -569,6 +568,33 @@ class SumRopeDocument(QTextDocument):
         output_list = [(i, li) for i, li in enumerate(changes) if li[0] != " "]
         print("DIFF", output_list)
 
+    def _get_common_change_data(self, position, chars_added):
+        start_block = self.findBlock(position)
+        new_end_block = self.findBlock(position + chars_added)
+        if not new_end_block.isValid():
+            new_end_block = self.lastBlock()
+
+        start_line = start_block.blockNumber()
+        new_end_line = new_end_block.blockNumber()
+        old_line_count = self.old_line_count
+        new_line_count = self.blockCount()
+        self.old_line_count = new_line_count
+        line_delta = new_line_count - old_line_count
+        old_end_line = new_end_line - line_delta
+        end_is_last = not new_end_block.next().isValid()
+        nl_offset = 0 if end_is_last else 1
+
+        return (
+            start_block,
+            start_line,
+            nl_offset,
+            line_delta,
+            new_end_block,
+            old_end_line,
+            new_end_line,
+            end_is_last,
+        )
+
     def _single_char_change(self, position, chars_added, chars_removed):
         (
             start_block,
@@ -580,6 +606,16 @@ class SumRopeDocument(QTextDocument):
             new_end_line,
             end_is_last,
         ) = self._get_common_change_data(position, chars_added)
+        #print("COMMON DATA")
+        #print("start_block", start_block)
+        #print("start_line", start_line)
+        #print("nl_offset", nl_offset)
+        #print("line_delta", line_delta)
+        #print("new_end_block", new_end_block)
+        #print("old_end_line", old_end_line)
+        #print("new_end_line", new_end_line)
+        #print("end_is_last", end_is_last)
+
         curline = start_block.text()
         linepos = position - start_block.position()
 
@@ -589,6 +625,13 @@ class SumRopeDocument(QTextDocument):
         start_point = Point(start_line, line_byte_offset)
         new_line_bytelen = len(curline.encode()) + nl_offset
         old_line_bytelen = self.tracker.line_bytelength(start_line)
+
+        #print("line_start_byte", line_start_byte)
+        #print("line_byte_offset", line_byte_offset)
+        #print("start_byte", start_byte)
+        #print("start_point", start_point)
+        #print("new_line_bytelen", new_line_bytelen)
+        #print("old_line_bytelen", old_line_bytelen)
 
         if chars_removed == 0:
             old_end_byte = start_byte
@@ -633,6 +676,14 @@ class SumRopeDocument(QTextDocument):
         # print("POST")
         # self.tracker.printall()
         # print("-------------------")
+
+        #print("start_byte",start_byte)
+        #print("old_end_byte",old_end_byte)
+        #print("new_end_byte",new_end_byte)
+        #print("start_point",start_point)
+        #print("old_end_point",old_end_point)
+        #print("new_end_point",new_end_point)
+
         self.tree.edit(
             start_byte=start_byte,
             old_end_byte=old_end_byte,
@@ -646,58 +697,7 @@ class SumRopeDocument(QTextDocument):
         # print(str(self.tree.root_node))
         self.highlighter.highlight_ranges(old_tree, self.tree)
 
-    def _get_common_change_data(self, position, chars_added):
-        start_block = self.findBlock(position)
-        new_end_block = self.findBlock(position + chars_added)
-        if not new_end_block.isValid():
-            new_end_block = self.lastBlock()
-
-        start_line = start_block.blockNumber()
-        new_end_line = new_end_block.blockNumber()
-        old_line_count = self.old_line_count
-        new_line_count = self.blockCount()
-        self.old_line_count = new_line_count
-        line_delta = new_line_count - old_line_count
-        old_end_line = new_end_line - line_delta
-        end_is_last = not new_end_block.next().isValid()
-        nl_offset = 0 if end_is_last else 1
-
-        return (
-            start_block,
-            start_line,
-            nl_offset,
-            line_delta,
-            new_end_block,
-            old_end_line,
-            new_end_line,
-            end_is_last,
-        )
-
-    @Slot(int, int, int)
-    def _on_contents_change(self, position: int, chars_removed: int, chars_added: int):
-        """Handle document content changes incrementally.
-
-        Args:
-            position: Character position where change occurred
-            chars_removed: Number of characters removed
-            chars_added: Number of characters added
-        """
-        self._ts_prediction = {}
-        # self._test_diff()
-
-        starttime = time.time()
-        if self.isEmpty():
-            self.old_line_count = 1
-            self.tracker.set([0])
-            return
-
-        # Short-circuit if just doing normal typing and backspacing
-        if (chars_removed == 0 and chars_added == 1) or (
-            chars_removed == 1 and chars_added == 0
-        ):
-            self._single_char_change(position, chars_added, chars_removed)
-            return
-
+    def _multi_char_change(self, position, chars_added, _chars_removed):
         (
             start_block,
             start_line,
@@ -748,6 +748,49 @@ class SumRopeDocument(QTextDocument):
         old_tree = self.tree
         self.tree = self.parser.parse(self.treesitter_callback, old_tree)
         self.highlighter.highlight_ranges(old_tree, self.tree)
+
+    @Slot(int, int, int)
+    def _on_contents_change(self, position: int, chars_removed: int, chars_added: int):
+        """Handle document content changes incrementally.
+
+        Args:
+            position: Character position where change occurred
+            chars_removed: Number of characters removed
+            chars_added: Number of characters added
+        """
+        import __main__
+        __main__.__dict__.update(locals())
+
+        self._ts_prediction = {}
+        if self.isEmpty():
+            self.old_line_count = 1
+            self.tracker.set([0])
+            return
+
+        txt = self.toPlainText()
+        bbb = txt.encode()
+
+        byte_to_char = {}
+        char_to_bytes = {}
+        block = self.begin()
+        curbyte = 0
+        while block.isValid():
+            pos = block.position()
+            for t in block.text() + "\n":
+                for _ in range(len(t.encode())):
+                    byte_to_char[curbyte] = pos
+                    char_to_bytes.setdefault(pos, []).append(curbyte)
+                    curbyte += 1
+                pos += 1
+            block = block.next()
+        char_to_byte = {k: min(v) for k, v in char_to_bytes.items()}
+        self._test_diff()
+
+        # Short-circuit if just doing normal typing and backspacing
+        if chars_removed | chars_added == 1 and chars_removed & chars_added == 0:
+            self._single_char_change(position, chars_added, chars_removed)
+        else:
+            self._multi_char_change(position, chars_added, chars_removed)
 
     def treesitter_callback(self, _byte_offset: int, ts_point: Point) -> bytes:
         """A callback to pass to the tree-sitter `Parser` constructor
