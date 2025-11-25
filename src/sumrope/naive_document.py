@@ -42,6 +42,7 @@ def load_python_format_rules(
 class NaiveDocument(QTextDocument):
     def __init__(self, parent=None):
         super().__init__(parent)
+        print("NAIVE DOC")
         self.parser = Parser(PY_LANGUAGE)
         self.query = Query(PY_LANGUAGE, tspython.HIGHLIGHTS_QUERY)
         self.query_cursor = QueryCursor(self.query)
