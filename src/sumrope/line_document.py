@@ -414,12 +414,13 @@ class PythonSyntaxHighlighter:
             root = new_tree.root_node
             changed_ranges = [(0, Point(0, 0), root.end_byte, root.end_point)]
         else:
-            changed_ranges = new_tree.changed_ranges(old_tree)
+            changed_ranges = old_tree.changed_ranges(new_tree)
             changed_ranges = [
                 (r.start_byte, r.start_point, r.end_byte, r.end_point)
                 for r in changed_ranges
             ]
 
+        print("CHANGED", changed_ranges)
         # Process each changed range
         for start_byte, start_point, end_byte, end_point in changed_ranges:
             self._highlight_range(
@@ -677,12 +678,12 @@ class SumRopeDocument(QTextDocument):
         # self.tracker.printall()
         # print("-------------------")
 
-        #print("start_byte",start_byte)
-        #print("old_end_byte",old_end_byte)
-        #print("new_end_byte",new_end_byte)
-        #print("start_point",start_point)
-        #print("old_end_point",old_end_point)
-        #print("new_end_point",new_end_point)
+        print("start_byte",start_byte)
+        print("old_end_byte",old_end_byte)
+        print("new_end_byte",new_end_byte)
+        print("start_point",start_point)
+        print("old_end_point",old_end_point)
+        print("new_end_point",new_end_point)
 
         self.tree.edit(
             start_byte=start_byte,
@@ -758,8 +759,7 @@ class SumRopeDocument(QTextDocument):
             chars_removed: Number of characters removed
             chars_added: Number of characters added
         """
-        import __main__
-        __main__.__dict__.update(locals())
+        print("--------------------------------")
 
         self._ts_prediction = {}
         if self.isEmpty():

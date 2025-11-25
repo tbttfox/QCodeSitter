@@ -14,8 +14,8 @@ lay = QVBoxLayout(dlg)
 dlg.setLayout(lay)
 
 edit = QPlainTextEdit(dlg)
-#mydoc = NaiveDocument(edit)
-mydoc = SumRopeDocument(edit)
+mydoc = NaiveDocument(edit)
+#mydoc = SumRopeDocument(edit)
 doclay = QPlainTextDocumentLayout(mydoc)
 mydoc.setDocumentLayout(doclay)
 
