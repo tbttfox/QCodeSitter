@@ -4,7 +4,10 @@ from Qt.QtGui import QKeySequence, QTextCursor, QKeyEvent, QFontMetrics
 from Qt.QtCore import Qt
 from Qt import QtGui, QtCore
 from typing import Callable
-from .line_tracker import TrackedDocument
+from .line_tracker import TrackedDocument, SyntaxHighlighter
+import tree_sitter_python as tspython
+from tree_sitter import Language
+from .hl_groups import FORMAT_SPECS
 
 
 class LineNumberArea(QWidget):
@@ -108,9 +111,17 @@ def hk(key, mods=None):
 class CodeEditor(QPlainTextEdit):
     def __init__(self, space_indent_width=4, tab_indent_width=8, parent=None):
         super().__init__(parent=parent)
-        self.setDocument(TrackedDocument())
+        self._doc = TrackedDocument()
+        self.setDocument(self._doc)
         self._space_indent_width = space_indent_width
         self._tab_indent_width = tab_indent_width
+
+        self.highlighter = SyntaxHighlighter(
+            self,
+            Language(tspython.language()),
+            tspython.HIGHLIGHTS_QUERY,
+            FORMAT_SPECS,
+        )
 
         metrics = QFontMetrics(self.font())
         self.setTabStopWidth(self.tab_indent_width * metrics.width(" "))

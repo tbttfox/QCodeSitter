@@ -1,16 +1,4 @@
-from .line_document import (
-    ChunkedLineTracker,
-    SingleLineHighlighter,
-    PythonSyntaxHighlighter,
-    SumRopeDocument,
-)
-
+from .line_editor import CodeEditor
 from .hl_groups import FORMAT_SPECS
 
-__all__ = [
-    "ChunkedLineTracker",
-    "SingleLineHighlighter",
-    "PythonSyntaxHighlighter",
-    "SumRopeDocument",
-    "FORMAT_SPECS",
-]
+__all__ = ["CodeEditor", "FORMAT_SPECS"]

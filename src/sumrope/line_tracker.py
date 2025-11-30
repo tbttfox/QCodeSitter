@@ -72,6 +72,7 @@ class ChunkedLineTracker:
         return bisect.bisect_right(self.chunk_byte_ranges, byteidx) - 1
 
     def get_line_for_byte(self, byteidx: int) -> int:
+        """Get the index of the line for the given byte offset"""
         chunk_idx = self.get_chunk_for_byte(byteidx)
         if chunk_idx >= len(self.chunks):
             return self.chunk_line_ranges[-1] - 1
@@ -94,6 +95,7 @@ class ChunkedLineTracker:
         return self.chunks[chunk_idx][offset]  # type: ignore
 
     def total_sum(self) -> int:
+        """Get the total length of the document in bytes"""
         return self.chunk_byte_ranges[-1]
 
     def line_to_byte(self, line: int) -> int:
@@ -213,8 +215,11 @@ class TrackedDocument(QTextDocument):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.setDocumentLayout(QPlainTextDocumentLayout(self))
+        self.old_line_count = 0
+        self.lay = QPlainTextDocumentLayout(self)
+        self.setDocumentLayout(self.lay)
         self.tracker: ChunkedLineTracker = ChunkedLineTracker()
+        self.contentsChange.connect(self._on_contents_change)
 
     def point_to_char(self, point: Point) -> int:
         """Get the document-global character offset of a tsPoint"""
@@ -229,7 +234,8 @@ class TrackedDocument(QTextDocument):
         """Get the document-global byte offset of a tsPoint"""
         return self.tracker.line_to_byte(point.row) + point.column
 
-    def byte_to_char(self, byteidx):
+    def byte_to_char(self, byteidx: int) -> int:
+        """Get the character index for the given byte"""
         line = self.tracker.get_line_for_byte(byteidx)
         line_b = self.tracker.line_to_byte(line)
         return self.point_to_char(Point(line, byteidx - line_b))
@@ -237,7 +243,8 @@ class TrackedDocument(QTextDocument):
     def iter_line_range(
         self, start: int = 0, count: int = -1
     ) -> Generator[str, None, None]:
-        """If no range is given, do the whole document"""
+        """Iterate over a range of lines in the document, including any
+        newline characters. If no range is given, do the whole document"""
         block: QTextBlock = (
             self.begin() if start == 0 else self.findBlockByNumber(start)
         )
@@ -255,6 +262,7 @@ class TrackedDocument(QTextDocument):
             block = nextblock
 
     def _get_common_change_data(self, position, chars_added):
+        """Get basic data about a change"""
         start_block = self.findBlock(position)
         new_end_block = self.findBlock(position + chars_added)
         if not new_end_block.isValid():
@@ -281,6 +289,7 @@ class TrackedDocument(QTextDocument):
         )
 
     def _single_char_change(self, position, chars_added, chars_removed):
+        """Handle a single character change, be it one character added, or one removed"""
         (
             start_block,
             start_line,
@@ -351,6 +360,9 @@ class TrackedDocument(QTextDocument):
         )
 
     def _multi_char_change(self, position, chars_added, _chars_removed):
+        """Handle a multiple character change. Because of how we access byte offsets
+        we can only provide line-level granularity for this kind of change
+        """
         (
             _start_block,
             start_line,
@@ -394,7 +406,6 @@ class TrackedDocument(QTextDocument):
             chars_removed: Number of characters removed
             chars_added: Number of characters added
         """
-        self._ts_prediction = {}
         if self.isEmpty():
             return (0, 0, 0, Point(0, 0), Point(0, 0), Point(0, 0))
 
@@ -439,6 +450,7 @@ class SyntaxHighlighter:
         format_specs: dict[str, dict[str, Any]],
     ):
         self.editor = editor
+        self._ts_prediction: dict[int, QTextBlock] = {}
         document = self.editor.document()
         if not isinstance(document, TrackedDocument):
             raise ValueError("This syntax highlighter only works with TrackedDocument")
@@ -451,8 +463,6 @@ class SyntaxHighlighter:
         self.query = Query(language, queryStr)
         self.query_cursor = QueryCursor(self.query)
         self.format_rules = self.load_format_rules(format_specs)
-        self._ts_prediction: dict[int, QTextBlock] = {}
-        self.old_line_count = 0
 
     @classmethod
     def load_format_rules(
