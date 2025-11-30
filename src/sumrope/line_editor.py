@@ -167,7 +167,9 @@ class CodeEditor(QPlainTextEdit):
         modifiers = event.modifiers()
         func = self.hotkeys.get(hk(key, modifiers))
         if func is not None:
-            if func(self.textCursor()):
+            cursor = self.textCursor()
+            if func(cursor):
+                self.setTextCursor(cursor)
                 return
 
         super().keyPressEvent(event)

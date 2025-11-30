@@ -86,12 +86,16 @@ class ChunkedLineTracker:
             css = _zcs(self.chunks[chunk_idx])
             self.chunk_cumsums[chunk_idx] = css
 
-        return np.searchsorted(css, [byteidx - start_byte], "right")[0] - 1
+        return self.chunk_line_ranges[chunk_idx] + np.searchsorted(css, [byteidx - start_byte], "right")[0] - 1
 
     def line_bytelength(self, line: int) -> int:
         """Get the bytelength of the given line"""
         chunk_idx = self.get_chunk_for_line(line)
+        if chunk_idx >= len(self.chunks):
+            return 0
         offset = line - self.chunk_line_ranges[chunk_idx]
+        if offset >= len(self.chunks[chunk_idx]):
+            return 0
         return self.chunks[chunk_idx][offset]  # type: ignore
 
     def total_sum(self) -> int:
@@ -101,8 +105,10 @@ class ChunkedLineTracker:
     def line_to_byte(self, line: int) -> int:
         """Get the sum(self.line_byte_lens[:line])"""
         chunk_idx = self.get_chunk_for_line(line)
+        if chunk_idx >= len(self.chunks):
+            return self.chunk_byte_ranges[-1]
         offset = line - self.chunk_line_ranges[chunk_idx]
-        return self.chunk_byte_ranges[chunk_idx + 1] + np.sum(
+        return self.chunk_byte_ranges[chunk_idx] + np.sum(
             self.chunks[chunk_idx][:offset]
         )
 
@@ -117,9 +123,27 @@ class ChunkedLineTracker:
             self.set(new_line_lengths)
             return
 
+        # Validate the line range
+        total_lines = self.chunk_line_ranges[-1]
+        if start_line >= total_lines:
+            # Appending to the end
+            self.chunks[-1] = np.concatenate((self.chunks[-1], new_line_lengths))
+            self.chunk_cumsums[-1] = None
+            self.chunk_totals[-1] = np.sum(self.chunks[-1])
+            chunk_lengths = [len(c) for c in self.chunks]
+            self.chunk_line_ranges = _zcs(chunk_lengths)
+            self.chunk_byte_ranges = _zcs(self.chunk_totals)
+            self._rebalance(len(self.chunks) - 1)
+            return
+
         # Get the chunk range.  end_chunk_idx is *INCLUSIVE*
         start_chunk_idx = self.get_chunk_for_line(start_line)
-        end_chunk_idx = self.get_chunk_for_line(post_line - 1)
+        if start_chunk_idx >= len(self.chunks):
+            start_chunk_idx = len(self.chunks) - 1
+
+        end_chunk_idx = self.get_chunk_for_line(min(post_line - 1, total_lines - 1))
+        if end_chunk_idx >= len(self.chunks):
+            end_chunk_idx = len(self.chunks) - 1
 
         # Get how far into each chunk the start and end lines are
         start_offset = start_line - self.chunk_line_ranges[start_chunk_idx]
@@ -215,10 +239,12 @@ class TrackedDocument(QTextDocument):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.old_line_count = 0
         self.lay = QPlainTextDocumentLayout(self)
         self.setDocumentLayout(self.lay)
-        self.tracker: ChunkedLineTracker = ChunkedLineTracker()
+
+        # Initialize tracker - start with one empty line
+        self.tracker: ChunkedLineTracker = ChunkedLineTracker([0])
+        self.old_line_count = max(1, self.blockCount())  # Qt might report 0 for empty doc
         self.contentsChange.connect(self._on_contents_change)
 
     def point_to_char(self, point: Point) -> int:
@@ -238,7 +264,8 @@ class TrackedDocument(QTextDocument):
         """Get the character index for the given byte"""
         line = self.tracker.get_line_for_byte(byteidx)
         line_b = self.tracker.line_to_byte(line)
-        return self.point_to_char(Point(line, byteidx - line_b))
+        col = byteidx - line_b
+        return self.point_to_char(Point(line, col))
 
     def iter_line_range(
         self, start: int = 0, count: int = -1
@@ -323,14 +350,26 @@ class TrackedDocument(QTextDocument):
                 new_line_bytelens = [line_full_bytes]
                 new_end_point = Point(start_line, line_byte_offset + byte_delta)
             else:
-                # The character typed WAS a newline
-                new_end_byte = start_byte + 1
-                line_full_bytes = len(curline.encode()) + 1
-                next_line_full_bytes = (
-                    len(new_end_block.next().text().encode()) + nl_offset
-                )
-                new_line_bytelens = [line_full_bytes, next_line_full_bytes]
-                new_end_point = Point(start_line + 1, 0)
+                # The character typed WAS a newline (or empty document case)
+                # Check if we actually created a new line or if this is empty document behavior
+                # start_block.next() should be the newly created line
+                if start_block.next().isValid():
+                    # Actually typed a newline - two lines now exist
+                    # The line where Enter was pressed now has a newline at the end
+                    new_end_byte = start_byte + 1
+                    line_full_bytes = len(curline.encode()) + 1  # Always +1 for the newline
+                    # The next line (start_block.next()) uses nl_offset to determine if IT has a newline
+                    next_line_full_bytes = (
+                        len(start_block.next().text().encode()) + nl_offset
+                    )
+                    new_line_bytelens = [line_full_bytes, next_line_full_bytes]
+                    new_end_point = Point(start_line + 1, 0)
+                else:
+                    # Empty document quirk: line_delta=1 but no actual newline
+                    byte_delta = new_line_bytelen - old_line_bytelen
+                    new_end_byte = old_end_byte + byte_delta
+                    new_line_bytelens = [new_line_bytelen]
+                    new_end_point = Point(start_line, line_byte_offset + byte_delta)
 
         else:
             new_end_byte = start_byte
@@ -348,7 +387,6 @@ class TrackedDocument(QTextDocument):
                 old_end_point = Point(start_line + 1, 0)
                 end_line = start_line + 2
 
-        self.tracker.replace_lines(start_line, end_line, new_line_bytelens)
         return (
             start_byte,
             old_end_byte,
@@ -357,6 +395,8 @@ class TrackedDocument(QTextDocument):
             old_end_point,
             new_end_point,
             new_line_bytelens,
+            start_line,
+            end_line,
         )
 
     def _multi_char_change(self, position, chars_added, _chars_removed):
@@ -395,6 +435,8 @@ class TrackedDocument(QTextDocument):
             Point(old_end_line, old_end_line_bytelen),
             Point(new_end_line, new_end_line_bytelen),
             new_line_bytelens,
+            start_line,
+            old_end_line + 1,
         )
 
     @Slot(int, int, int)
@@ -422,13 +464,11 @@ class TrackedDocument(QTextDocument):
             old_end_point,
             new_end_point,
             new_line_bytelens,
+            tracker_start_line,
+            tracker_end_line,
         ) = ret
 
-        self.tracker.replace_lines(
-            start_point.row,
-            old_end_point.row + 1,
-            new_line_bytelens,
-        )
+        self.tracker.replace_lines(tracker_start_line, tracker_end_line, new_line_bytelens)
         self.byteContentsChange.emit(
             start_byte,
             old_end_byte,
