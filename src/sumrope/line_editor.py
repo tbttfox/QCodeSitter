@@ -47,15 +47,6 @@ class LineNumberArea(QWidget):
         if rect.contains(self.editor.viewport().rect()):
             self.update_line_number_area_width(0)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        cr = self.contentsRect()
-        self.editor.line_number_area.setGeometry(
-            QtCore.QRect(
-                cr.left(), cr.top(), self.line_number_area_width(), cr.height()
-            )
-        )
-
     def line_number_area_paint_event(self, event):
         painter = QtGui.QPainter(self.editor.line_number_area)
         painter.fillRect(event.rect(), self.line_area_bg_color)
@@ -175,6 +166,16 @@ class CodeEditor(QPlainTextEdit):
                 return
 
         super().keyPressEvent(event)
+
+    def resizeEvent(self, e):
+        """Handle resize events to update line number area geometry"""
+        super().resizeEvent(e)
+        cr = self.contentsRect()
+        self.line_number_area.setGeometry(
+            QtCore.QRect(
+                cr.left(), cr.top(), self.line_number_area.line_number_area_width(), cr.height()
+            )
+        )
 
     def _expandToLines(self, cursor):
         """Expand a cursor selection to whole lines
