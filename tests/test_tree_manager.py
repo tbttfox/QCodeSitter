@@ -15,8 +15,10 @@ class TestTreeManager:
     @pytest.fixture
     def source_callback(self, source_text):
         """Create a simple source callback for testing"""
+
         def callback(byte_offset: int, point: Point) -> bytes:
             return source_text[byte_offset:]
+
         return callback
 
     @pytest.fixture
@@ -39,7 +41,7 @@ class TestTreeManager:
             new_end_byte=17,
             start_point=Point(0, 0),
             old_end_point=Point(0, 0),
-            new_end_point=Point(2, 0)
+            new_end_point=Point(2, 0),
         )
 
         assert tree_manager.tree is not None
@@ -55,7 +57,7 @@ class TestTreeManager:
             new_end_byte=17,
             start_point=Point(0, 0),
             old_end_point=Point(0, 0),
-            new_end_point=Point(2, 0)
+            new_end_point=Point(2, 0),
         )
 
         # Get node at the 'd' in 'def'
@@ -77,8 +79,11 @@ class TestTreeManager:
 
         # Create initial source
         initial_source = b"x = 1\n"
-        callback = lambda byte_offset, point: initial_source[byte_offset:]
-        tm = TreeManager(language, callback)
+
+        def init_src_callback(byte_offset, point):
+            return initial_source[byte_offset:]
+
+        tm = TreeManager(language, init_src_callback)
 
         # Initial parse
         tm.update(
@@ -87,7 +92,7 @@ class TestTreeManager:
             new_end_byte=len(initial_source),
             start_point=Point(0, 0),
             old_end_point=Point(0, 0),
-            new_end_point=Point(1, 0)
+            new_end_point=Point(1, 0),
         )
 
         assert tm.tree is not None
@@ -95,8 +100,11 @@ class TestTreeManager:
 
         # Modify source (change "x = 1" to "x = 2")
         modified_source = b"x = 2\n"
-        callback = lambda byte_offset, point: modified_source[byte_offset:]
-        tm._source_callback = callback
+
+        def mod_src_callback(byte_offset, point):
+            return modified_source[byte_offset:]
+
+        tm._source_callback = mod_src_callback
 
         # Incremental update
         tm.update(
@@ -105,7 +113,7 @@ class TestTreeManager:
             new_end_byte=5,
             start_point=Point(0, 4),
             old_end_point=Point(0, 5),
-            new_end_point=Point(0, 5)
+            new_end_point=Point(0, 5),
         )
 
         assert tm.tree is not None
