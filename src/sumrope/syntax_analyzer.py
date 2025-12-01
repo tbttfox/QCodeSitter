@@ -66,7 +66,14 @@ class SyntaxAnalyzer:
                 if colon_node and colon_node.start_point.row == line_num:
                     return True
 
-            # Check for opening brackets/parens
+            # Check if we're directly at an opening bracket (e.g., incomplete code)
+            # In incomplete code, tree-sitter may create ERROR nodes with brackets as direct children
+            if node_type in ("[", "(", "{"):
+                # We're at an opening bracket on this line - should indent
+                if current.start_point.row == line_num:
+                    return True
+
+            # Check for opening brackets/parens in complete syntax structures
             if node_type in (
                 "list",
                 "dictionary",
