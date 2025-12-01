@@ -298,7 +298,9 @@ class CodeEditor(QPlainTextEdit):
         dedent = False
 
         # Check if we should add indent (opening block)
-        if self._should_indent_after_node(node):
+        should_indent = self._should_indent_after_node(node, line_num)
+
+        if should_indent:
             if self.indent_using_tabs:
                 extra_indent = "\t"
             else:
@@ -317,11 +319,15 @@ class CodeEditor(QPlainTextEdit):
         cursor.insertText("\n" + final_indent + extra_indent)
         return True
 
-    def _should_indent_after_node(self, node) -> bool:
-        """Determine if we should add indent based on the tree-sitter node"""
+    def _should_indent_after_node(self, node, cursor_line: int) -> bool:
+        """Determine if we should add indent based on the tree-sitter node
+
+        Args:
+            node: The tree-sitter node at the cursor position
+            cursor_line: The actual line number where the cursor is (0-indexed)
+        """
         # Walk up to find the statement or expression we're in
         current = node
-        line_num = node.start_point.row
 
         while current:
             node_type = current.type
@@ -337,17 +343,25 @@ class CodeEditor(QPlainTextEdit):
                 # Look for a colon child on the same line as the cursor
                 # This handles cases like "def foo():  # comment"
                 colon_node = self._find_child_by_type(current, ':')
-                if colon_node and colon_node.start_point.row == line_num:
+                if colon_node and colon_node.start_point.row == cursor_line:
                     return True
 
             # Check for opening brackets/parens
             if node_type in ('list', 'dictionary', 'set', 'tuple', 'argument_list', 'parameters'):
-                # Find the opening bracket/paren for this collection on the current line
+                # Find the opening and closing brackets for this collection
                 opening_bracket = self._find_child_by_type(current, '(') or \
                                  self._find_child_by_type(current, '[') or \
                                  self._find_child_by_type(current, '{')
-                if opening_bracket and opening_bracket.start_point.row == line_num:
-                    return True
+                closing_bracket = self._find_child_by_type(current, ')') or \
+                                 self._find_child_by_type(current, ']') or \
+                                 self._find_child_by_type(current, '}')
+
+                # Only indent if:
+                # 1. The opening bracket is on the current line
+                # 2. The closing bracket is NOT on the current line (bracket is still open)
+                if opening_bracket and opening_bracket.start_point.row == cursor_line:
+                    if not closing_bracket or closing_bracket.start_point.row != cursor_line:
+                        return True
 
             current = current.parent
 
