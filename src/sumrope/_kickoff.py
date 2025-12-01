@@ -12,7 +12,6 @@ win = QMainWindow()
 
 #edit = QPlainTextEdit(parent=win)
 edit = CodeEditor(parent=win)
-print(edit)
 
 win.setCentralWidget(edit)
 win.show()
