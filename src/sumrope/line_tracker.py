@@ -485,22 +485,19 @@ class SyntaxHighlighter:
     def __init__(
         self,
         editor: QPlainTextEdit,
-        language: Language,
+        tree_manager,
         queryStr: str,
         format_specs: dict[str, dict[str, Any]],
     ):
         self.editor = editor
-        self._ts_prediction: dict[int, QTextBlock] = {}
+        self.tree_manager = tree_manager
         document = self.editor.document()
         if not isinstance(document, TrackedDocument):
             raise ValueError("This syntax highlighter only works with TrackedDocument")
 
         document.byteContentsChange.connect(self._on_byte_contents_change)
 
-        self.language: Language = language
-        self.parser = Parser(self.language)
-        self.tree = self.parser.parse(self.treesitter_callback)
-        self.query = Query(language, queryStr)
+        self.query = Query(tree_manager.parser.language, queryStr)
         self.query_cursor = QueryCursor(self.query)
         self.format_rules = self.load_format_rules(format_specs)
 
@@ -577,7 +574,7 @@ class SyntaxHighlighter:
         self.query_cursor.set_byte_range(start_byte, end_byte)
 
         # Execute the query on the tree's root node
-        captures = self.query_cursor.captures(self.tree.root_node)
+        captures = self.query_cursor.captures(self.tree_manager.tree.root_node)
 
         # Apply formatting for each capture
         for capture_name, nodes in captures.items():
@@ -604,37 +601,12 @@ class SyntaxHighlighter:
         old_end_point: Point,
         new_end_point: Point,
     ):
-        self.tree.edit(
-            start_byte=start_byte,
-            old_end_byte=old_end_byte,
-            new_end_byte=new_end_byte,
-            start_point=start_point,
-            old_end_point=old_end_point,
-            new_end_point=new_end_point,
+        old_tree = self.tree_manager.tree
+        self.tree_manager.update(
+            start_byte, old_end_byte, new_end_byte,
+            start_point, old_end_point, new_end_point
         )
-        old_tree = self.tree
-        self.tree = self.parser.parse(self.treesitter_callback, old_tree)
         cursor = self.editor.textCursor()
         cursor.joinPreviousEditBlock()
-        self.highlight_ranges(old_tree, self.tree)
+        self.highlight_ranges(old_tree, self.tree_manager.tree)
         cursor.endEditBlock()
-
-    def treesitter_callback(self, _byte_offset: int, ts_point: Point) -> bytes:
-        """A callback to pass to the tree-sitter `Parser` constructor
-        for efficient access to the underlying byte data without duplicating it
-        """
-        curblock: Optional[QTextBlock] = self._ts_prediction.get(ts_point.row)
-        if curblock is None:
-            try:
-                curblock = self.editor.document().findBlockByNumber(ts_point.row)
-            except IndexError:
-                self._ts_prediction = {}
-                return b""
-
-        self._ts_prediction[ts_point.row] = curblock
-        nxt = curblock.next()
-        self._ts_prediction[ts_point.row + 1] = nxt
-        suffix = b"\n" if nxt.isValid() else b""
-        linebytes = curblock.text().encode() + suffix
-
-        return linebytes[ts_point.column :]

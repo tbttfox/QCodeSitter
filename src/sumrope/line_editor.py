@@ -1,13 +1,15 @@
 from __future__ import annotations
 from Qt.QtWidgets import QPlainTextEdit, QWidget
-from Qt.QtGui import QKeySequence, QTextCursor, QKeyEvent, QFontMetrics
+from Qt.QtGui import QKeySequence, QTextCursor, QKeyEvent, QFontMetrics, QTextBlock
 from Qt.QtCore import Qt
 from Qt import QtGui, QtCore
-from typing import Callable
+from typing import Callable, Optional
 from .line_tracker import TrackedDocument, SyntaxHighlighter
 import tree_sitter_python as tspython
 from tree_sitter import Language, Point
 from .hl_groups import FORMAT_SPECS
+from .tree_manager import TreeManager
+from .syntax_analyzer import SyntaxAnalyzer
 
 
 class LineNumberArea(QWidget):
@@ -106,13 +108,22 @@ class CodeEditor(QPlainTextEdit):
         self.setDocument(self._doc)
         self._space_indent_width = space_indent_width
         self._tab_indent_width = tab_indent_width
+        self._ts_prediction: dict[int, QTextBlock] = {}
 
+        # Create tree manager with source callback
+        language = Language(tspython.language())
+        self.tree_manager = TreeManager(language, self._treesitter_source_callback)
+
+        # Create highlighter with tree manager
         self.highlighter = SyntaxHighlighter(
             self,
-            Language(tspython.language()),
+            self.tree_manager,
             tspython.HIGHLIGHTS_QUERY,
             FORMAT_SPECS,
         )
+
+        # Create syntax analyzer (shares tree manager with highlighter)
+        self.syntax_analyzer = SyntaxAnalyzer(self.tree_manager, self._doc)
 
         metrics = QFontMetrics(self.font())
         self.setTabStopWidth(self.tab_indent_width * metrics.width(" "))
@@ -154,6 +165,27 @@ class CodeEditor(QPlainTextEdit):
         if not isinstance(doc, TrackedDocument):
             raise ValueError("This syntax highlighter only works with TrackedDocument")
         return doc
+
+    def _treesitter_source_callback(self, _byte_offset: int, ts_point: Point) -> bytes:
+        """Provide source bytes to tree-sitter parser
+
+        A callback for efficient access to the underlying byte data without duplicating it
+        """
+        curblock: Optional[QTextBlock] = self._ts_prediction.get(ts_point.row)
+        if curblock is None:
+            try:
+                curblock = self.document().findBlockByNumber(ts_point.row)
+            except IndexError:
+                self._ts_prediction = {}
+                return b""
+
+        self._ts_prediction[ts_point.row] = curblock
+        nxt = curblock.next()
+        self._ts_prediction[ts_point.row + 1] = nxt
+        suffix = b"\n" if nxt.isValid() else b""
+        linebytes = curblock.text().encode() + suffix
+
+        return linebytes[ts_point.column :]
 
     def keyPressEvent(self, event: QKeyEvent):
         key = event.key()
@@ -274,32 +306,20 @@ class CodeEditor(QPlainTextEdit):
         stripped = line_text.lstrip()
         indent = line_text[:len(line_text) - len(stripped)]
 
-        # Get the tree-sitter node at cursor position
-        doc = self.document()
+        # Get cursor position
         line_num = block.blockNumber()
         col = cursor.positionInBlock()
 
-        # Convert to byte offset
         # Look at the position just before the cursor to find the statement we just finished
         # This handles the case where cursor is after a colon with no content yet
         lookup_col = max(0, col - 1) if col > 0 else 0
-        byte_offset = doc.point_to_byte(Point(line_num, lookup_col))
 
-        # Get the node at this position
-        tree = self.highlighter.tree
-        node = tree.root_node.descendant_for_byte_range(byte_offset, byte_offset)
-
-        if node is None:
-            # Fallback: just preserve current indent
-            cursor.insertText("\n" + indent)
-            return True
-
-        # Determine indent action based on node type and context
+        # Determine indent action based on syntax analysis
         extra_indent = ""
         dedent = False
 
         # Check if we should add indent (opening block)
-        should_indent = self._should_indent_after_node(node, line_num)
+        should_indent = self.syntax_analyzer.should_indent_after_position(line_num, lookup_col)
 
         if should_indent:
             if self.indent_using_tabs:
@@ -308,7 +328,7 @@ class CodeEditor(QPlainTextEdit):
                 extra_indent = " " * self.space_indent_width
 
         # Check if we should dedent (closing block or return statement)
-        elif self._should_dedent_after_node(node, line_text):
+        elif self.syntax_analyzer.should_dedent_after_position(line_num, lookup_col, line_text):
             dedent = True
 
         # Apply dedent if needed
@@ -319,90 +339,6 @@ class CodeEditor(QPlainTextEdit):
         # Insert newline and indentation
         cursor.insertText("\n" + final_indent + extra_indent)
         return True
-
-    def _should_indent_after_node(self, node, cursor_line: int) -> bool:
-        """Determine if we should add indent based on the tree-sitter node
-
-        Args:
-            node: The tree-sitter node at the cursor position
-            cursor_line: The actual line number where the cursor is (0-indexed)
-        """
-        # Walk up to find the statement or expression we're in
-        current = node
-
-        while current:
-            node_type = current.type
-
-            # Check if we're at the end of a compound statement (ends with :)
-            # These include: if, for, while, def, class, with, try, except, etc.
-            if node_type in (
-                'if_statement', 'for_statement', 'while_statement',
-                'function_definition', 'class_definition', 'with_statement',
-                'try_statement', 'except_clause', 'finally_clause',
-                'elif_clause', 'else_clause', 'match_statement', 'case_clause'
-            ):
-                # Look for a colon child on the same line as the cursor
-                # This handles cases like "def foo():  # comment"
-                colon_node = self._find_child_by_type(current, ':')
-                if colon_node and colon_node.start_point.row == cursor_line:
-                    return True
-
-            # Check for opening brackets/parens
-            if node_type in ('list', 'dictionary', 'set', 'tuple', 'argument_list', 'parameters'):
-                # Find the opening and closing brackets for this collection
-                opening_bracket = self._find_child_by_type(current, '(') or \
-                                 self._find_child_by_type(current, '[') or \
-                                 self._find_child_by_type(current, '{')
-                closing_bracket = self._find_child_by_type(current, ')') or \
-                                 self._find_child_by_type(current, ']') or \
-                                 self._find_child_by_type(current, '}')
-
-                # Only indent if:
-                # 1. The opening bracket is on the current line
-                # 2. The closing bracket is NOT on the current line (bracket is still open)
-                if opening_bracket and opening_bracket.start_point.row == cursor_line:
-                    if not closing_bracket or closing_bracket.start_point.row != cursor_line:
-                        return True
-
-            current = current.parent
-
-        return False
-
-    def _find_child_by_type(self, node, type_name: str):
-        """Find a direct child node with the given type"""
-        for child in node.children:
-            if child.type == type_name:
-                return child
-        return None
-
-    def _should_dedent_after_node(self, node, line_text: str) -> bool:
-        """Determine if we should dedent based on the tree-sitter node"""
-        current = node
-
-        # Walk up to find relevant statement
-        while current:
-            node_type = current.type
-
-            # Check for return statement
-            if node_type == 'return_statement':
-                return True
-
-            # Check for break/continue/pass/raise
-            if node_type in ('break_statement', 'continue_statement', 'pass_statement', 'raise_statement'):
-                return True
-
-            # Check if this line closes a bracket that was opened on a previous line
-            # We need to check if the line starts with a closing bracket
-            stripped = line_text.lstrip()
-            if stripped and stripped[0] in ')]}':
-                # Make sure this is actually closing something from earlier
-                # by checking if the opening bracket is on a different line
-                if current.start_point.row < node.start_point.row:
-                    return True
-
-            current = current.parent
-
-        return False
 
     def _dedent_string(self, indent: str) -> str:
         """Remove one level of indentation from the indent string"""
