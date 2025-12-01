@@ -10,11 +10,10 @@ from Qt.QtWidgets import QMainWindow, QApplication
 app = QApplication(sys.argv)
 win = QMainWindow()
 
-#edit = QPlainTextEdit(parent=win)
+# edit = QPlainTextEdit(parent=win)
 edit = CodeEditor(parent=win)
 
 win.setCentralWidget(edit)
 win.show()
 
 app.exec_()
-

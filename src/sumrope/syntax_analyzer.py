@@ -24,7 +24,7 @@ class SyntaxAnalyzer:
 
         Args:
             line_num: Line number (0-indexed)
-            col: Column number (0-indexed)
+            col: Column number (0-indexed, measured in bytes)
 
         Returns:
             True if an indent should be added, False otherwise
@@ -46,39 +46,64 @@ class SyntaxAnalyzer:
             # Check if we're at the end of a compound statement (ends with :)
             # These include: if, for, while, def, class, with, try, except, etc.
             if node_type in (
-                'if_statement', 'for_statement', 'while_statement',
-                'function_definition', 'class_definition', 'with_statement',
-                'try_statement', 'except_clause', 'finally_clause',
-                'elif_clause', 'else_clause', 'match_statement', 'case_clause'
+                "if_statement",
+                "for_statement",
+                "while_statement",
+                "function_definition",
+                "class_definition",
+                "with_statement",
+                "try_statement",
+                "except_clause",
+                "finally_clause",
+                "elif_clause",
+                "else_clause",
+                "match_statement",
+                "case_clause",
             ):
                 # Look for a colon child on the same line as the cursor
                 # This handles cases like "def foo():  # comment"
-                colon_node = self._find_child_by_type(current, ':')
+                colon_node = self._find_child_by_type(current, ":")
                 if colon_node and colon_node.start_point.row == line_num:
                     return True
 
             # Check for opening brackets/parens
-            if node_type in ('list', 'dictionary', 'set', 'tuple', 'argument_list', 'parameters'):
+            if node_type in (
+                "list",
+                "dictionary",
+                "set",
+                "tuple",
+                "argument_list",
+                "parameters",
+            ):
                 # Find the opening and closing brackets for this collection
-                opening_bracket = self._find_child_by_type(current, '(') or \
-                                 self._find_child_by_type(current, '[') or \
-                                 self._find_child_by_type(current, '{')
-                closing_bracket = self._find_child_by_type(current, ')') or \
-                                 self._find_child_by_type(current, ']') or \
-                                 self._find_child_by_type(current, '}')
+                opening_bracket = (
+                    self._find_child_by_type(current, "(")
+                    or self._find_child_by_type(current, "[")
+                    or self._find_child_by_type(current, "{")
+                )
+                closing_bracket = (
+                    self._find_child_by_type(current, ")")
+                    or self._find_child_by_type(current, "]")
+                    or self._find_child_by_type(current, "}")
+                )
 
                 # Only indent if:
                 # 1. The opening bracket is on the current line
                 # 2. The closing bracket is NOT on the current line (bracket is still open)
                 if opening_bracket and opening_bracket.start_point.row == line_num:
-                    if not closing_bracket or closing_bracket.start_point.row != line_num:
+                    if (
+                        not closing_bracket
+                        or closing_bracket.start_point.row != line_num
+                    ):
                         return True
 
             current = current.parent
 
         return False
 
-    def should_dedent_after_position(self, line_num: int, col: int, line_text: str) -> bool:
+    def should_dedent_after_position(
+        self, line_num: int, col: int, line_text: str
+    ) -> bool:
         """Determine if dedent should be applied after cursor position
 
         Args:
@@ -104,17 +129,22 @@ class SyntaxAnalyzer:
             node_type = current.type
 
             # Check for return statement
-            if node_type == 'return_statement':
+            if node_type == "return_statement":
                 return True
 
             # Check for break/continue/pass/raise
-            if node_type in ('break_statement', 'continue_statement', 'pass_statement', 'raise_statement'):
+            if node_type in (
+                "break_statement",
+                "continue_statement",
+                "pass_statement",
+                "raise_statement",
+            ):
                 return True
 
             # Check if this line closes a bracket that was opened on a previous line
             # We need to check if the line starts with a closing bracket
             stripped = line_text.lstrip()
-            if stripped and stripped[0] in ')]}':
+            if stripped and stripped[0] in ")]}":
                 # Make sure this is actually closing something from earlier
                 # by checking if the opening bracket is on a different line
                 if current.start_point.row < node.start_point.row:

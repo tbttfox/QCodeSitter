@@ -205,7 +205,10 @@ class CodeEditor(QPlainTextEdit):
         cr = self.contentsRect()
         self.line_number_area.setGeometry(
             QtCore.QRect(
-                cr.left(), cr.top(), self.line_number_area.line_number_area_width(), cr.height()
+                cr.left(),
+                cr.top(),
+                self.line_number_area.line_number_area_width(),
+                cr.height(),
             )
         )
 
@@ -304,7 +307,7 @@ class CodeEditor(QPlainTextEdit):
         block = cursor.block()
         line_text = block.text()
         stripped = line_text.lstrip()
-        indent = line_text[:len(line_text) - len(stripped)]
+        indent = line_text[: len(line_text) - len(stripped)]
 
         # Get cursor position
         line_num = block.blockNumber()
@@ -319,7 +322,9 @@ class CodeEditor(QPlainTextEdit):
         dedent = False
 
         # Check if we should add indent (opening block)
-        should_indent = self.syntax_analyzer.should_indent_after_position(line_num, lookup_col)
+        should_indent = self.syntax_analyzer.should_indent_after_position(
+            line_num, lookup_col
+        )
 
         if should_indent:
             if self.indent_using_tabs:
@@ -328,7 +333,9 @@ class CodeEditor(QPlainTextEdit):
                 extra_indent = " " * self.space_indent_width
 
         # Check if we should dedent (closing block or return statement)
-        elif self.syntax_analyzer.should_dedent_after_position(line_num, lookup_col, line_text):
+        elif self.syntax_analyzer.should_dedent_after_position(
+            line_num, lookup_col, line_text
+        ):
             dedent = True
 
         # Apply dedent if needed
@@ -343,13 +350,13 @@ class CodeEditor(QPlainTextEdit):
     def _dedent_string(self, indent: str) -> str:
         """Remove one level of indentation from the indent string"""
         if self.indent_using_tabs:
-            if indent.endswith('\t'):
+            if indent.endswith("\t"):
                 return indent[:-1]
         else:
             # Remove up to space_indent_width spaces from the end
             spaces_to_remove = min(self.space_indent_width, len(indent))
             # Count trailing spaces
-            trailing_spaces = len(indent) - len(indent.rstrip(' '))
+            trailing_spaces = len(indent) - len(indent.rstrip(" "))
             actual_remove = min(spaces_to_remove, trailing_spaces)
             if actual_remove > 0:
                 return indent[:-actual_remove]

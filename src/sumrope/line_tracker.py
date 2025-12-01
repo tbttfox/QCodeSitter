@@ -86,7 +86,11 @@ class ChunkedLineTracker:
             css = _zcs(self.chunks[chunk_idx])
             self.chunk_cumsums[chunk_idx] = css
 
-        return self.chunk_line_ranges[chunk_idx] + np.searchsorted(css, [byteidx - start_byte], "right")[0] - 1
+        return (
+            self.chunk_line_ranges[chunk_idx]
+            + np.searchsorted(css, [byteidx - start_byte], "right")[0]
+            - 1
+        )
 
     def line_bytelength(self, line: int) -> int:
         """Get the bytelength of the given line"""
@@ -244,7 +248,9 @@ class TrackedDocument(QTextDocument):
 
         # Initialize tracker - start with one empty line
         self.tracker: ChunkedLineTracker = ChunkedLineTracker([0])
-        self.old_line_count = max(1, self.blockCount())  # Qt might report 0 for empty doc
+        self.old_line_count = max(
+            1, self.blockCount()
+        )  # Qt might report 0 for empty doc
         self.contentsChange.connect(self._on_contents_change)
 
     def point_to_char(self, point: Point) -> int:
@@ -357,7 +363,9 @@ class TrackedDocument(QTextDocument):
                     # Actually typed a newline - two lines now exist
                     # The line where Enter was pressed now has a newline at the end
                     new_end_byte = start_byte + 1
-                    line_full_bytes = len(curline.encode()) + 1  # Always +1 for the newline
+                    line_full_bytes = (
+                        len(curline.encode()) + 1
+                    )  # Always +1 for the newline
                     # The next line (start_block.next()) uses nl_offset to determine if IT has a newline
                     next_line_full_bytes = (
                         len(start_block.next().text().encode()) + nl_offset
@@ -468,7 +476,9 @@ class TrackedDocument(QTextDocument):
             tracker_end_line,
         ) = ret
 
-        self.tracker.replace_lines(tracker_start_line, tracker_end_line, new_line_bytelens)
+        self.tracker.replace_lines(
+            tracker_start_line, tracker_end_line, new_line_bytelens
+        )
         self.byteContentsChange.emit(
             start_byte,
             old_end_byte,
@@ -603,8 +613,12 @@ class SyntaxHighlighter:
     ):
         old_tree = self.tree_manager.tree
         self.tree_manager.update(
-            start_byte, old_end_byte, new_end_byte,
-            start_point, old_end_point, new_end_point
+            start_byte,
+            old_end_byte,
+            new_end_byte,
+            start_point,
+            old_end_point,
+            new_end_point,
         )
         cursor = self.editor.textCursor()
         cursor.joinPreviousEditBlock()

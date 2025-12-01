@@ -10,7 +10,9 @@ class TreeManager:
     to efficiently re-parse only the changed portions of the document.
     """
 
-    def __init__(self, language: Language, source_callback: Callable[[int, Point], bytes]):
+    def __init__(
+        self, language: Language, source_callback: Callable[[int, Point], bytes]
+    ):
         """Initialize the tree manager
 
         Args:
@@ -22,8 +24,15 @@ class TreeManager:
         self.tree: Optional[Tree] = None
         self._source_callback = source_callback
 
-    def update(self, start_byte: int, old_end_byte: int, new_end_byte: int,
-               start_point: Point, old_end_point: Point, new_end_point: Point):
+    def update(
+        self,
+        start_byte: int,
+        old_end_byte: int,
+        new_end_byte: int,
+        start_point: Point,
+        old_end_point: Point,
+        new_end_point: Point,
+    ):
         """Incrementally update the parse tree after document changes
 
         Args:
@@ -41,7 +50,7 @@ class TreeManager:
                 new_end_byte=new_end_byte,
                 start_point=start_point,
                 old_end_point=old_end_point,
-                new_end_point=new_end_point
+                new_end_point=new_end_point,
             )
             self.tree = self.parser.parse(self._source_callback, self.tree)
         else:
