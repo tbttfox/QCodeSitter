@@ -126,7 +126,7 @@ class CodeEditor(QPlainTextEdit):
         metrics = QFontMetrics(self.font())
         self.setTabStopWidth(self.tab_indent_width * metrics.width(" "))
 
-        self.indent_using_tabs = True
+        self.indent_using_tabs = False
         self.line_number_area = LineNumberArea(self)
 
         # TODO: Make the cursor stuff tell the document that it's making changes
@@ -192,6 +192,18 @@ class CodeEditor(QPlainTextEdit):
 
     def insertIndent(self, cursor: QTextCursor) -> bool:
         """Indent at the given cursor, either a single line or all the lines in a selection"""
+        if not cursor.hasSelection():
+            if self.indent_using_tabs:
+                indent = "\t"
+            else:
+                pos = cursor.positionInBlock()
+                indentCount = pos % self.space_indent_width
+                if indentCount == 0:
+                    indentCount = self.space_indent_width
+                indent = " " * indentCount
+            cursor.insertText(indent)
+            return True
+
         cursor.beginEditBlock()
         self._expandToLines(cursor)
         text = cursor.selection().toPlainText()
