@@ -4,7 +4,8 @@ from Qt.QtGui import QKeySequence, QTextCursor, QKeyEvent, QFontMetrics, QTextBl
 from Qt.QtCore import Qt
 from Qt import QtGui, QtCore
 from typing import Callable, Optional
-from .line_tracker import TrackedDocument, SyntaxHighlighter
+from .line_tracker import TrackedDocument
+from .line_highlighter import TreeSitterHighlighter
 import tree_sitter_python as tspython
 from tree_sitter import Language, Point
 from .hl_groups import FORMAT_SPECS
@@ -114,9 +115,8 @@ class CodeEditor(QPlainTextEdit):
         language = Language(tspython.language())
         self.tree_manager = TreeManager(language, self._treesitter_source_callback)
 
-        # Create highlighter with tree manager
-        self.highlighter = SyntaxHighlighter(
-            self,
+        self.highlighter = TreeSitterHighlighter(
+            self._doc,
             self.tree_manager,
             tspython.HIGHLIGHTS_QUERY,
             FORMAT_SPECS,
@@ -178,6 +178,11 @@ class CodeEditor(QPlainTextEdit):
             except IndexError:
                 self._ts_prediction = {}
                 return b""
+
+        # Check if block is valid (can be invalid after undo)
+        if not curblock.isValid():
+            self._ts_prediction = {}
+            return b""
 
         self._ts_prediction[ts_point.row] = curblock
         nxt = curblock.next()

@@ -32,7 +32,7 @@ class TreeManager:
         start_point: Point,
         old_end_point: Point,
         new_end_point: Point,
-    ):
+    ) -> Optional[Tree]:
         """Incrementally update the parse tree after document changes
 
         Args:
@@ -43,6 +43,7 @@ class TreeManager:
             old_end_point: (row, column) where the change ended (before change)
             new_end_point: (row, column) where the change ends (after change)
         """
+        old_tree = self.tree
         if self.tree is not None:
             self.tree.edit(
                 start_byte=start_byte,
@@ -56,6 +57,7 @@ class TreeManager:
         else:
             # First parse - no old tree to pass
             self.tree = self.parser.parse(self._source_callback)
+        return old_tree
 
     def get_node_at_point(self, byte_offset: int):
         """Get the AST node at a specific byte offset
