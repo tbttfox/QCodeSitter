@@ -193,6 +193,11 @@ class CodeEditor(QPlainTextEdit):
 
         A callback for efficient access to the underlying byte data without duplicating it
         """
+        # Clear cache at the start of each parse (when row 0 is requested)
+        # This ensures we don't use stale block references after document edits
+        if ts_point.row == 0:
+            self._ts_prediction = {}
+
         curblock: Optional[QTextBlock] = self._ts_prediction.get(ts_point.row)
         if curblock is None:
             try:
@@ -343,6 +348,26 @@ class CodeEditor(QPlainTextEdit):
         # Get cursor position
         line_num = block.blockNumber()
         col = cursor.positionInBlock()
+
+        # Special case: if the current line is empty/whitespace-only, just copy the indentation
+        # Don't do syntax analysis on empty lines
+        # Check this BEFORE the col==0 check so empty lines maintain their indentation
+        if stripped == "":
+            cursor.insertText("\n" + indent)
+            return True
+
+        # Special case: if cursor is at the beginning of the line, just insert a blank line
+        # with the indentation from the previous line (if any)
+        if col == 0:
+            prev_block = block.previous()
+            if prev_block.isValid():
+                prev_text = prev_block.text()
+                prev_stripped = prev_text.lstrip()
+                prev_indent = prev_text[: len(prev_text) - len(prev_stripped)]
+                cursor.insertText("\n" + prev_indent)
+            else:
+                cursor.insertText("\n")
+            return True
 
         # Look at the position just before the cursor to find the statement we just finished
         # This handles the case where cursor is after a colon with no content yet
