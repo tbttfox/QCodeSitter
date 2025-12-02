@@ -150,12 +150,21 @@ class SyntaxAnalyzer:
 
             # Check if this line closes a bracket that was opened on a previous line
             # We need to check if the line starts with a closing bracket
+            # BUT only if we're not at the end of the line (pressing Enter after the bracket)
             stripped = line_text.lstrip()
             if stripped and stripped[0] in ")]}":
-                # Make sure this is actually closing something from earlier
-                # by checking if the opening bracket is on a different line
-                if current.start_point.row < node.start_point.row:
-                    return True
+                # Don't dedent if cursor is at or after the closing bracket
+                # (user just typed the bracket and is now pressing Enter after it)
+                # Find the position of the closing bracket in the line
+                bracket_pos = line_text.find(stripped[0])
+                if col >= bracket_pos:
+                    # Cursor is at or after the bracket, don't apply bracket dedent
+                    pass
+                else:
+                    # Make sure this is actually closing something from earlier
+                    # by checking if the opening bracket is on a different line
+                    if current.start_point.row < node.start_point.row:
+                        return True
 
             current = current.parent
 

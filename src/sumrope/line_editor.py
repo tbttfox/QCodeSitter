@@ -197,6 +197,14 @@ class CodeEditor(QPlainTextEdit):
                 self.setTextCursor(cursor)
                 return
 
+        # Check for closing brackets that should trigger auto-dedent
+        text = event.text()
+        if text in (']', ')', '}'):
+            cursor = self.textCursor()
+            if self.smartClosingBracket(cursor, text):
+                self.setTextCursor(cursor)
+                return
+
         super().keyPressEvent(event)
 
     def resizeEvent(self, e):
@@ -345,6 +353,48 @@ class CodeEditor(QPlainTextEdit):
 
         # Insert newline and indentation
         cursor.insertText("\n" + final_indent + extra_indent)
+        return True
+
+    def smartClosingBracket(self, cursor: QTextCursor, bracket: str) -> bool:
+        """Auto-dedent when typing a closing bracket if the line only contains whitespace
+
+        Args:
+            cursor: The text cursor
+            bracket: The closing bracket character (']', ')', or '}')
+
+        Returns:
+            True if we handled the bracket insertion, False to use default behavior
+        """
+        # Only auto-dedent if we're at the end of a line that contains only whitespace
+        block = cursor.block()
+        line_text = block.text()
+        col = cursor.positionInBlock()
+
+        # Check if everything before the cursor is whitespace
+        before_cursor = line_text[:col]
+        if before_cursor.strip() != "":
+            return False  # There's non-whitespace content, use normal behavior
+
+        # Check if everything after the cursor is whitespace
+        after_cursor = line_text[col:]
+        if after_cursor.strip() != "":
+            return False  # There's non-whitespace content after cursor
+
+        # The line is all whitespace, so we should dedent before inserting the bracket
+        stripped = line_text.lstrip()
+        indent = line_text[: len(line_text) - len(stripped)]
+
+        if len(indent) == 0:
+            return False  # No indentation to remove
+
+        # Remove the current line's indentation and replace with dedented version + bracket
+        dedented_indent = self._dedent_string(indent)
+
+        # Replace the entire line with dedented indent + bracket
+        cursor.movePosition(QTextCursor.StartOfLine)
+        cursor.movePosition(QTextCursor.EndOfLine, QTextCursor.KeepAnchor)
+        cursor.insertText(dedented_indent + bracket)
+
         return True
 
     def _dedent_string(self, indent: str) -> str:
