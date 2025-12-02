@@ -1,5 +1,5 @@
 from __future__ import annotations
-from Qt.QtWidgets import QPlainTextEdit, QWidget
+from Qt.QtWidgets import QPlainTextEdit, QWidget, QTextEdit
 from Qt.QtGui import (
     QKeySequence,
     QResizeEvent,
@@ -8,6 +8,8 @@ from Qt.QtGui import (
     QFontMetrics,
     QTextBlock,
     QPaintEvent,
+    QColor,
+    QTextCharFormat,
 )
 from Qt.QtCore import QRect, Qt
 from Qt import QtGui, QtCore
@@ -153,6 +155,9 @@ class CodeEditor(QPlainTextEdit):
 
         self.line_number_area: LineNumberArea = LineNumberArea(self)
 
+        # Connect selection changed signal to highlight occurrences
+        self.selectionChanged.connect(self._highlight_occurrences)
+
         # TODO: Make the cursor stuff tell the document that it's making changes
 
         # Hotkeys
@@ -218,6 +223,40 @@ class CodeEditor(QPlainTextEdit):
         linebytes = curblock.text().encode() + suffix
 
         return linebytes[ts_point.column :]
+
+    def _highlight_occurrences(self):
+        """Highlight all occurrences of the currently selected text"""
+        extra_selections = []
+
+        # Get current selection
+        cursor = self.textCursor()
+        selected_text = cursor.selectedText()
+
+        # Only highlight if there's a selection and it's not too long
+        # Also require at least 2 characters to avoid highlighting single chars
+        if selected_text and len(selected_text) >= 2 and len(selected_text) <= 100:
+            # Create format for highlighting occurrences
+            format = QTextCharFormat()
+            format.setBackground(QColor(255, 255, 0, 80))  # Light yellow with transparency
+
+            # Find all occurrences
+            doc = self.document()
+            search_cursor = QTextCursor(doc)
+
+            while True:
+                search_cursor = doc.find(selected_text, search_cursor)
+                if search_cursor.isNull():
+                    break
+
+                # Don't highlight the current selection itself
+                if search_cursor.position() != cursor.position() or \
+                   search_cursor.anchor() != cursor.anchor():
+                    selection = QTextEdit.ExtraSelection()
+                    selection.cursor = search_cursor
+                    selection.format = format
+                    extra_selections.append(selection)
+
+        self.setExtraSelections(extra_selections)
 
     def keyPressEvent(self, event: QKeyEvent):
         key = event.key()
