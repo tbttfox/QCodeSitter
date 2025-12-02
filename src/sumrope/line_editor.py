@@ -204,7 +204,7 @@ class CodeEditor(QPlainTextEdit):
 
         # Check for closing brackets that should trigger auto-dedent
         text = event.text()
-        if text in (']', ')', '}'):
+        if text in ("]", ")", "}"):
             cursor = self.textCursor()
             if self.smartClosingBracket(cursor, text):
                 self.setTextCursor(cursor)
