@@ -566,18 +566,9 @@ class SyntaxHighlighter:
         end_point: Point,
     ):
         """Highlight a specific byte range in the document."""
-        # Clear formatting in this range first
         document = self.editor.document()
         if not isinstance(document, TrackedDocument):
             raise ValueError("This syntax highlighter only works with TrackedDocument")
-        start_char = document.point_to_char(start_point)
-        end_char = document.point_to_char(end_point)
-
-        clear_format = QTextCharFormat()
-        cursor = QTextCursor(self.editor.document())
-        cursor.setPosition(start_char)
-        cursor.setPosition(end_char, QTextCursor.KeepAnchor)
-        cursor.setCharFormat(clear_format)
 
         # Execute the query using QueryCursor
         # Set the byte range for the query
@@ -586,7 +577,13 @@ class SyntaxHighlighter:
         # Execute the query on the tree's root node
         captures = self.query_cursor.captures(self.tree_manager.tree.root_node)
 
-        # Apply formatting for each capture
+        # Group formats by block
+        from collections import defaultdict
+        from Qt.QtGui import QTextLayout
+
+        block_formats = defaultdict(list)
+
+        # Collect all formats for each block
         for capture_name, nodes in captures.items():
             # Get the format for this capture type
             format_obj = self.format_rules.get(capture_name)
@@ -597,10 +594,43 @@ class SyntaxHighlighter:
                 node_start_char = document.byte_to_char(node.start_byte)
                 node_end_char = document.byte_to_char(node.end_byte)
 
-                # Apply the format
-                cursor.setPosition(node_start_char)
-                cursor.setPosition(node_end_char, QTextCursor.KeepAnchor)
-                cursor.setCharFormat(format_obj)
+                # Find which block(s) this spans
+                start_block = document.findBlock(node_start_char)
+                end_block = document.findBlock(node_end_char)
+
+                block = start_block
+                while block.isValid() and block.position() <= end_block.position():
+                    block_start = block.position()
+                    block_end = block_start + block.length() - 1  # -1 to exclude newline
+
+                    # Calculate range within this block
+                    range_start = max(0, node_start_char - block_start)
+                    range_length = min(node_end_char, block_end) - max(node_start_char, block_start)
+
+                    if range_length > 0:
+                        # Create a QTextLayout.FormatRange
+                        fmt_range = QTextLayout.FormatRange()
+                        fmt_range.start = range_start
+                        fmt_range.length = range_length
+                        fmt_range.format = format_obj
+                        block_formats[block.blockNumber()].append(fmt_range)
+
+                    block = block.next()
+
+        # Apply formats to each affected block's layout
+        # Start from the first block in the changed range
+        start_block = document.findBlock(document.point_to_char(start_point))
+        end_block = document.findBlock(document.point_to_char(end_point))
+
+        block = start_block
+        while block.isValid() and block.position() <= end_block.position():
+            layout = block.layout()
+            if layout:
+                formats = block_formats.get(block.blockNumber(), [])
+                layout.setFormats(formats)
+                # Trigger a repaint of this block
+                document.markContentsDirty(block.position(), block.length())
+            block = block.next()
 
     def _on_byte_contents_change(
         self,
@@ -620,7 +650,4 @@ class SyntaxHighlighter:
             old_end_point,
             new_end_point,
         )
-        cursor = self.editor.textCursor()
-        cursor.joinPreviousEditBlock()
         self.highlight_ranges(old_tree, self.tree_manager.tree)
-        cursor.endEditBlock()

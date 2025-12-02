@@ -250,7 +250,6 @@ class CodeEditor(QPlainTextEdit):
             cursor.insertText(indent)
             return True
 
-        cursor.beginEditBlock()
         self._expandToLines(cursor)
         text = cursor.selection().toPlainText()
         lines = text.split("\n")
@@ -260,7 +259,6 @@ class CodeEditor(QPlainTextEdit):
             indent = " " * self.space_indent_width
         lines = [indent + line if line.strip() != "" else line for line in lines]
         cursor.insertText("\n".join(lines))
-        cursor.endEditBlock()
         return True
 
     def smartBackspace(self, cursor: QTextCursor) -> bool:
@@ -293,7 +291,6 @@ class CodeEditor(QPlainTextEdit):
 
     def unindent(self, cursor: QTextCursor) -> bool:
         """Unindent the given cursor, either a single line or all the lines in a selection"""
-        cursor.beginEditBlock()
         self._expandToLines(cursor)
         text = cursor.selection().toPlainText()
         lines = text.split("\n")
@@ -306,7 +303,6 @@ class CodeEditor(QPlainTextEdit):
                 for line in lines
             ]
         cursor.insertText("\n".join(newlines))
-        cursor.endEditBlock()
         return True
 
     def smartNewline(self, cursor: QTextCursor) -> bool:
