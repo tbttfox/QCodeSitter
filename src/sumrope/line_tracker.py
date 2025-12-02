@@ -1,19 +1,15 @@
 import bisect
 from math import ceil, floor
-from typing import Generator, Optional, Sequence, Any
+from typing import Generator, Optional, Sequence
 
-from Qt.QtWidgets import QPlainTextEdit, QPlainTextDocumentLayout
+from Qt.QtWidgets import QPlainTextDocumentLayout
 import numpy as np
 from Qt.QtCore import Signal, Slot
 from Qt.QtGui import (
-    QColor,
-    QFont,
     QTextBlock,
-    QTextCharFormat,
-    QTextCursor,
     QTextDocument,
 )
-from tree_sitter import Language, Parser, Point, Tree, Query, QueryCursor
+from tree_sitter import Point
 
 
 def _zcs(ary) -> np.ndarray:
@@ -54,7 +50,7 @@ class ChunkedLineTracker:
         data = [0] if data is None else data
         self.set(data)
 
-    def set(self, data):
+    def set(self, data: Sequence[int]):
         ary = np.array(data)
         self.chunks = [ary]
         self.chunk_cumsums = [None]
@@ -176,7 +172,7 @@ class ChunkedLineTracker:
         self.chunk_line_ranges = _zcs(chunk_lengths)
         self.chunk_byte_ranges = _zcs(self.chunk_totals)
 
-    def _get_nice_counts(self, totalsize, num_chunks):
+    def _get_nice_counts(self, totalsize: int, num_chunks: int) -> list[int]:
         """Get the sizes of each chunk given the total size and the number of chunks"""
         if num_chunks < 1:
             return [totalsize]
@@ -298,7 +294,9 @@ class TrackedDocument(QTextDocument):
                 break
             block = nextblock
 
-    def _get_common_change_data(self, position, chars_added):
+    def _get_common_change_data(
+        self, position: int, chars_added: int
+    ) -> tuple[QTextBlock, int, int, int, QTextBlock, int, int, bool]:
         """Get basic data about a change"""
         start_block = self.findBlock(position)
         new_end_block = self.findBlock(position + chars_added)
@@ -325,14 +323,16 @@ class TrackedDocument(QTextDocument):
             end_is_last,
         )
 
-    def _single_char_change(self, position, chars_added, chars_removed):
+    def _single_char_change(
+        self, position: int, chars_added: int, chars_removed: int
+    ) -> tuple[int, int, int, Point, Point, Point, list[int], int, int]:
         """Handle a single character change, be it one character added, or one removed"""
         (
             start_block,
             start_line,
             nl_offset,
             line_delta,
-            new_end_block,
+            _new_end_block,
             _old_end_line,
             _new_end_line,
             _end_is_last,
@@ -411,7 +411,9 @@ class TrackedDocument(QTextDocument):
             end_line,
         )
 
-    def _multi_char_change(self, position, chars_added, _chars_removed):
+    def _multi_char_change(
+        self, position: int, chars_added: int, _chars_removed: int
+    ) -> tuple[int, int, int, Point, Point, Point, list[int], int, int]:
         """Handle a multiple character change. Because of how we access byte offsets
         we can only provide line-level granularity for this kind of change
         """

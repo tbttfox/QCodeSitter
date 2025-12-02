@@ -1,4 +1,4 @@
-from tree_sitter import Language, Parser, Tree, Point
+from tree_sitter import Language, Parser, Tree, Point, Node
 from typing import Callable, Optional
 
 
@@ -18,7 +18,7 @@ class TreeManager:
         Args:
             language: The tree-sitter Language to use for parsing
             source_callback: Callback function to provide source bytes to the parser.
-                           Signature: (byte_offset: int, point: Point) -> bytes
+                Signature: (byte_offset: int, point: Point) -> bytes
         """
         self.parser = Parser(language)
         self.tree: Optional[Tree] = None
@@ -59,7 +59,7 @@ class TreeManager:
             self.tree = self.parser.parse(self._source_callback)
         return old_tree
 
-    def get_node_at_point(self, byte_offset: int):
+    def get_node_at_point(self, byte_offset: int) -> Optional[Node]:
         """Get the AST node at a specific byte offset
 
         Args:
@@ -73,7 +73,7 @@ class TreeManager:
         return self.tree.root_node.descendant_for_byte_range(byte_offset, byte_offset)
 
     @property
-    def root_node(self):
+    def root_node(self) -> Optional[Node]:
         """Get the root node of the parse tree
 
         Returns:

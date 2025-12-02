@@ -99,7 +99,7 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
         # Need to get changed_ranges again since we consumed it above
         changed_ranges = old_tree.changed_ranges(self.tree_manager.tree)
 
-        for i, r in enumerate(changed_ranges):
+        for r in changed_ranges:
             start_line = r.start_point.row
             end_line = r.end_point.row
 
@@ -111,7 +111,7 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
 
             block = self._doc.findBlockByNumber(start_line)
 
-            for j in range(start_line, end_line + 1):
+            for _ in range(start_line, end_line + 1):
                 if not block.isValid():
                     break
                 self.rehighlightBlock(block)
@@ -121,7 +121,7 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
     # QSyntaxHighlighter entry point
     # ------------------------------------------------------------------
 
-    def highlightBlock(self, text):
+    def highlightBlock(self, text: str):
         if self.tree_manager.tree is None:
             return
 

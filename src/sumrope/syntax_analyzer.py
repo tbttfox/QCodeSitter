@@ -1,5 +1,8 @@
-from tree_sitter import Point
+from tree_sitter import Point, Node
 from typing import Optional
+
+from .line_tracker import TrackedDocument
+from .tree_manager import TreeManager
 
 
 class SyntaxAnalyzer:
@@ -9,7 +12,7 @@ class SyntaxAnalyzer:
     information for features like smart indentation, code completion, etc.
     """
 
-    def __init__(self, tree_manager, document):
+    def __init__(self, tree_manager: TreeManager, document: TrackedDocument):
         """Initialize the syntax analyzer
 
         Args:
@@ -170,7 +173,7 @@ class SyntaxAnalyzer:
 
         return False
 
-    def _find_child_by_type(self, node, type_name: str):
+    def _find_child_by_type(self, node: Node, type_name: str) -> Optional[Node]:
         """Find a direct child node with the given type
 
         Args:

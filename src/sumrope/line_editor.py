@@ -1,9 +1,17 @@
 from __future__ import annotations
 from Qt.QtWidgets import QPlainTextEdit, QWidget
-from Qt.QtGui import QKeySequence, QTextCursor, QKeyEvent, QFontMetrics, QTextBlock
-from Qt.QtCore import Qt
+from Qt.QtGui import (
+    QKeySequence,
+    QResizeEvent,
+    QTextCursor,
+    QKeyEvent,
+    QFontMetrics,
+    QTextBlock,
+    QPaintEvent,
+)
+from Qt.QtCore import QRect, Qt
 from Qt import QtGui, QtCore
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 from .line_tracker import TrackedDocument
 from .line_highlighter import TreeSitterHighlighter
 import tree_sitter_python as tspython
@@ -25,22 +33,22 @@ class LineNumberArea(QWidget):
 
         self.editor.blockCountChanged.connect(self.update_line_number_area_width)
         self.editor.updateRequest.connect(self.update_line_number_area)
-        self.update_line_number_area_width(0)
+        self.update_line_number_area_width()
 
     def sizeHint(self):
         return QtCore.QSize(self.line_number_area_width(), 0)
 
-    def paintEvent(self, event):
+    def paintEvent(self, event: QPaintEvent):
         self.line_number_area_paint_event(event)
 
     def line_number_area_width(self):
         digits = len(str(max(1, self.editor.blockCount())))
         return 10 + self.fontMetrics().horizontalAdvance("9") * digits
 
-    def update_line_number_area_width(self, _):
+    def update_line_number_area_width(self):
         self.editor.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
 
-    def update_line_number_area(self, rect, dy):
+    def update_line_number_area(self, rect: QRect, dy: int):
         if dy:
             self.editor.line_number_area.scroll(0, dy)
         else:
@@ -48,9 +56,9 @@ class LineNumberArea(QWidget):
                 0, rect.y(), self.editor.line_number_area.width(), rect.height()
             )
         if rect.contains(self.editor.viewport().rect()):
-            self.update_line_number_area_width(0)
+            self.update_line_number_area_width()
 
-    def line_number_area_paint_event(self, event):
+    def line_number_area_paint_event(self, event: QPaintEvent):
         painter = QtGui.QPainter(self.editor.line_number_area)
         painter.fillRect(event.rect(), self.line_area_bg_color)
 
@@ -81,7 +89,10 @@ class LineNumberArea(QWidget):
             block_number += 1
 
 
-def hk(key, mods=None):
+def hk(
+    key: Union[Qt.Key, int],
+    mods: Optional[Union[Qt.KeyboardModifier, Qt.KeyboardModifiers, int]] = None,
+) -> str:
     """Build a hashable hotkey string"""
     # Ignore pure modifier presses
     # And handle the stupidity of backtab
@@ -103,17 +114,27 @@ def hk(key, mods=None):
 
 
 class CodeEditor(QPlainTextEdit):
-    def __init__(self, space_indent_width=4, tab_indent_width=8, parent=None):
+    def __init__(
+        self,
+        space_indent_width=4,
+        tab_indent_width=8,
+        indent_using_tabs=False,
+        parent=None,
+    ):
         super().__init__(parent=parent)
-        self._doc = TrackedDocument()
+        self._doc: TrackedDocument = TrackedDocument()
         self.setDocument(self._doc)
-        self._space_indent_width = space_indent_width
-        self._tab_indent_width = tab_indent_width
+        self._space_indent_width: int = space_indent_width
+        self._tab_indent_width: int = tab_indent_width
+        self._indent_using_tabs: bool = indent_using_tabs
+
         self._ts_prediction: dict[int, QTextBlock] = {}
 
         # Create tree manager with source callback
         language = Language(tspython.language())
-        self.tree_manager = TreeManager(language, self._treesitter_source_callback)
+        self.tree_manager: TreeManager = TreeManager(
+            language, self._treesitter_source_callback
+        )
 
         self.highlighter = TreeSitterHighlighter(
             self._doc,
@@ -123,13 +144,14 @@ class CodeEditor(QPlainTextEdit):
         )
 
         # Create syntax analyzer (shares tree manager with highlighter)
-        self.syntax_analyzer = SyntaxAnalyzer(self.tree_manager, self._doc)
+        self.syntax_analyzer: SyntaxAnalyzer = SyntaxAnalyzer(
+            self.tree_manager, self._doc
+        )
 
         metrics = QFontMetrics(self.font())
         self.setTabStopWidth(self.tab_indent_width * metrics.width(" "))
 
-        self.indent_using_tabs = False
-        self.line_number_area = LineNumberArea(self)
+        self.line_number_area: LineNumberArea = LineNumberArea(self)
 
         # TODO: Make the cursor stuff tell the document that it's making changes
 
@@ -143,19 +165,19 @@ class CodeEditor(QPlainTextEdit):
         }
 
     @property
-    def space_indent_width(self):
+    def space_indent_width(self) -> int:
         return self._space_indent_width
 
     @space_indent_width.setter
-    def space_indent_width(self, val):
+    def space_indent_width(self, val: int):
         self._space_indent_width = val
 
     @property
-    def tab_indent_width(self):
+    def tab_indent_width(self) -> int:
         return self._tab_indent_width
 
     @tab_indent_width.setter
-    def tab_indent_width(self, val):
+    def tab_indent_width(self, val: int):
         self._tab_indent_width = val
         metrics = QFontMetrics(self.font())
         self.setTabStopWidth(self.tab_indent_width * metrics.width(" "))
@@ -212,7 +234,7 @@ class CodeEditor(QPlainTextEdit):
 
         super().keyPressEvent(event)
 
-    def resizeEvent(self, e):
+    def resizeEvent(self, e: QResizeEvent):
         """Handle resize events to update line number area geometry"""
         super().resizeEvent(e)
         cr = self.contentsRect()
@@ -225,7 +247,7 @@ class CodeEditor(QPlainTextEdit):
             )
         )
 
-    def _expandToLines(self, cursor):
+    def _expandToLines(self, cursor: QTextCursor):
         """Expand a cursor selection to whole lines
         If there is no selection, expand to the current line
         """
@@ -244,7 +266,7 @@ class CodeEditor(QPlainTextEdit):
     def insertIndent(self, cursor: QTextCursor) -> bool:
         """Indent at the given cursor, either a single line or all the lines in a selection"""
         if not cursor.hasSelection():
-            if self.indent_using_tabs:
+            if self._indent_using_tabs:
                 indent = "\t"
             else:
                 pos = cursor.positionInBlock()
@@ -258,7 +280,7 @@ class CodeEditor(QPlainTextEdit):
         self._expandToLines(cursor)
         text = cursor.selection().toPlainText()
         lines = text.split("\n")
-        if self.indent_using_tabs:
+        if self._indent_using_tabs:
             indent = "\t"
         else:
             indent = " " * self.space_indent_width
@@ -270,7 +292,7 @@ class CodeEditor(QPlainTextEdit):
         """If backspacing at an the end of indentation, remove an entire "tab" of
         spaces. Otherwise just do a regular backspace
         """
-        if self.indent_using_tabs:
+        if self._indent_using_tabs:
             return False
 
         if cursor.hasSelection():
@@ -299,7 +321,7 @@ class CodeEditor(QPlainTextEdit):
         self._expandToLines(cursor)
         text = cursor.selection().toPlainText()
         lines = text.split("\n")
-        if self.indent_using_tabs:
+        if self._indent_using_tabs:
             newlines = [line[1:] if line[0] == "\t" else line for line in lines]
         else:
             newlines = [
@@ -336,7 +358,7 @@ class CodeEditor(QPlainTextEdit):
         )
 
         if should_indent:
-            if self.indent_using_tabs:
+            if self._indent_using_tabs:
                 extra_indent = "\t"
             else:
                 extra_indent = " " * self.space_indent_width
@@ -400,7 +422,7 @@ class CodeEditor(QPlainTextEdit):
 
     def _dedent_string(self, indent: str) -> str:
         """Remove one level of indentation from the indent string"""
-        if self.indent_using_tabs:
+        if self._indent_using_tabs:
             if indent.endswith("\t"):
                 return indent[:-1]
         else:
@@ -413,7 +435,7 @@ class CodeEditor(QPlainTextEdit):
                 return indent[:-actual_remove]
         return indent
 
-    def updateAllLines(self, newtxt):
+    def updateAllLines(self, newtxt: str):
         """Update the entire text range to the given text"""
         cursor = self.textCursor()
         numchars = self.document().characterCount()
