@@ -30,7 +30,6 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
 
         # highlights_query_source = tspython.HIGHLIGHTS_QUERY,
         self.query = Query(lang, highlights_query_source)
-        self.cursor = QueryCursor(self.query)
         self.formats = self._compile_formats(format_specs)
 
     def setDocument(self, doc: TrackedDocument):
@@ -55,7 +54,9 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
             new_end_point,
         )
 
-        self.update_from_tree(old_tree)
+        if old_tree is None:
+            # First full highlight
+            self.rehighlight()
 
     # ------------------------------------------------------------------
     # Text formats
@@ -78,44 +79,6 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
             out[name] = fmt
 
         return out
-
-    # ------------------------------------------------------------------
-    # Incremental update from new parse tree
-    # ------------------------------------------------------------------
-
-    def update_from_tree(self, old_tree: Optional[Tree]):
-        """Called after you re-parse the document. Rehighlight only the affected blocks.
-        The old tree is returned from the tree_manager.update() method"""
-        if old_tree is None:
-            # First full highlight
-            self.rehighlight()
-            return
-
-        if self.tree_manager.tree is None:
-            return
-
-        changed_ranges = old_tree.changed_ranges(self.tree_manager.tree)
-
-        # Need to get changed_ranges again since we consumed it above
-        changed_ranges = old_tree.changed_ranges(self.tree_manager.tree)
-
-        for r in changed_ranges:
-            start_line = r.start_point.row
-            end_line = r.end_point.row
-
-            # Clamp end_line to document bounds to handle undo to empty/smaller document
-            max_block = self._doc.blockCount() - 1
-            if start_line > max_block:
-                continue  # Range is entirely beyond document
-            end_line = min(end_line, max_block)
-
-            block = self._doc.findBlockByNumber(start_line)
-
-            for _ in range(start_line, end_line + 1):
-                if not block.isValid():
-                    break
-                self.rehighlightBlock(block)
-                block = block.next()
 
     # ------------------------------------------------------------------
     # QSyntaxHighlighter entry point
@@ -143,8 +106,10 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
         if block_start_byte >= block_end_byte:
             return
 
-        self.cursor.set_byte_range(block_start_byte, block_end_byte)
-        captures = self.cursor.captures(self.tree_manager.tree.root_node)
+        # Create a fresh QueryCursor for each block to avoid stale state issues
+        cursor = QueryCursor(self.query)
+        cursor.set_byte_range(block_start_byte, block_end_byte)
+        captures = cursor.captures(self.tree_manager.tree.root_node)
         for capture_name, nodes in captures.items():
             fmt = self.formats.get(capture_name)
             if fmt is None:
