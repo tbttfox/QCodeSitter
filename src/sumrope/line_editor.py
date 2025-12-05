@@ -6,17 +6,15 @@ from Qt.QtGui import (
     QKeyEvent,
     QTextBlock,
 )
-from typing import Callable, Optional
-from .line_tracker import TrackedDocument
-from .line_highlighter import TreeSitterHighlighter
-from .behaviors import Behavior, HasKeyPress, HasResize
-import tree_sitter_python as tspython
+from typing import Callable, Optional, Collection
 from tree_sitter import Language, Point
-from .hl_groups import FORMAT_SPECS
+
+from .line_tracker import TrackedDocument
+from .behaviors import Behavior, HasKeyPress, HasResize
 from .tree_manager import TreeManager
 from .syntax_analyzer import SyntaxAnalyzer
+from .editor_options import EditorOptions
 from .utils import hk
-from editor_options import EditorOptions
 
 
 class CodeEditor(QPlainTextEdit):
@@ -30,21 +28,10 @@ class CodeEditor(QPlainTextEdit):
         self.setDocument(self._doc)
 
         self.options = options
-        # TODO: Update this when font changes
-        self.options["font"] = self.font()
         self._ts_prediction: dict[int, QTextBlock] = {}
 
         self.tree_manager: TreeManager
-        self.highlighter: TreeSitterHighlighter
         self.syntax_analyzer: SyntaxAnalyzer
-
-        # Create tree manager with source callback
-
-        lang = Language(tspython.language())
-        self.setLanguage(lang)
-        self.highlighter = TreeSitterHighlighter(
-            self._doc, self.tree_manager, tspython.HIGHLIGHTS_QUERY, FORMAT_SPECS
-        )
 
         # Hotkeys
         self.hotkeys: dict[str, Callable[[QTextCursor], bool]] = {}
@@ -53,9 +40,39 @@ class CodeEditor(QPlainTextEdit):
         self._keyPressBehaviors: list[HasKeyPress] = []
         self._resizeBehaviors: list[HasResize] = []
 
+        self.options.optionsUpdated.connect(self.updateOptions)
+        self.updateOptions(list(self.options.keys()))
+
+    def updateOptions(self, keylist: Collection[str]):
+        keys = set(keylist)
+        if "font" in keys:
+            self.setFont(self.options["font"])
+        if "language" in keys:
+            self.setLanguage(self.options["language"])
+
     def setLanguage(self, lang: Language):
         self.tree_manager = TreeManager(lang, self._treesitter_source_callback)
         self.syntax_analyzer = SyntaxAnalyzer(self.tree_manager, self._doc)
+
+        self._doc.byteContentsChange.connect(self.updateTree)
+
+    def updateTree(
+        self,
+        start_byte: int,
+        old_end_byte: int,
+        new_end_byte: int,
+        start_point: Point,
+        old_end_point: Point,
+        new_end_point: Point,
+    ):
+        self.tree_manager.update(
+            start_byte,
+            old_end_byte,
+            new_end_byte,
+            start_point,
+            old_end_point,
+            new_end_point,
+        )
 
     def addBehavior(self, behavior: Behavior):
         if isinstance(behavior, HasKeyPress):

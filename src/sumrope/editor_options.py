@@ -9,7 +9,7 @@ class EditorOptions(QObject):
         super().__init__()
         if opts is None:
             opts = {}
-        self._options: dict[str, Any] = {}
+        self._options: dict[str, Any] = opts
 
     def __getitem__(self, key: str):
         return self._options[key]
@@ -24,3 +24,9 @@ class EditorOptions(QObject):
     def update(self, opts: dict[str, Any]):
         self._options.update(opts)
         self.optionsUpdated.emit(list(opts.keys()))
+
+    def get(self, key, default=None) -> Any:
+        return self._options.get(key, default)
+
+    def keys(self):
+        return self._options.keys()

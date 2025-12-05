@@ -22,8 +22,6 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
         self.tree_manager = tree_manager
         self._doc: TrackedDocument = document
 
-        document.byteContentsChange.connect(self._on_byte_contents_change)
-
         lang = self.tree_manager.parser.language
         if lang is None:
             raise RuntimeError("The tree parser must be properly set")
@@ -35,28 +33,6 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
     def setDocument(self, doc: TrackedDocument):
         self._doc = doc
         super().setDocument(doc)
-
-    def _on_byte_contents_change(
-        self,
-        start_byte: int,
-        old_end_byte: int,
-        new_end_byte: int,
-        start_point: Point,
-        old_end_point: Point,
-        new_end_point: Point,
-    ):
-        old_tree = self.tree_manager.update(
-            start_byte,
-            old_end_byte,
-            new_end_byte,
-            start_point,
-            old_end_point,
-            new_end_point,
-        )
-
-        if old_tree is None:
-            # First full highlight
-            self.rehighlight()
 
     # ------------------------------------------------------------------
     # Text formats
