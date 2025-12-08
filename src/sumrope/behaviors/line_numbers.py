@@ -34,6 +34,9 @@ class LineNumberArea(QtWidgets.QWidget):
     def update_line_number_area_width(self):
         self.editor.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
 
+    def clear_line_number_area_width(self):
+        self.editor.setViewportMargins(0, 0, 0, 0)
+
     def update_line_number_area(self, rect: QtCore.QRect, dy: int):
         if dy:
             self.scroll(0, dy)
@@ -78,6 +81,10 @@ class LineNumber(HasResize, Behavior):
         super().__init__(editor)
         self.setListen({"font"})
         self.line_number_area: LineNumberArea = LineNumberArea(self.editor)
+        if editor.isVisible() and not self.line_number_area.isVisible():
+            self.line_number_area.setVisible(True)
+            self.setLineGeo()
+
         self.updateAll()
 
     def _font(self, newfont):
@@ -86,6 +93,9 @@ class LineNumber(HasResize, Behavior):
     font = property(None, _font)
 
     def resizeEvent(self, e: QtGui.QResizeEvent):
+        self.setLineGeo()
+
+    def setLineGeo(self):
         """Handle resize events to update line number area geometry"""
         cr = self.editor.contentsRect()
         self.line_number_area.setGeometry(
@@ -98,6 +108,6 @@ class LineNumber(HasResize, Behavior):
         )
 
     def remove(self):
+        self.line_number_area.clear_line_number_area_width()
         self.line_number_area.deleteLater()
         self.line_number_area = None  # type: ignore
-        # TODO: Figure out how to COMPLETELY remove this

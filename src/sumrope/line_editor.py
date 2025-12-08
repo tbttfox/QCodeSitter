@@ -37,8 +37,6 @@ class CodeEditor(QPlainTextEdit):
         self.hotkeys: dict[str, Callable[[QTextCursor], bool]] = {}
 
         self._behaviors: list[Behavior] = []
-        self._keyPressBehaviors: list[HasKeyPress] = []
-        self._resizeBehaviors: list[HasResize] = []
 
         self.options.optionsUpdated.connect(self.updateOptions)
         self.updateOptions(list(self.options.keys()))
@@ -80,23 +78,14 @@ class CodeEditor(QPlainTextEdit):
             if type(bh) is behaviorCls:
                 return
         behavior = behaviorCls(self)
-        if isinstance(behavior, HasKeyPress):
-            self._keyPressBehaviors.append(behavior)
-        if isinstance(behavior, HasResize):
-            self._resizeBehaviors.append(behavior)
         self._behaviors.append(behavior)
 
     def removeBehavior(self, behaviorCls: Type[Behavior]):
-        def popclass(container, match):
-            torem = []
-            for i, bh in enumerate(container):
-                if type(bh) is match:
-                    torem.append(i)
-            return [container.pop(i) for i in reversed(torem)]
-
-        torem = popclass(self._behaviors, behaviorCls)
-        popclass(self._keyPressBehaviors, behaviorCls)
-        popclass(self._resizeBehaviors, behaviorCls)
+        ridxs = []
+        for i, bh in enumerate(self._behaviors):
+            if type(bh) is behaviorCls:
+                ridxs.append(i)
+        torem = [self._behaviors.pop(i) for i in reversed(ridxs)]
         for rem in torem:
             rem.remove()
 
@@ -150,7 +139,9 @@ class CodeEditor(QPlainTextEdit):
                 return
 
         accepted = False
-        for behavior in self._keyPressBehaviors:
+        for behavior in self._behaviors:
+            if not isinstance(behavior, HasKeyPress):
+                continue
             acc = behavior.keyPressEvent(event, hotkey)
             if accepted and acc:
                 print(f"WARNING: Multiple behaviors handle the same hotkey: {hotkey}")
@@ -164,8 +155,10 @@ class CodeEditor(QPlainTextEdit):
     def resizeEvent(self, e: QResizeEvent):
         """Handle resize events to update line number area geometry"""
         super().resizeEvent(e)
-        for behavior in self._resizeBehaviors:
-            behavior.resizeEvent(e)
+
+        for behavior in self._behaviors:
+            if isinstance(behavior, HasResize):
+                behavior.resizeEvent(e)
 
     def expandCursorToLines(self, cursor: QTextCursor):
         """Expand a cursor selection to whole lines

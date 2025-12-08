@@ -32,11 +32,11 @@ options = EditorOptions(
 
 edit = CodeEditor(options, parent=win)
 
-edit.addBehavior(SyntaxHighlighting(edit))
-edit.addBehavior(SmartIndent(edit))
-edit.addBehavior(HighlightMatchingBrackets(edit))
-edit.addBehavior(HighlightMatchingSelection(edit))
-edit.addBehavior(LineNumber(edit))
+edit.addBehavior(SyntaxHighlighting)
+edit.addBehavior(SmartIndent)
+edit.addBehavior(HighlightMatchingBrackets)
+edit.addBehavior(HighlightMatchingSelection)
+edit.addBehavior(LineNumber)
 
 win.setCentralWidget(edit)
 win.show()
