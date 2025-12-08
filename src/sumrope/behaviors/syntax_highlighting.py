@@ -10,6 +10,11 @@ if TYPE_CHECKING:
 from ..line_highlighter import TreeSitterHighlighter
 
 
+class DummyHighlighter(QtGui.QSyntaxHighlighter):
+    def highlightBlock(self, block):
+        return
+
+
 class SyntaxHighlighting(Behavior):
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
@@ -31,3 +36,10 @@ class SyntaxHighlighting(Behavior):
         self.highlighter = TreeSitterHighlighter(
             self.editor._doc, self.editor.tree_manager, hlquery, fmts
         )
+
+    def remove(self):
+        self.highlighter = None
+
+        mydoc = self.editor.document()
+        newHigh = DummyHighlighter(mydoc)
+        newHigh.rehighlight()
