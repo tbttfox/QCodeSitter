@@ -72,15 +72,17 @@ class CodeEditor(QPlainTextEdit):
             new_end_point,
         )
 
-    def addBehavior(self, behaviorCls: Type[Behavior]):
-        for bh in self._behaviors:
-            # if any class is already set up, don't add it
-            if type(bh) is behaviorCls:
-                return
+    def replaceBehavior(self, behaviorCls: Type[Behavior]) -> tuple[Optional[Behavior], Behavior]:
+        """Set the given behavior to the class. If a behavior of the given type already exists, remove it
+        Return both the old and newly instantiated behaviors.
+        """
+        old_bh = self.removeBehavior(behaviorCls)
         behavior = behaviorCls(self)
         self._behaviors.append(behavior)
+        return old_bh, behavior
 
-    def removeBehavior(self, behaviorCls: Type[Behavior]):
+    def removeBehavior(self, behaviorCls: Type[Behavior]) -> Optional[Behavior]:
+        """Remove all existing behaviors of the given type"""
         ridxs = []
         for i, bh in enumerate(self._behaviors):
             if type(bh) is behaviorCls:
@@ -88,6 +90,17 @@ class CodeEditor(QPlainTextEdit):
         torem = [self._behaviors.pop(i) for i in reversed(ridxs)]
         for rem in torem:
             rem.remove()
+        if not torem:
+            return None
+        if len(torem) > 1:
+            print("Warning: Multiple behaviors of the same type found to remove")
+        return torem[0]
+
+    def getBehavior(self, behaviorCls: Type[Behavior]) -> Optional[Behavior]:
+        for bh in self._behaviors:
+            if type(bh) is behaviorCls:
+                return bh
+        return None
 
     def document(self) -> TrackedDocument:
         doc = super().document()
@@ -131,13 +144,6 @@ class CodeEditor(QPlainTextEdit):
         modifiers = event.modifiers()
         hotkey = hk(key, modifiers)
 
-        func = self.hotkeys.get(hotkey)
-        if func is not None:
-            cursor = self.textCursor()
-            if func(cursor):
-                self.setTextCursor(cursor)
-                return
-
         accepted = False
         for behavior in self._behaviors:
             if not isinstance(behavior, HasKeyPress):
@@ -149,6 +155,13 @@ class CodeEditor(QPlainTextEdit):
 
         if accepted:
             return
+
+        func = self.hotkeys.get(hotkey)
+        if func is not None:
+            cursor = self.textCursor()
+            if func(cursor):
+                self.setTextCursor(cursor)
+                return
 
         super().keyPressEvent(event)
 
