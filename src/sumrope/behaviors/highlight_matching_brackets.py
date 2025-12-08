@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 class HighlightMatchingBrackets(Behavior):
     def __init__(self, editor: CodeEditor):
-        super().__init__(editor, set())
+        super().__init__(editor)
         self.editor.cursorPositionChanged.connect(self.highlight_matching_brackets)
 
     def highlight_matching_brackets(self):

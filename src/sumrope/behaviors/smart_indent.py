@@ -16,15 +16,18 @@ class SmartIndent(HasKeyPress, Behavior):
         self.indent_using_tabs: bool = False
         super().__init__(
             editor,
-            {"space_indent_width", "tab_indent_width", "indent_using_tabs", "font"},
         )
 
+        self.setListen(
+            {"space_indent_width", "tab_indent_width", "indent_using_tabs", "font"}
+        )
         self.hotkeys: dict[str, Callable[[QTextCursor], bool]] = {
             hk(Qt.Key.Key_Tab): self.insertIndent,
             hk(Qt.Key.Key_Tab, Qt.KeyboardModifier.ShiftModifier): self.unindent,
             hk(Qt.Key.Key_Return): self.smartNewline,
             hk(Qt.Key.Key_Backspace): self.smartBackspace,
         }
+        self.updateAll()
 
     @property
     def tab_indent_width(self) -> int:
@@ -265,3 +268,4 @@ class SmartIndent(HasKeyPress, Behavior):
             ]
         cursor.insertText("\n".join(newlines))
         return True
+

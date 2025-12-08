@@ -75,8 +75,15 @@ class LineNumberArea(QtWidgets.QWidget):
 
 class LineNumber(HasResize, Behavior):
     def __init__(self, editor: CodeEditor):
-        super().__init__(editor, set())
+        super().__init__(editor)
+        self.setListen({"font"})
         self.line_number_area: LineNumberArea = LineNumberArea(self.editor)
+        self.updateAll()
+
+    def _font(self, newfont):
+        self.line_number_area.setFont(newfont)
+
+    font = property(None, _font)
 
     def resizeEvent(self, e: QtGui.QResizeEvent):
         """Handle resize events to update line number area geometry"""
@@ -89,3 +96,8 @@ class LineNumber(HasResize, Behavior):
                 cr.height(),
             )
         )
+
+    def remove(self):
+        self.line_number_area.deleteLater()
+        self.line_number_area = None  # type: ignore
+        # TODO: Figure out how to COMPLETELY remove this

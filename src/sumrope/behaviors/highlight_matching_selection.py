@@ -9,8 +9,9 @@ if TYPE_CHECKING:
 
 class HighlightMatchingSelection(Behavior):
     def __init__(self, editor: CodeEditor):
-        super().__init__(editor, set())
+        super().__init__(editor)
         self.editor.selectionChanged.connect(self.highlight_occurrences)
+        self.updateAll()
 
     def highlight_occurrences(self):
         """Highlight all occurrences of the currently selected text"""

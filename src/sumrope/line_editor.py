@@ -6,7 +6,7 @@ from Qt.QtGui import (
     QKeyEvent,
     QTextBlock,
 )
-from typing import Callable, Optional, Collection
+from typing import Callable, Optional, Collection, Type
 from tree_sitter import Language, Point
 
 from .line_tracker import TrackedDocument
@@ -74,12 +74,31 @@ class CodeEditor(QPlainTextEdit):
             new_end_point,
         )
 
-    def addBehavior(self, behavior: Behavior):
+    def addBehavior(self, behaviorCls: Type[Behavior]):
+        for bh in self._behaviors:
+            # if any class is already set up, don't add it
+            if type(bh) is behaviorCls:
+                return
+        behavior = behaviorCls(self)
         if isinstance(behavior, HasKeyPress):
             self._keyPressBehaviors.append(behavior)
         if isinstance(behavior, HasResize):
             self._resizeBehaviors.append(behavior)
         self._behaviors.append(behavior)
+
+    def removeBehavior(self, behaviorCls: Type[Behavior]):
+        def popclass(container, match):
+            torem = []
+            for i, bh in enumerate(container):
+                if type(bh) is match:
+                    torem.append(i)
+            return [container.pop(i) for i in reversed(torem)]
+
+        torem = popclass(self._behaviors, behaviorCls)
+        popclass(self._keyPressBehaviors, behaviorCls)
+        popclass(self._resizeBehaviors, behaviorCls)
+        for rem in torem:
+            rem.remove()
 
     def document(self) -> TrackedDocument:
         doc = super().document()
