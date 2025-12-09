@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from ..line_editor import CodeEditor
 
 
-WORDS = re.compile("[A-Za-z0-9_]+")
+WORDS = re.compile("[A-Za-z0-9_.]+")
 
 
 class TabCompletion(HasKeyPress, Behavior):
