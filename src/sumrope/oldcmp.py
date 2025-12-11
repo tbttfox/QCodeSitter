@@ -1,161 +1,41 @@
 from __future__ import annotations
 from Qt.QtCore import QTimer, Qt
+from Qt.QtGui import QKeyEvent
 from Qt.QtWidgets import QListWidget, QListWidgetItem, QAbstractItemView, QApplication
 from dataclasses import dataclass
-from tree_sitter import Node, Point, Tree
-from typing import Optional, List, TYPE_CHECKING
+from tree_sitter import Node, Point, Tree, Query, QueryCursor
+from typing import Optional, TYPE_CHECKING, Collection
+from .behaviors import Behavior, HasKeyPress
+from .utils import hk
+
 
 if TYPE_CHECKING:
     from .line_editor import CodeEditor
 
 
-class CompletionEngine:
-    """Orchestrates completion requests with debouncing and caching"""
+@dataclass
+class IdentifierInfo:
+    """Information about an identifier in the source code"""
 
-    def __init__(self, editor: CodeEditor):
-        self.editor = editor
-        self._providers = []
-        self.last_tree: Optional[Tree] = None
+    text: str
+    kind: str  # "function", "class", "variable", etc.
 
-        # Debounce timer to avoid triggering on every keystroke
-        self.debounce_timer = QTimer()
-        self.debounce_timer.setSingleShot(True)
-        self.debounce_timer.timeout.connect(self._do_completion)
 
-        # Connect to document changes for cache updates
-        editor.document().byteContentsChange.connect(self._on_document_changed)
+COMPLETION_FORMAT = "{text} ({kind})"
 
-        # Initial cache population
-        if editor.tree_manager.tree:
-            self.identifier_cache.extract_all(editor.tree_manager.tree)
-            self.last_tree = editor.tree_manager.tree
 
-    def on_cursor_changed(self):
-        """Called when cursor position changes (connected to cursorPositionChanged signal)"""
-        context = self._extract_context()
+@dataclass
+class Completion:
+    """A single completion result"""
 
-        if self._should_trigger(context):
-            # Cancel any pending completion
-            self.debounce_timer.stop()
-            # Start new debounce timer (150ms delay)
-            self.debounce_timer.start(150)
-        else:
-            # Hide popup if trigger conditions not met
-            if self.editor.completion_popup.isVisible():
-                self.editor.completion_popup.hide()
+    text: str  # Completion text (e.g., "path")
+    kind: str  # "function", "class", "variable", "module", etc.
+    priority: int  # For sorting (higher = more important)
 
-    def _should_trigger(self, context: CompletionContext) -> bool:
-        """Determine if completion should be triggered for this context
-
-        Args:
-            context: The current completion context
-
-        Returns:
-            True if completion should be triggered, False otherwise
-        """
-        # Don't trigger in strings or comments
-        if context.node and context.node.type in (
-            "string",
-            "comment",
-            "string_start",
-            "string_end",
-        ):
-            return False
-
-        # Don't trigger if prefix is too short
-        if len(context.prefix) < 2:
-            return False
-
-        # Don't trigger if prefix isn't a valid identifier start
-        if not context.prefix[0].isidentifier():
-            return False
-
-        return True
-
-    def _do_completion(self):
-        """Actually perform completion (called after debounce timer expires)"""
-        context = self._extract_context()
-
-        # Get completions from identifier cache
-        completions = self.identifier_cache.get_completions(context.prefix)
-
-        # Show popup with completions
-        if completions:
-            self.editor.completion_popup.show_completions(completions, context.prefix)
-        else:
-            self.editor.completion_popup.hide()
-
-    def _extract_context(self) -> CompletionContext:
-        """Extract completion context from current editor state
-
-        Returns:
-            CompletionContext with cursor position, prefix, node, etc.
-        """
-        cursor = self.editor.textCursor()
-        block = cursor.block()
-        line_num = block.blockNumber()
-        char_col = cursor.positionInBlock()
-        full_line = block.text()
-
-        # Extract prefix (word before cursor)
-        prefix = self._extract_prefix(full_line, char_col)
-
-        # Get tree-sitter node at cursor position
-        node = None
-        if self.editor.tree_manager.tree:
-            try:
-                # Convert character column to byte column
-                byte_col = len(full_line[:char_col].encode("utf-8"))
-                byte_offset = self.editor.document().point_to_byte(
-                    Point(line_num, byte_col)
-                )
-                node = self.editor.tree_manager.get_node_at_point(byte_offset)
-            except (IndexError, ValueError):
-                pass
-
-        return CompletionContext(
-            line_num=line_num,
-            char_col=char_col,
-            prefix=prefix,
-            full_line=full_line,
-            node=node,
+    def display(self):
+        return COMPLETION_FORMAT.format(
+            text=self.text, kind=self.kind, priority=self.priority
         )
-
-    def _extract_prefix_old(self, line: str, col: int) -> str:
-        """Extract the identifier prefix before cursor
-
-        Args:
-            line: The line text
-            col: Character column position
-
-        Returns:
-            The prefix string (e.g., "fo" from "def fo|")
-        """
-        # Walk backwards from cursor while we have identifier chars
-        start = col
-        while start > 0 and (line[start - 1].isidentifier() or line[start - 1] in "._"):
-            start -= 1
-
-        return line[start:col]
-
-    def _on_document_changed(self, *args):
-        """Handle document changes to update identifier cache
-
-        This is connected to byteContentsChange signal.
-        We update the cache after the tree has been updated.
-        """
-        # Use single-shot timer to wait for tree update to complete
-        QTimer.singleShot(0, self._update_cache)
-
-    def _update_cache(self):
-        """Update the identifier cache from the current tree"""
-        if self.editor.tree_manager.tree is None:
-            return
-
-        # For Phase 1, just do a full re-extraction
-        # Phase 2 will add incremental updates using changed_ranges
-        self.identifier_cache.extract_all(self.editor.tree_manager.tree)
-        self.last_tree = self.editor.tree_manager.tree
 
 
 @dataclass
@@ -165,27 +45,18 @@ class CompletionContext:
     line_num: int  # 0-indexed line number
     char_col: int  # Character column in line
     prefix: str  # Text being completed (e.g., "os.pat")
+    start: int  # The start index of the prefix
     full_line: str  # Complete line text
     node: Optional[Node]  # Tree-sitter node at cursor
-
-
-@dataclass
-class Completion:
-    """A single completion result"""
-
-    text: str  # Completion text (e.g., "path")
-    display: str  # What to show in popup (e.g., "path (module)")
-    kind: str  # "function", "class", "variable", "module", etc.
-    priority: int  # For sorting (higher = more important)
 
 
 class CompletionPopup(QListWidget):
     """Popup widget showing completion suggestions"""
 
-    def __init__(self, parent: "CodeEditor"):
+    def __init__(self, parent: CodeEditor):
         super().__init__(parent)
         self.editor = parent
-        self.all_completions: List[Completion] = []
+        self.all_completions: list[Completion] = []
         self.current_prefix: str = ""
 
         # Window flags for popup behavior
@@ -221,7 +92,7 @@ class CompletionPopup(QListWidget):
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-    def show_completions(self, completions: List[Completion], prefix: str):
+    def show_completions(self, completions: Collection[Completion], prefix: str):
         """Show completions with the given prefix
 
         Args:
@@ -263,7 +134,7 @@ class CompletionPopup(QListWidget):
 
         for comp in self.all_completions:
             if comp.text.startswith(self.current_prefix):
-                item = QListWidgetItem(comp.display)
+                item = QListWidgetItem(comp.display())
                 item.setData(Qt.UserRole, comp)
                 self.addItem(item)
 
@@ -325,13 +196,258 @@ class CompletionPopup(QListWidget):
         self.editor.setTextCursor(cursor)
         self.hide()
 
-    def keyPressEvent(self, event):
-        """Handle key presses in the popup"""
-        # Let the list widget handle navigation
-        super().keyPressEvent(event)
+    def offsetCurrent(self, offset):
+        current = self.currentRow()
+        current = (current + offset) % self.count()
+        item = self.item(current)
+        self.setCurrentRow(current)
+        self.scrollToItem(item)
 
-        # Update selection position after navigation
-        if event.key() in (Qt.Key_Up, Qt.Key_Down, Qt.Key_PageUp, Qt.Key_PageDown):
-            # Ensure selected item is visible
-            if self.currentItem():
-                self.scrollToItem(self.currentItem())
+
+class Provider:
+    def provide(self) -> set[Completion]:
+        raise NotImplementedError("A Provider must override the .provide() method")
+
+
+class IdentifierProvider(Provider):
+    IDENTIFIER_QUERY = """
+    (function_definition name: (identifier) @function)
+    (class_definition name: (identifier) @class)
+    (assignment left: (identifier) @variable)
+    (parameters (identifier) @parameter)
+    (import_statement name: (dotted_name (identifier) @import))
+    (import_from_statement name: (dotted_name (identifier) @import))
+    (aliased_import name: (dotted_name (identifier) @import))
+    (aliased_import alias: (identifier) @import)
+    """
+    # TODO: Get id queries for non-python languages from the editorOptions
+    # Also, pull Providers out into their own files
+
+    def __init__(self, tabcomplete: TabCompletion):
+        self.tabcomplete = tabcomplete
+        self.query: Optional[Query] = None
+
+        tree = self.tabcomplete.last_tree
+        if tree is None:
+            return
+
+        self.query = Query(tree.language, self.IDENTIFIER_QUERY)
+
+    def provide(self) -> set[Completion]:
+        """Extract identifiers from a specific byte range in the tree
+
+        Args:
+            tree: The tree-sitter Tree to extract from
+            start_byte: The start byte for the range. Defaults to 0
+            end_byte: The end byte of the range. Defatuls to -1 (the end of the range)
+        """
+        tree = self.tabcomplete.last_tree
+        if tree is None:
+            return set()
+
+        if self.query is None:
+            self.query = Query(tree.language, self.IDENTIFIER_QUERY)
+
+        cursor = QueryCursor(self.query)
+
+        # Set the byte range for the query cursor
+        cursor.set_byte_range(0, tree.root_node.end_byte)
+        identifiers = set()
+
+        captures = cursor.captures(tree.root_node)
+        for capture_name, nodes in captures.items():
+            for node in nodes:
+                if node.text is None:
+                    continue
+
+                name = node.text.decode("utf-8")
+                # Skip empty or invalid identifiers
+                if name and name.isidentifier():
+                    identifiers.add(
+                        Completion(
+                            text=name,
+                            kind=capture_name,
+                            priority=3,
+                        )
+                    )
+        return identifiers
+
+
+class TabCompletion(HasKeyPress, Behavior):
+    """Orchestrates completion requests with debouncing and caching"""
+
+    def __init__(self, editor: CodeEditor):
+        super().__init__(editor)
+
+        self._providers: list[Provider] = []
+        self.last_tree: Optional[Tree] = None
+        self._last_context: CompletionContext = CompletionContext(0, 0, "", 0, "", None)
+
+        # Debounce timer to avoid triggering on every keystroke
+        self.debounce_timer = QTimer()
+        self.debounce_timer.setSingleShot(True)
+        self.debounce_timer.timeout.connect(self._do_completion)
+
+        self.completion_popup: CompletionPopup = CompletionPopup(self.editor)
+        self.vim_completion_keys = True
+
+        # Initial cache population
+        if editor.tree_manager.tree:
+            self.last_tree = editor.tree_manager.tree
+        self.updateAll()
+
+    def on_cursor_changed(self):
+        """Called when cursor position changes (connected to cursorPositionChanged signal)"""
+        context = self._extract_context()
+        if not self._should_trigger(context):
+            # Hide popup if trigger conditions not met
+            if self.completion_popup.isVisible():
+                self.completion_popup.hide()
+        else:
+            # Cancel any pending completion
+            self.debounce_timer.stop()
+            # Start new debounce timer (150ms delay)
+            self.debounce_timer.start(150)
+
+    def _should_trigger(self, context: CompletionContext) -> bool:
+        """Determine if completion should be triggered for this context
+
+        Args:
+            context: The current completion context
+
+        Returns:
+            True if completion should be triggered, False otherwise
+        """
+        # Don't trigger in strings or comments
+        if context.node and context.node.type in (
+            "string",
+            "comment",
+            "string_start",
+            "string_end",
+        ):
+            return False
+
+        # Don't trigger if prefix is too short
+        if len(context.prefix) < 2:
+            return False
+
+        # Don't trigger if prefix isn't a valid identifier start
+        if not context.prefix[0].isidentifier():
+            return False
+
+        return True
+
+    def _do_completion(self):
+        """Actually perform completion (called after debounce timer expires)"""
+        context = self._extract_context()
+        if (
+            context.line_num == self._last_context.line_num
+            and context.start == self._last_context.start
+        ):
+            self.completion_popup.update_filter(context.prefix)
+            return
+
+        # Get completions from identifier cache
+        completions = set()
+        for pr in self._providers:
+            completions |= pr.provide()
+
+        # Show popup with completions
+        if completions:
+            self.completion_popup.show_completions(completions, context.prefix)
+        else:
+            self.completion_popup.hide()
+
+        self._last_context = context
+
+    def _extract_context(self) -> CompletionContext:
+        """Extract completion context from current editor state
+
+        Returns:
+            CompletionContext with cursor position, prefix, node, etc.
+        """
+        cursor = self.editor.textCursor()
+        block = cursor.block()
+        line_num = block.blockNumber()
+        char_col = cursor.positionInBlock()
+        full_line = block.text()
+
+        # Extract prefix (word before cursor)
+        start, prefix = self._extract_prefix(full_line, char_col)
+
+        # Get tree-sitter node at cursor position
+        node = None
+        if self.editor.tree_manager.tree:
+            try:
+                # Convert character column to byte column
+                byte_col = len(full_line[:char_col].encode("utf-8"))
+                byte_offset = self.editor.document().point_to_byte(
+                    Point(line_num, byte_col)
+                )
+                node = self.editor.tree_manager.get_node_at_point(byte_offset)
+            except (IndexError, ValueError):
+                pass
+
+        return CompletionContext(
+            line_num=line_num,
+            start=start,
+            char_col=char_col,
+            prefix=prefix,
+            full_line=full_line,
+            node=node,
+        )
+
+    def _extract_prefix(self, line: str, col: int) -> tuple[int, str]:
+        """Extract the identifier prefix before cursor
+
+        Args:
+            line: The line text
+            col: Character column position
+
+        Returns:
+            The beginning index of the prefix string
+            The prefix string (e.g., "fo" from "def fo|")
+        """
+        # Walk backwards from cursor while we have identifier chars
+        start = col
+        while start > 0 and (line[start - 1].isidentifier() or line[start - 1] in "._"):
+            start -= 1
+
+        return start, line[start:col]
+
+    def keyPressEvent(self, event: QKeyEvent, hotkey: str):
+        if not self.completion_popup.isVisible():
+            return False
+
+        if event.key() in (Qt.Key_Return, Qt.Key_Tab) or hotkey == hk(
+            Qt.Key_Y, Qt.KeyboardModifier.ControlModifier
+        ):
+            if self.completion_popup.currentItem():
+                self.completion_popup.accept_completion()
+            return True
+        elif event.key() == Qt.Key_Escape:
+            self.completion_popup.hide()
+            return True
+        elif event.key() == Qt.Key_Up:
+            self.completion_popup.offsetCurrent(-1)
+            return True
+        elif event.key() == Qt.Key_Down:
+            self.completion_popup.offsetCurrent(1)
+            return True
+        elif event.key() in (Qt.Key_Backspace, Qt.Key_Escape):
+            self.completion_popup.hide()
+            return True
+
+        elif self.vim_completion_keys:
+            if hotkey == hk(Qt.Key_Y, Qt.KeyboardModifier.ControlModifier):
+                if self.completion_popup.currentItem():
+                    self.completion_popup.accept_completion()
+                return True
+            elif hotkey == hk(Qt.Key_P, Qt.KeyboardModifier.ControlModifier):
+                self.completion_popup.offsetCurrent(-1)
+                return True
+            elif hotkey == hk(Qt.Key_N, Qt.KeyboardModifier.ControlModifier):
+                self.completion_popup.offsetCurrent(1)
+                return True
+
+        return False
