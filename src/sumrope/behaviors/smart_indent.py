@@ -105,21 +105,22 @@ class SmartIndent(HasKeyPress, Behavior):
         dedent = False
 
         # Check if we should add indent (opening block)
-        should_indent = self.editor.syntax_analyzer.should_indent_after_position(
-            line_num, lookup_col
-        )
+        if hasattr(self.editor, 'syntax_analyzer') and self.editor.syntax_analyzer:
+            should_indent = self.editor.syntax_analyzer.should_indent_after_position(
+                line_num, lookup_col
+            )
 
-        if should_indent:
-            if self.indent_using_tabs:
-                extra_indent = "\t"
-            else:
-                extra_indent = " " * self.space_indent_width
+            if should_indent:
+                if self.indent_using_tabs:
+                    extra_indent = "\t"
+                else:
+                    extra_indent = " " * self.space_indent_width
 
-        # Check if we should dedent (closing block or return statement)
-        elif self.editor.syntax_analyzer.should_dedent_after_position(
-            line_num, lookup_col, line_text
-        ):
-            dedent = True
+            # Check if we should dedent (closing block or return statement)
+            elif self.editor.syntax_analyzer.should_dedent_after_position(
+                line_num, lookup_col, line_text
+            ):
+                dedent = True
 
         # Apply dedent if needed
         final_indent = indent

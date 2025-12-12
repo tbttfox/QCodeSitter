@@ -1,6 +1,6 @@
 import sys
 
-path = r"C:\Users\Tyler\src\preditor_treesitter\sumrope\src"
+path = r"C:\Users\Tyler\src\sumrope\src"
 sys.path.insert(0, path)
 
 from sumrope.line_editor import CodeEditor
@@ -16,6 +16,7 @@ from tree_sitter import Language
 from Qt.QtWidgets import QMainWindow, QApplication
 from Qt.QtGui import QFont
 
+
 app = QApplication(sys.argv)
 win = QMainWindow()
 
@@ -26,17 +27,17 @@ options = EditorOptions(
         "indent_using_tabs": False,
         "language": Language(tspython.language()),
         "highlights": (tspython.HIGHLIGHTS_QUERY, FORMAT_SPECS),
-        "font": QFont("MS Shell Dlg 2", pointSize=8)
+        "font": QFont("MS Shell Dlg 2", pointSize=8),
     }
 )
 
 edit = CodeEditor(options, parent=win)
 
-edit.addBehavior(SyntaxHighlighting)
-edit.addBehavior(SmartIndent)
-edit.addBehavior(HighlightMatchingBrackets)
-edit.addBehavior(HighlightMatchingSelection)
-edit.addBehavior(LineNumber)
+edit.replaceBehavior(SyntaxHighlighting)
+edit.replaceBehavior(SmartIndent)
+edit.replaceBehavior(HighlightMatchingBrackets)
+edit.replaceBehavior(HighlightMatchingSelection)
+edit.replaceBehavior(LineNumber)
 
 win.setCentralWidget(edit)
 win.show()

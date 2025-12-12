@@ -249,20 +249,38 @@ class TrackedDocument(QTextDocument):
         return block.position() + point.column
 
     def line_to_byte(self, line: int) -> int:
-        """Get the document-global UTF-16 code unit offset for the start of a line"""
+        """Get the document-global UTF-16 byte offset for the start of a line
+
+        Returns:
+            Byte offset in UTF-16LE encoding (for tree-sitter)
+        """
         block = self.findBlockByNumber(line)
-        return block.position()
+        # Convert code unit position to byte offset (2 bytes per code unit)
+        return block.position() * 2
 
     def point_to_byte(self, point: Point) -> int:
-        """Get the document-global UTF-16 code unit offset from a tree-sitter Point"""
-        return self.point_to_char(point)
+        """Get the document-global UTF-16 byte offset from a tree-sitter Point
+
+        Args:
+            point: Tree-sitter Point with row and column (column in code units)
+
+        Returns:
+            Byte offset in UTF-16LE encoding (for tree-sitter)
+        """
+        # Convert code unit position to byte offset (2 bytes per code unit)
+        return self.point_to_char(point) * 2
 
     def byte_to_char(self, byteidx: int) -> int:
-        """Convert UTF-16 code unit offset to character index
+        """Convert UTF-16 byte offset to character index
 
-        With UTF-16 encoding, these are now the same.
+        Args:
+            byteidx: Byte offset in UTF-16LE encoding (from tree-sitter)
+
+        Returns:
+            Character index (code unit offset) for Qt
         """
-        return byteidx
+        # Tree-sitter returns byte offsets. In UTF-16LE, each code unit is 2 bytes
+        return byteidx // 2
 
     def iter_line_range(
         self, start: int = 0, count: int = -1
@@ -402,7 +420,9 @@ class TrackedDocument(QTextDocument):
             chars_removed: Number of UTF-16 code units removed
             chars_added: Number of UTF-16 code units added
         """
-        if self.isEmpty():
+        # Note: Don't skip when document is empty after deletion - tree still needs update
+        if self.isEmpty() and chars_added == 0:
+            # Document is now empty and nothing was added, just signal empty tree
             return
 
         # Short-circuit if just doing normal typing and backspacing
@@ -420,11 +440,18 @@ class TrackedDocument(QTextDocument):
             new_end_point,
         ) = ret
 
+        # Convert UTF-16 code unit offsets to byte offsets for tree-sitter
+        # In UTF-16LE, each code unit is 2 bytes
+        # Also convert Point columns from code units to bytes
+        start_point_bytes = Point(start_point.row, start_point.column * 2)
+        old_end_point_bytes = Point(old_end_point.row, old_end_point.column * 2)
+        new_end_point_bytes = Point(new_end_point.row, new_end_point.column * 2)
+
         self.byteContentsChange.emit(
-            start_utf16,
-            old_end_utf16,
-            new_end_utf16,
-            start_point,
-            old_end_point,
-            new_end_point,
+            start_utf16 * 2,
+            old_end_utf16 * 2,
+            new_end_utf16 * 2,
+            start_point_bytes,
+            old_end_point_bytes,
+            new_end_point_bytes,
         )
