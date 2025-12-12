@@ -260,7 +260,7 @@ class IdentifierProvider(Provider):
                 if node.text is None:
                     continue
 
-                name = node.text.decode("utf-8")
+                name = node.text.decode("utf-16-le")
                 # Skip empty or invalid identifiers
                 if name and name.isidentifier():
                     identifiers.add(
@@ -418,14 +418,9 @@ class TabCompletion(HasKeyPress, Behavior):
         if not self.completion_popup.isVisible():
             return False
 
-        if event.key() in (Qt.Key_Return, Qt.Key_Tab) or hotkey == hk(
-            Qt.Key_Y, Qt.KeyboardModifier.ControlModifier
-        ):
+        if event.key() in (Qt.Key_Return, Qt.Key_Tab):
             if self.completion_popup.currentItem():
                 self.completion_popup.accept_completion()
-            return True
-        elif event.key() == Qt.Key_Escape:
-            self.completion_popup.hide()
             return True
         elif event.key() == Qt.Key_Up:
             self.completion_popup.offsetCurrent(-1)
