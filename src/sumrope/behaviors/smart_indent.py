@@ -244,6 +244,8 @@ class SmartIndent(HasKeyPress, Behavior):
             return True
 
         self.editor.expandCursorToLines(cursor)
+        start_pos = cursor.selectionStart()
+        end_pos = cursor.selectionEnd()
         text = cursor.selection().toPlainText()
         lines = text.split("\n")
         if self.indent_using_tabs:
@@ -252,21 +254,39 @@ class SmartIndent(HasKeyPress, Behavior):
             indent = " " * self.space_indent_width
         lines = [indent + line if line.strip() != "" else line for line in lines]
         cursor.insertText("\n".join(lines))
+
+        # Restore selection, adjusting for the added indent
+        indent_added = len([line for line in lines if line.strip() != ""]) * len(indent)
+        cursor.setPosition(start_pos)
+        cursor.setPosition(end_pos + indent_added, QTextCursor.KeepAnchor)
         return True
 
     def unindent(self, cursor: QTextCursor) -> bool:
         """Unindent the given cursor, either a single line or all the lines in a selection"""
         self.editor.expandCursorToLines(cursor)
+        start_pos = cursor.selectionStart()
+        end_pos = cursor.selectionEnd()
         text = cursor.selection().toPlainText()
         lines = text.split("\n")
         if self.indent_using_tabs:
             newlines = [line[1:] if line[0] == "\t" else line for line in lines]
+            # Calculate removed indent: count lines that had a tab removed
+            indent_removed = sum(1 for i, line in enumerate(lines) if len(line) > 0 and line[0] == "\t")
         else:
             newlines = [
                 line[: self.space_indent_width].lstrip(" ")
                 + line[self.space_indent_width :]
                 for line in lines
             ]
+            # Calculate removed indent: count actual spaces removed from each line
+            indent_removed = sum(
+                len(lines[i]) - len(newlines[i])
+                for i in range(len(lines))
+            )
         cursor.insertText("\n".join(newlines))
+
+        # Restore selection, adjusting for the removed indent
+        cursor.setPosition(start_pos)
+        cursor.setPosition(end_pos - indent_removed, QTextCursor.KeepAnchor)
         return True
 
