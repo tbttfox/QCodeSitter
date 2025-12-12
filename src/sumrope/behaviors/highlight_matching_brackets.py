@@ -77,21 +77,17 @@ class HighlightMatchingBrackets(Behavior):
             self.editor.setExtraSelections(extra_selections)
             return
 
-        # Convert character position to byte offset
-        # Find which block contains this character position
+        # Convert character position to UTF-16 offset
+        # With UTF-16 encoding, character positions map directly to offsets
         try:
             match_block = self.editor._doc.findBlock(match_pos)
             match_block_start = match_block.position()
             match_char_col = match_pos - match_block_start
             match_row = match_block.blockNumber()
 
-            # Convert character column to byte column
-            match_text = match_block.text()
-            match_byte_col = len(match_text[:match_char_col].encode("utf-8"))
-
-            # Convert row/col to byte offset using point_to_byte
+            # With UTF-16, character column IS the code unit column
             match_byte = self.editor._doc.point_to_byte(
-                Point(match_row, match_byte_col)
+                Point(match_row, match_char_col)
             )
         except (IndexError, ValueError):
             self.editor.setExtraSelections(extra_selections)

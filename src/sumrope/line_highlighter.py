@@ -72,11 +72,12 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
         block_start_char = block.position()
         block_start_byte = self._doc.line_to_byte(block_num)
 
-        # Calculate end byte including newline if not last line
+        # Calculate end UTF-16 offset including newline if not last line
         if block.next().isValid():
             block_end_byte = self._doc.line_to_byte(block_num + 1)
         else:
-            block_end_byte = block_start_byte + len(text.encode())
+            # In UTF-16, len(text) gives us the code unit count directly
+            block_end_byte = block_start_byte + len(text)
 
         # Skip highlighting for empty blocks (can happen during undo to empty document)
         if block_start_byte >= block_end_byte:
@@ -97,11 +98,11 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
                     continue
 
                 try:
-                    # Convert byte range -> character indexes
+                    # With UTF-16, byte offsets ARE character indexes
                     start_char = self._doc.byte_to_char(node.start_byte)
                     end_char = self._doc.byte_to_char(node.end_byte)
                 except (IndexError, ValueError):
-                    # Byte position is beyond current document bounds
+                    # Position is beyond current document bounds
                     continue
 
                 # Convert to block-local and clamp to boundaries

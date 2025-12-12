@@ -379,10 +379,9 @@ class TabCompletion(HasKeyPress, Behavior):
         node = None
         if self.editor.tree_manager.tree:
             try:
-                # Convert character column to byte column
-                byte_col = len(full_line[:char_col].encode("utf-8"))
+                # With UTF-16, character column IS the code unit column
                 byte_offset = self.editor.document().point_to_byte(
-                    Point(line_num, byte_col)
+                    Point(line_num, char_col)
                 )
                 node = self.editor.tree_manager.get_node_at_point(byte_offset)
             except (IndexError, ValueError):

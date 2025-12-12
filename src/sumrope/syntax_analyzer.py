@@ -17,7 +17,7 @@ class SyntaxAnalyzer:
 
         Args:
             tree_manager: The TreeManager instance that owns the parse tree
-            document: The TrackedDocument for byte offset calculations
+            document: The TrackedDocument for UTF-16 offset calculations
         """
         self.tree_manager = tree_manager
         self.document = document
@@ -27,12 +27,12 @@ class SyntaxAnalyzer:
 
         Args:
             line_num: Line number (0-indexed)
-            col: Column number (0-indexed, measured in bytes)
+            col: Column number (0-indexed, in UTF-16 code units)
 
         Returns:
             True if an indent should be added, False otherwise
         """
-        # Calculate byte offset
+        # Calculate UTF-16 offset
         byte_offset = self.document.point_to_byte(Point(line_num, col))
 
         # Get the node at this position
@@ -118,13 +118,13 @@ class SyntaxAnalyzer:
 
         Args:
             line_num: Line number (0-indexed)
-            col: Column number (0-indexed)
+            col: Column number (0-indexed, in UTF-16 code units)
             line_text: The text of the current line
 
         Returns:
             True if a dedent should be applied, False otherwise
         """
-        # Calculate byte offset
+        # Calculate UTF-16 offset
         byte_offset = self.document.point_to_byte(Point(line_num, col))
 
         # Get the node at this position
