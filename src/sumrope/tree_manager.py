@@ -19,6 +19,7 @@ class TreeManager:
             language: The tree-sitter Language to use for parsing
             source_callback: Callback function to provide source bytes to the parser.
                 Signature: (byte_offset: int, point: Point) -> bytes
+                Note: bytes should be UTF-16LE encoded
         """
         self.parser = Parser(language)
         self.tree: Optional[Tree] = None
@@ -36,10 +37,10 @@ class TreeManager:
         """Incrementally update the parse tree after document changes
 
         Args:
-            start_byte: Byte offset where the change started
-            old_end_byte: Byte offset where the change ended (before change)
-            new_end_byte: Byte offset where the change ends (after change)
-            start_point: (row, column) where the change started
+            start_byte: UTF-16 code unit offset where the change started
+            old_end_byte: UTF-16 code unit offset where the change ended (before change)
+            new_end_byte: UTF-16 code unit offset where the change ends (after change)
+            start_point: (row, column) where the change started (column in UTF-16 code units)
             old_end_point: (row, column) where the change ended (before change)
             new_end_point: (row, column) where the change ends (after change)
         """
@@ -53,17 +54,17 @@ class TreeManager:
                 old_end_point=old_end_point,
                 new_end_point=new_end_point,
             )
-            self.tree = self.parser.parse(self._source_callback, self.tree)
+            self.tree = self.parser.parse(self._source_callback, self.tree, encoding='utf16')
         else:
             # First parse - no old tree to pass
-            self.tree = self.parser.parse(self._source_callback)
+            self.tree = self.parser.parse(self._source_callback, encoding='utf16')
         return old_tree
 
     def get_node_at_point(self, byte_offset: int) -> Optional[Node]:
-        """Get the AST node at a specific byte offset
+        """Get the AST node at a specific UTF-16 code unit offset
 
         Args:
-            byte_offset: The byte offset in the document
+            byte_offset: The UTF-16 code unit offset in the document
 
         Returns:
             The tree-sitter Node at the given offset, or None if no tree exists

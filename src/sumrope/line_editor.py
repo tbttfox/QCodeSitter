@@ -111,7 +111,7 @@ class CodeEditor(QPlainTextEdit):
     def _treesitter_source_callback(self, _byte_offset: int, ts_point: Point) -> bytes:
         """Provide source bytes to tree-sitter parser
 
-        A callback for efficient access to the underlying byte data without duplicating it
+        A callback for efficient access to the underlying UTF-16LE encoded data
         """
         # Clear cache at the start of each parse (when row 0 is requested)
         # This ensures we don't use stale block references after document edits
@@ -134,10 +134,12 @@ class CodeEditor(QPlainTextEdit):
         self._ts_prediction[ts_point.row] = curblock
         nxt = curblock.next()
         self._ts_prediction[ts_point.row + 1] = nxt
-        suffix = b"\n" if nxt.isValid() else b""
-        linebytes = curblock.text().encode() + suffix
+        suffix = "\n" if nxt.isValid() else ""
+        linetext = curblock.text() + suffix
 
-        return linebytes[ts_point.column :]
+        # Return UTF-16LE encoded bytes starting from the column offset
+        # ts_point.column is in UTF-16 code units, matching QString indexing
+        return linetext[ts_point.column :].encode('utf-16-le')
 
     def keyPressEvent(self, event: QKeyEvent):
         key = event.key()
