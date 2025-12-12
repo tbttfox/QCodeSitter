@@ -9,15 +9,24 @@ class MockDocument:
     """Mock TrackedDocument for testing"""
 
     def __init__(self, source_text: str):
-        self.source_bytes = source_text.encode()
+        self.source_bytes = source_text.encode('utf-16-le')
         self.lines = source_text.split("\n")
 
     def point_to_byte(self, point: Point) -> int:
-        """Convert a Point to byte offset"""
+        """Convert a Point to UTF-16 byte offset
+
+        Args:
+            point: Point with row and column (column is in UTF-16 code units)
+
+        Returns:
+            Byte offset in the UTF-16LE encoded source
+        """
         byte_offset = 0
         for i in range(point.row):
-            byte_offset += len(self.lines[i].encode()) + 1  # +1 for newline
-        byte_offset += point.column
+            # Each line + newline, each char is 2 bytes in UTF-16LE
+            byte_offset += (len(self.lines[i]) + 1) * 2
+        # Column is in UTF-16 code units, each is 2 bytes
+        byte_offset += point.column * 2
         return byte_offset
 
 
