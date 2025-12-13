@@ -159,13 +159,9 @@ class CodeEditor(QPlainTextEdit):
         for behavior in self._behaviors:
             if not isinstance(behavior, HasKeyPress):
                 continue
-            acc = behavior.keyPressEvent(event, hotkey)
-            if accepted and acc:
-                print(f"WARNING: Multiple behaviors handle the same hotkey: {hotkey}")
-            accepted |= acc
-
-        if accepted:
-            return
+            accepted = behavior.keyPressEvent(event, hotkey)
+            if accepted:
+                return
 
         func = self.hotkeys.get(hotkey)
         if func is not None:

@@ -9,6 +9,7 @@ from sumrope.behaviors.line_numbers import LineNumber
 from sumrope.behaviors.highlight_matching_brackets import HighlightMatchingBrackets
 from sumrope.behaviors.highlight_matching_selection import HighlightMatchingSelection
 from sumrope.behaviors.syntax_highlighting import SyntaxHighlighting
+from sumrope.behaviors.tab_completion import TabCompletion
 from sumrope.editor_options import EditorOptions
 from sumrope.hl_groups import FORMAT_SPECS
 import tree_sitter_python as tspython
@@ -33,6 +34,7 @@ options = EditorOptions(
 
 edit = CodeEditor(options, parent=win)
 
+edit.replaceBehavior(TabCompletion)
 edit.replaceBehavior(SyntaxHighlighting)
 edit.replaceBehavior(SmartIndent)
 edit.replaceBehavior(HighlightMatchingBrackets)

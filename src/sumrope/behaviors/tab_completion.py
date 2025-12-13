@@ -5,8 +5,8 @@ from Qt.QtWidgets import QListWidget, QListWidgetItem, QAbstractItemView, QAppli
 from dataclasses import dataclass
 from tree_sitter import Node, Point, Tree, Query, QueryCursor
 from typing import Optional, TYPE_CHECKING, Collection
-from .behaviors import Behavior, HasKeyPress
-from .utils import hk
+from . import Behavior, HasKeyPress
+from ..utils import hk
 
 
 if TYPE_CHECKING:
@@ -36,6 +36,9 @@ class Completion:
         return COMPLETION_FORMAT.format(
             text=self.text, kind=self.kind, priority=self.priority
         )
+
+    def __hash__(self):
+        return hash((self.text, self.kind, self.priority))
 
 
 @dataclass
@@ -102,17 +105,7 @@ class CompletionPopup(QListWidget):
         self.all_completions = sorted(
             completions, key=lambda c: (-c.priority, c.text.lower())
         )
-        self.current_prefix = prefix
-        self._update_items()
-
-        if self.count() > 0:
-            self.setCurrentRow(0)
-            self._position_at_cursor()
-            self.show()
-            # Don't steal focus from editor
-            self.setFocusPolicy(Qt.NoFocus)
-        else:
-            self.hide()
+        self.update_filter(prefix)
 
     def update_filter(self, new_prefix: str):
         """Update visible completions based on new prefix
@@ -124,8 +117,16 @@ class CompletionPopup(QListWidget):
         """
         self.current_prefix = new_prefix
         self._update_items()
+        self.updateShown()
 
-        if self.count() == 0:
+    def updateShown(self):
+        if self.count() > 0:
+            self.setCurrentRow(0)
+            self._position_at_cursor()
+            self.show()
+            # Don't steal focus from editor
+            self.setFocusPolicy(Qt.NoFocus)
+        else:
             self.hide()
 
     def _update_items(self):
@@ -133,7 +134,10 @@ class CompletionPopup(QListWidget):
         self.clear()
 
         for comp in self.all_completions:
-            if comp.text.startswith(self.current_prefix):
+            if (
+                comp.text.startswith(self.current_prefix)
+                and comp.text != self.current_prefix
+            ):
                 item = QListWidgetItem(comp.display())
                 item.setData(Qt.UserRole, comp)
                 self.addItem(item)
@@ -241,8 +245,10 @@ class IdentifierProvider(Provider):
             start_byte: The start byte for the range. Defaults to 0
             end_byte: The end byte of the range. Defatuls to -1 (the end of the range)
         """
+        print("PROVIDING")
         tree = self.tabcomplete.last_tree
         if tree is None:
+            print("NO TREE")
             return set()
 
         if self.query is None:
@@ -256,6 +262,7 @@ class IdentifierProvider(Provider):
 
         captures = cursor.captures(tree.root_node)
         for capture_name, nodes in captures.items():
+            print("CNC", capture_name, nodes)
             for node in nodes:
                 if node.text is None:
                     continue
@@ -280,13 +287,16 @@ class TabCompletion(HasKeyPress, Behavior):
         super().__init__(editor)
 
         self._providers: list[Provider] = []
+
         self.last_tree: Optional[Tree] = None
         self._last_context: CompletionContext = CompletionContext(0, 0, "", 0, "", None)
+
+        self.editor.cursorPositionChanged.connect(self.on_cursor_changed)
 
         # Debounce timer to avoid triggering on every keystroke
         self.debounce_timer = QTimer()
         self.debounce_timer.setSingleShot(True)
-        self.debounce_timer.timeout.connect(self._do_completion)
+        self.debounce_timer.timeout.connect(self.do_completion)
 
         self.completion_popup: CompletionPopup = CompletionPopup(self.editor)
         self.vim_completion_keys = True
@@ -295,6 +305,8 @@ class TabCompletion(HasKeyPress, Behavior):
         if editor.tree_manager.tree:
             self.last_tree = editor.tree_manager.tree
         self.updateAll()
+
+        self._providers.append(IdentifierProvider(self))
 
     def on_cursor_changed(self):
         """Called when cursor position changes (connected to cursorPositionChanged signal)"""
@@ -337,8 +349,11 @@ class TabCompletion(HasKeyPress, Behavior):
 
         return True
 
-    def _do_completion(self):
+    def do_completion(self):
         """Actually perform completion (called after debounce timer expires)"""
+        if self.editor.tree_manager.tree:
+            self.last_tree = self.editor.tree_manager.tree
+
         context = self._extract_context()
         if (
             context.line_num == self._last_context.line_num
@@ -416,6 +431,14 @@ class TabCompletion(HasKeyPress, Behavior):
 
     def keyPressEvent(self, event: QKeyEvent, hotkey: str):
         if not self.completion_popup.isVisible():
+            if hotkey == hk(Qt.Key_Space, Qt.KeyboardModifier.ControlModifier):
+                print("CSP")
+                self.do_completion()
+                return True
+            elif event.key() == Qt.Key_Escape:
+                print("EDC")
+                self.do_completion()
+                return True
             return False
 
         if event.key() in (Qt.Key_Return, Qt.Key_Tab):
@@ -431,7 +454,6 @@ class TabCompletion(HasKeyPress, Behavior):
         elif event.key() in (Qt.Key_Backspace, Qt.Key_Escape):
             self.completion_popup.hide()
             return True
-
         elif self.vim_completion_keys:
             if hotkey == hk(Qt.Key_Y, Qt.KeyboardModifier.ControlModifier):
                 if self.completion_popup.currentItem():
