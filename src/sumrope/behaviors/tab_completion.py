@@ -1,6 +1,6 @@
 from __future__ import annotations
 from Qt.QtCore import QTimer, Qt
-from Qt.QtGui import QKeyEvent
+from Qt.QtGui import QKeyEvent, QPalette, QColor
 from Qt.QtWidgets import QListWidget, QListWidgetItem, QAbstractItemView, QApplication
 from dataclasses import dataclass
 from tree_sitter import Node, Point, Tree
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 COMPLETION_FORMAT = "{text} ({kind})"
 
 T_Provider = TypeVar("T_Provider", bound=Provider)
+
 
 @dataclass
 class IdentifierInfo:
@@ -69,24 +70,14 @@ class CompletionPopup(QListWidget):
         # Set attribute to hide from taskbar
         self.setAttribute(Qt.WA_ShowWithoutActivating)
 
-        # Styling
-        '''
-        self.setStyleSheet("""
-            QListWidget {
-                background-color: #2b2b2b;
-                color: #dcdcdc;
-                border: 1px solid #555;
-                font-family: Consolas, Monaco, monospace;
-                font-size: 10pt;
-            }
-            QListWidget::item {
-                padding: 4px 8px;
-            }
-            QListWidget::item:selected {
-                background-color: #094771;
-            }
-        """)
-        '''
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Base, QColor("#2b2b2b"))  # Background
+        palette.setColor(QPalette.Text, QColor("#dcdcdc"))  # Text color
+        palette.setColor(QPalette.Highlight, QColor("#094771"))  # Selection background
+        palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))  # Selection text
+        palette.setColor(QPalette.Window, QColor("#2b2b2b"))  # Window background
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
 
         # Size constraints
         self.setMinimumWidth(200)
@@ -265,9 +256,6 @@ class TabCompletion(HasKeyPress, Behavior):
         if editor.tree_manager.tree:
             self.last_tree = editor.tree_manager.tree
         self.updateAll()
-
-        from .providers.identifiers import IdentifierProvider
-        self._providers.append(IdentifierProvider(self))
 
     def addProvider(self, providercls: Type[T_Provider]) -> T_Provider:
         ret = providercls(self)

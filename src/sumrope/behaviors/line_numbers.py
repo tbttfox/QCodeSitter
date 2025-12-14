@@ -11,15 +11,19 @@ class LineNumberArea(QtWidgets.QWidget):
     """Handle the painting of a Line Number column"""
 
     # TODO: relative line numbers
-    def __init__(self, editor: CodeEditor):
+    def __init__(self, editor: CodeEditor, fg: QtGui.QColor, bg: QtGui.QColor):
         super().__init__(editor)
         self.editor: CodeEditor = editor
-        self.line_area_bg_color = QtGui.QColor(40, 40, 40)
-        self.line_area_fg_color = QtGui.QColor(150, 150, 150)
+        self.line_area_bg_color = bg
+        self.line_area_fg_color = fg
 
         self.editor.blockCountChanged.connect(self.update_line_number_area_width)
         self.editor.updateRequest.connect(self.update_line_number_area)
         self.update_line_number_area_width()
+
+    def setColors(self, fg: QtGui.QColor, bg: QtGui.QColor):
+        self.line_area_fg_color = fg
+        self.line_area_bg_color = bg
 
     def sizeHint(self):
         return QtCore.QSize(self.line_number_area_width(), 0)
@@ -79,8 +83,12 @@ class LineNumberArea(QtWidgets.QWidget):
 class LineNumber(HasResize, Behavior):
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
-        self.setListen({"font"})
-        self.line_number_area: LineNumberArea = LineNumberArea(self.editor)
+        self.setListen({"font", "colors"})
+        self.line_number_area: LineNumberArea = LineNumberArea(
+            self.editor,
+            QtGui.QColor(150, 150, 150),
+            QtGui.QColor(40, 40, 40),
+        )
         if editor.isVisible() and not self.line_number_area.isVisible():
             self.line_number_area.setVisible(True)
             self.setLineGeo()
@@ -91,6 +99,13 @@ class LineNumber(HasResize, Behavior):
         self.line_number_area.setFont(newfont)
 
     font = property(None, _font)
+
+    def _colors(self, val):
+        self.line_number_area.setColors(
+            QtGui.QColor(val["gutter_fg"]), QtGui.QColor(val["gutter"])
+        )
+
+    colors = property(None, _colors)
 
     def resizeEvent(self, e: QtGui.QResizeEvent):
         self.setLineGeo()

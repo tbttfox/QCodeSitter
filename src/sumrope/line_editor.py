@@ -1,10 +1,12 @@
 from __future__ import annotations
 from Qt.QtWidgets import QPlainTextEdit
 from Qt.QtGui import (
-    QResizeEvent,
-    QTextCursor,
+    QColor,
     QKeyEvent,
+    QPalette,
+    QResizeEvent,
     QTextBlock,
+    QTextCursor,
 )
 from typing import Callable, Optional, Collection, Type, TypeVar
 from tree_sitter import Language, Point
@@ -16,7 +18,7 @@ from .syntax_analyzer import SyntaxAnalyzer
 from .editor_options import EditorOptions
 from .utils import hk
 
-T_Behavior = TypeVar('T_Behavior', bound=Behavior)
+T_Behavior = TypeVar("T_Behavior", bound=Behavior)
 
 
 class CodeEditor(QPlainTextEdit):
@@ -49,11 +51,20 @@ class CodeEditor(QPlainTextEdit):
             self.setFont(self.options["font"])
         if "language" in keys:
             self.setLanguage(self.options["language"])
+        if "colors" in keys:
+            self.setColors(self.options["colors"])
+
+    def setColors(self, colors: dict[str, str]):
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Base, QColor(colors["bg"]))  # Background
+        palette.setColor(QPalette.Window, QColor(colors["bg"]))  # Window background
+        palette.setColor(QPalette.Text, QColor(colors["fg"]))  # Window background
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
 
     def setLanguage(self, lang: Language):
         self.tree_manager = TreeManager(lang, self._treesitter_source_callback)
         self.syntax_analyzer = SyntaxAnalyzer(self.tree_manager, self._doc)
-
         self._doc.byteContentsChange.connect(self.updateTree)
 
     def updateTree(
@@ -73,6 +84,7 @@ class CodeEditor(QPlainTextEdit):
             old_end_point,
             new_end_point,
         )
+        #print(str(self.tree_manager.tree.root_node))
 
     def addBehavior(
         self, behaviorCls: Type[T_Behavior]

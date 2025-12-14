@@ -1,62 +1,77 @@
-# fmt: off
-FORMAT_SPECS = {
-    # Keywords and control flow
-    "keyword": {"color": "#0000FF", "bold": True},
-    "keyword.conditional": {"color": "#0000FF", "bold": True},
-    "keyword.repeat": {"color": "#0000FF", "bold": True},
-    "keyword.return": {"color": "#0000FF", "bold": True},
-    "keyword.operator": {"color": "#0000FF", "bold": True},
-    "keyword.import": {"color": "#0000FF", "bold": True},
-    "keyword.exception": {"color": "#0000FF", "bold": True},
-
-    # Functions and methods
-    "function": {"color": "#795E26", "bold": True},
-    "function.builtin": {"color": "#0000FF"},
-    "function.method": {"color": "#008080"},
-    "function.call": {"color": "#008080"},
-    "method.call": {"color": "#008080"},
-
-    # Types and classes
-    "type": {"color": "#267F99", "bold": True},
-    "type.builtin": {"color": "#0000FF"},
-    "class": {"color": "#267F99", "bold": True},
-    "constructor": {"color": "#267F99", "bold": True},
-
-    # Variables and parameters
-    "variable": {"color": "#001080"},
-    "variable.builtin": {"color": "#0000FF"},
-    "variable.parameter": {"color": "#001080"},
-    "parameter": {"color": "#001080"},
-
-    # Constants and literals
-    "constant": {"color": "#0000FF"},
-    "constant.builtin": {"color": "#0000FF"},
-    "boolean": {"color": "#0000FF"},
-    "number": {"color": "#098658"},
-    "float": {"color": "#098658"},
-    "string": {"color": "#A31515"},
-    "string.escape": {"color": "#EE9900", "bold": True},
-    "character": {"color": "#A31515"},
-
-    # Comments and documentation
-    "comment": {"color": "#008000", "italic": True},
-    "comment.documentation": {"color": "#008000", "italic": True},
-
-    # Operators and punctuation
-    "operator": {"color": "#000000"},
-    "punctuation": {"color": "#000000"},
-    "punctuation.bracket": {"color": "#000000"},
-    "punctuation.delimiter": {"color": "#000000"},
-
-    # Decorators and attributes
-    "decorator": {"color": "#808000"},
-    "attribute": {"color": "#008080"},
-    "property": {"color": "#008080"},
-
-    # Special
-    "tag": {"color": "#800000"},
-    "label": {"color": "#000000", "bold": True},
-    "namespace": {"color": "#267F99"},
-    "module": {"color": "#267F99"},
+# Only "bg" and "fg" are required for this
+# "gutter" and "gutter_fg" are required for the line number
+COLORS = {
+    "bg": "#282A36",
+    "fg": "#F8F8F2",
+    "gutter": "#282828",
+    "gutter_fg": "#4B5263",
+    "selection": "#44475A",
+    "comment": "#6272A4",
+    "red": "#FF5555",
+    "orange": "#FFB86C",
+    "yellow": "#F1FA8C",
+    "green": "#50fa7b",
+    "purple": "#BD93F9",
+    "cyan": "#8BE9FD",
+    "pink": "#FF79C6",
+    "bright_red": "#FF6E6E",
+    "bright_green": "#69FF94",
+    "bright_yellow": "#FFFFA5",
+    "bright_blue": "#D6ACFF",
+    "bright_magenta": "#FF92DF",
+    "bright_cyan": "#A4FFFF",
+    "bright_white": "#FFFFFF",
+    "menu": "#21222C",
+    "visual": "#3E4452",
+    "nontext": "#3B4048",
+    "white": "#ABB2BF",
+    "black": "#191A21",
 }
-# fmt: on
+
+
+FORMAT_SPECS = {
+    "attribute": {"color": COLORS["cyan"]},
+    "attribute.builtin": {"color": COLORS["cyan"]},
+    "boolean": {"color": COLORS["purple"]},
+    "character.special": {"color": COLORS["green"]},
+    "comment": {"color": COLORS["comment"]},
+    "constructor": {"color": COLORS["cyan"]},
+    "function": {"color": COLORS["green"]},
+    "function.builtin": {"color": COLORS["cyan"]},
+    "function.call": {"color": COLORS["green"]},
+    "function.macro": {"color": COLORS["green"]},
+    "function.method": {"color": COLORS["green"]},
+    "function.method.call": {"color": COLORS["green"]},
+    "keyword": {"color": COLORS["pink"]},
+    "keyword.conditional": {"color": COLORS["pink"]},
+    "keyword.coroutine": {"color": COLORS["pink"]},
+    "keyword.directive": {"color": COLORS["pink"]},
+    "keyword.exception": {"color": COLORS["purple"]},
+    "keyword.function": {"color": COLORS["cyan"]},
+    "keyword.import": {"color": COLORS["pink"]},
+    "keyword.operator": {"color": COLORS["pink"]},
+    "keyword.repeat": {"color": COLORS["pink"]},
+    "keyword.return": {"color": COLORS["pink"]},
+    "keyword.type": {"color": COLORS["pink"]},
+    "module": {"color": COLORS["orange"]},
+    "module.builtin": {"color": COLORS["orange"]},
+    "none": {"color": COLORS["purple"]},
+    "number": {"color": COLORS["purple"]},
+    "number.float": {"color": COLORS["green"]},
+    "operator": {"color": COLORS["pink"]},
+    "punctuation.bracket": {"color": COLORS["fg"]},
+    "punctuation.delimiter": {"color": COLORS["fg"]},
+    "string": {"color": COLORS["yellow"]},
+    "string.documentation": {"color": COLORS["cyan"]},
+    "string.escape": {"color": COLORS["cyan"]},
+    "string.regexp": {"color": COLORS["red"]},
+    "type": {"color": COLORS["bright_cyan"]},
+    "type.builtin": {"color": COLORS["cyan"], "italic": True},
+    "type.definition": {"color": COLORS["bright_cyan"]},
+    "variable": {"color": COLORS["fg"]},
+    "variable.builtin": {"color": COLORS["purple"]},
+    "variable.member": {"color": COLORS["orange"]},
+    "variable.parameter": {"color": COLORS["orange"]},
+    "constant": {"color": COLORS["purple"]},
+    "constant.builtin": {"color": COLORS["purple"]},
+}
