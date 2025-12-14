@@ -133,9 +133,10 @@ class CompletionPopup(QListWidget):
         """Update the list widget items based on current prefix"""
         self.clear()
 
+        prefix_lower = self.current_prefix.lower()
         for comp in self.all_completions:
             if (
-                comp.text.startswith(self.current_prefix)
+                comp.text.lower().startswith(prefix_lower)
                 and comp.text != self.current_prefix
             ):
                 item = QListWidgetItem(comp.display())
@@ -245,10 +246,8 @@ class IdentifierProvider(Provider):
             start_byte: The start byte for the range. Defaults to 0
             end_byte: The end byte of the range. Defatuls to -1 (the end of the range)
         """
-        print("PROVIDING")
         tree = self.tabcomplete.last_tree
         if tree is None:
-            print("NO TREE")
             return set()
 
         if self.query is None:
@@ -262,7 +261,6 @@ class IdentifierProvider(Provider):
 
         captures = cursor.captures(tree.root_node)
         for capture_name, nodes in captures.items():
-            print("CNC", capture_name, nodes)
             for node in nodes:
                 if node.text is None:
                     continue
@@ -316,10 +314,20 @@ class TabCompletion(HasKeyPress, Behavior):
             if self.completion_popup.isVisible():
                 self.completion_popup.hide()
         else:
-            # Cancel any pending completion
-            self.debounce_timer.stop()
-            # Start new debounce timer (150ms delay)
-            self.debounce_timer.start(150)
+            # If popup is already visible and we're still in the same completion context,
+            # update the filter immediately without debouncing
+            if (
+                self.completion_popup.isVisible()
+                and context.line_num == self._last_context.line_num
+                and context.start == self._last_context.start
+            ):
+                self.completion_popup.update_filter(context.prefix)
+                self._last_context = context
+            else:
+                # Cancel any pending completion
+                self.debounce_timer.stop()
+                # Start new debounce timer (150ms delay)
+                self.debounce_timer.start(150)
 
     def _should_trigger(self, context: CompletionContext) -> bool:
         """Determine if completion should be triggered for this context
@@ -344,7 +352,7 @@ class TabCompletion(HasKeyPress, Behavior):
             return False
 
         # Don't trigger if prefix isn't a valid identifier start
-        if not context.prefix[0].isidentifier():
+        if not (context.prefix[0].isalpha() or context.prefix[0] == '_'):
             return False
 
         return True
@@ -422,21 +430,29 @@ class TabCompletion(HasKeyPress, Behavior):
             The beginning index of the prefix string
             The prefix string (e.g., "fo" from "def fo|")
         """
-        # Walk backwards from cursor while we have identifier chars
+        # Walk backwards from cursor while we have identifier chars or dots
         start = col
         while start > 0 and (line[start - 1].isidentifier() or line[start - 1] in "._"):
             start -= 1
 
-        return start, line[start:col]
+        prefix = line[start:col]
+
+        # If there's a dot in the prefix, only use the part after the last dot
+        # This handles cases like "os.path.jo|" -> complete "jo" not "os.path.jo"
+        if "." in prefix:
+            last_dot = prefix.rfind(".")
+            # Update start to point to the character after the last dot
+            start = start + last_dot + 1
+            prefix = prefix[last_dot + 1:]
+
+        return start, prefix
 
     def keyPressEvent(self, event: QKeyEvent, hotkey: str):
         if not self.completion_popup.isVisible():
             if hotkey == hk(Qt.Key_Space, Qt.KeyboardModifier.ControlModifier):
-                print("CSP")
                 self.do_completion()
                 return True
             elif event.key() == Qt.Key_Escape:
-                print("EDC")
                 self.do_completion()
                 return True
             return False
@@ -451,9 +467,12 @@ class TabCompletion(HasKeyPress, Behavior):
         elif event.key() == Qt.Key_Down:
             self.completion_popup.offsetCurrent(1)
             return True
-        elif event.key() in (Qt.Key_Backspace, Qt.Key_Escape):
+        elif event.key() == Qt.Key_Escape:
             self.completion_popup.hide()
             return True
+        elif event.key() == Qt.Key_Backspace:
+            self.completion_popup.hide()
+            return False
         elif self.vim_completion_keys:
             if hotkey == hk(Qt.Key_Y, Qt.KeyboardModifier.ControlModifier):
                 if self.completion_popup.currentItem():
