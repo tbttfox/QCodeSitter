@@ -11,6 +11,7 @@ class HighlightMatchingSelection(Behavior):
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
         self.editor.selectionChanged.connect(self.highlight_occurrences)
+        self._ltYellow = QtGui.QColor(255, 255, 0, 80)
         self.updateAll()
 
     def highlight_occurrences(self):
@@ -26,9 +27,7 @@ class HighlightMatchingSelection(Behavior):
         if selected_text and len(selected_text) >= 2 and len(selected_text) <= 100:
             # Create format for highlighting occurrences
             format = QtGui.QTextCharFormat()
-            format.setBackground(
-                QtGui.QColor(255, 255, 0, 80)
-            )  # Light yellow with transparency
+            format.setBackground(self._ltYellow)
 
             # Find all occurrences
             doc = self.editor.document()
@@ -49,4 +48,4 @@ class HighlightMatchingSelection(Behavior):
                     selection.format = format
                     extra_selections.append(selection)
 
-        self.editor.setExtraSelections(extra_selections)
+        self.editor.selection_manager.set_selections("selection_highlight", extra_selections)

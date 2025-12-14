@@ -1,6 +1,6 @@
 from __future__ import annotations
 from . import Behavior
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Collection
 from Qt import QtGui, QtWidgets
 from tree_sitter import Point
 
@@ -11,40 +11,34 @@ if TYPE_CHECKING:
 class HighlightMatchingBrackets(Behavior):
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
+        self._ltGray = QtGui.QColor(200, 200, 200, 80)
+
+        self.quote_chars: str = "'\""
+        self.ordered_pairs: tuple[str, ...]
+        self.opening_brackets: str
+        self.bracket_chars: str
+        self.bracket_pairs: dict[str, str]
+        self.all_match_chars: str
+        self.update_pairs(("()", "[]", "{}"))
+
         self.editor.cursorPositionChanged.connect(self.highlight_matching_brackets)
+        self.updateAll()
+
+    def update_pairs(self, ordered_pairs: Collection[str]):
+        self.ordered_pairs = tuple(ordered_pairs)
+        self.bracket_chars = ''.join(self.ordered_pairs)
+        self.opening_brackets = ''.join(p[0] for p in self.ordered_pairs)
+        self.bracket_pairs = {p[0]: p[1] for p in self.ordered_pairs}
+        self.bracket_pairs.update({p[1]: p[0] for p in self.ordered_pairs})
+        self.all_match_chars = self.quote_chars + self.bracket_chars
 
     def highlight_matching_brackets(self):
         """Highlight matching brackets/parens/braces using tree-sitter"""
         extra_selections = []
 
-        # First add occurrence highlights if any text is selected
-        cursor = self.editor.textCursor()
-        selected_text = cursor.selectedText()
-
-        if selected_text and len(selected_text) >= 2 and len(selected_text) <= 100:
-            format = QtGui.QTextCharFormat()
-            format.setBackground(QtGui.QColor(255, 255, 0, 80))
-
-            doc = self.editor.document()
-            search_cursor = QtGui.QTextCursor(doc)
-
-            while True:
-                search_cursor = doc.find(selected_text, search_cursor)
-                if search_cursor.isNull():
-                    break
-
-                if (
-                    search_cursor.position() != cursor.position()
-                    or search_cursor.anchor() != cursor.anchor()
-                ):
-                    selection = QtWidgets.QTextEdit.ExtraSelection()
-                    selection.cursor = search_cursor
-                    selection.format = format
-                    extra_selections.append(selection)
-
-        # Now check for bracket matching
+        # Check for bracket matching
         if self.editor.tree_manager.tree is None:
-            self.editor.setExtraSelections(extra_selections)
+            self.editor.selection_manager.set_selections("bracket_matching", extra_selections)
             return
 
         cursor = self.editor.textCursor()
@@ -55,26 +49,21 @@ class HighlightMatchingBrackets(Behavior):
 
         # Check character before and after cursor
         text = block.text()
-        bracket_chars = "()[]{}"
-        quote_chars = "'\""
-        all_match_chars = bracket_chars + quote_chars
-        opening_brackets = "([{"
-        bracket_pairs = {"(": ")", "[": "]", "{": "}", ")": "(", "]": "[", "}": "{"}
 
         match_char = None
         match_pos = None
 
         # Check character before cursor (preferred)
-        if col > 0 and text[col - 1] in all_match_chars:
+        if col > 0 and text[col - 1] in self.all_match_chars:
             match_char = text[col - 1]
             match_pos = pos - 1
         # Check character after cursor
-        elif col < len(text) and text[col] in all_match_chars:
+        elif col < len(text) and text[col] in self.all_match_chars:
             match_char = text[col]
             match_pos = pos
 
         if match_char is None or match_pos is None:
-            self.editor.setExtraSelections(extra_selections)
+            self.editor.selection_manager.set_selections("bracket_matching", extra_selections)
             return
 
         # Convert character position to UTF-16 offset
@@ -90,17 +79,17 @@ class HighlightMatchingBrackets(Behavior):
                 Point(match_row, match_char_col)
             )
         except (IndexError, ValueError):
-            self.editor.setExtraSelections(extra_selections)
+            self.editor.selection_manager.set_selections("bracket_matching", extra_selections)
             return
 
         # Get the node at the match position
         node = self.editor.tree_manager.get_node_at_point(match_byte)
         if node is None:
-            self.editor.setExtraSelections(extra_selections)
+            self.editor.selection_manager.set_selections("bracket_matching", extra_selections)
             return
 
         # Handle quotes differently from brackets
-        if match_char in quote_chars:
+        if match_char in self.quote_chars:
             # For quotes, we need to find the full string node (not just string_start/string_end)
             # Walk up to find a string node, but if we find string_start or string_end, keep going up
             string_node = node
@@ -111,7 +100,7 @@ class HighlightMatchingBrackets(Behavior):
                 string_node = string_node.parent
 
             if string_node is None:
-                self.editor.setExtraSelections(extra_selections)
+                self.editor.selection_manager.set_selections("bracket_matching", extra_selections)
                 return
 
             # For strings, highlight the opening and closing quotes
@@ -122,7 +111,7 @@ class HighlightMatchingBrackets(Behavior):
                 )
                 string_end_char = self.editor._doc.byte_to_char(string_node.end_byte)
             except (IndexError, ValueError):
-                self.editor.setExtraSelections(extra_selections)
+                self.editor.selection_manager.set_selections("bracket_matching", extra_selections)
                 return
 
             # Get the actual string text to determine quote length (handle triple quotes)
@@ -150,7 +139,7 @@ class HighlightMatchingBrackets(Behavior):
 
             # Create highlight format
             quote_format = QtGui.QTextCharFormat()
-            quote_format.setBackground(QtGui.QColor(200, 200, 200))  # Light gray
+            quote_format.setBackground(self._ltGray)
 
             # Determine which quotes to highlight based on cursor position
             # If cursor is at opening quote, highlight opening and closing
@@ -187,12 +176,12 @@ class HighlightMatchingBrackets(Behavior):
             selection2.format = quote_format
             extra_selections.append(selection2)
 
-            self.editor.setExtraSelections(extra_selections)
+            self.editor.selection_manager.set_selections("bracket_matching", extra_selections)
             return
 
         # Handle brackets
-        if node.type not in bracket_chars:
-            self.editor.setExtraSelections(extra_selections)
+        if node.type not in self.bracket_chars:
+            self.editor.selection_manager.set_selections("bracket_matching", extra_selections)
             return
 
         # Find the matching bracket
@@ -201,14 +190,14 @@ class HighlightMatchingBrackets(Behavior):
         parent = node.parent
 
         if parent is not None:
-            matching_bracket_type = bracket_pairs[match_char]
+            matching_bracket_type = self.bracket_pairs[match_char]
 
             # Search siblings for the matching bracket
             for sibling in parent.children:
                 if sibling.type == matching_bracket_type:
                     # Found a potential match
                     # For opening brackets, find the matching closing bracket (comes after)
-                    if match_char in opening_brackets:
+                    if match_char in self.opening_brackets:
                         if sibling.start_byte > node.start_byte:
                             matching_node = sibling
                             break
@@ -218,7 +207,7 @@ class HighlightMatchingBrackets(Behavior):
                             matching_node = sibling
 
         if matching_node is None:
-            self.editor.setExtraSelections(extra_selections)
+            self.editor.selection_manager.set_selections("bracket_matching", extra_selections)
             return
 
         # Convert byte positions to character positions
@@ -228,12 +217,12 @@ class HighlightMatchingBrackets(Behavior):
             match_start_char = self.editor._doc.byte_to_char(matching_node.start_byte)
             match_end_char = self.editor._doc.byte_to_char(matching_node.end_byte)
         except (IndexError, ValueError):
-            self.editor.setExtraSelections(extra_selections)
+            self.editor.selection_manager.set_selections("bracket_matching", extra_selections)
             return
 
         # Create highlight format
         bracket_format = QtGui.QTextCharFormat()
-        bracket_format.setBackground(QtGui.QColor(200, 200, 200))  # Light gray
+        bracket_format.setBackground(self._ltGray)
 
         # Highlight the bracket under/near cursor
         cursor1 = self.editor.textCursor()
@@ -253,4 +242,4 @@ class HighlightMatchingBrackets(Behavior):
         selection2.format = bracket_format
         extra_selections.append(selection2)
 
-        self.editor.setExtraSelections(extra_selections)
+        self.editor.selection_manager.set_selections("bracket_matching", extra_selections)

@@ -16,6 +16,7 @@ from .behaviors import Behavior, HasKeyPress, HasResize
 from .tree_manager import TreeManager
 from .syntax_analyzer import SyntaxAnalyzer
 from .editor_options import EditorOptions
+from .selection_manager import SelectionManager
 from .utils import hk
 
 T_Behavior = TypeVar("T_Behavior", bound=Behavior)
@@ -36,6 +37,7 @@ class CodeEditor(QPlainTextEdit):
 
         self.tree_manager: TreeManager
         self.syntax_analyzer: SyntaxAnalyzer
+        self.selection_manager: SelectionManager = SelectionManager(self)
 
         # Hotkeys
         self.hotkeys: dict[str, Callable[[QTextCursor], bool]] = {}
