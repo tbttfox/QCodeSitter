@@ -10,6 +10,7 @@ from sumrope.behaviors.line_numbers import LineNumber
 from sumrope.behaviors.highlight_matching_brackets import HighlightMatchingBrackets
 from sumrope.behaviors.highlight_matching_selection import HighlightMatchingSelection
 from sumrope.behaviors.syntax_highlighting import SyntaxHighlighting
+from sumrope.behaviors.auto_bracket import AutoBracket
 from sumrope.behaviors.tab_completion import TabCompletion
 from sumrope.behaviors.providers.identifiers import IdentifierProvider
 from sumrope.editor_options import EditorOptions
@@ -52,6 +53,7 @@ edit.addBehavior(SmartIndent)
 edit.addBehavior(HighlightMatchingBrackets)
 edit.addBehavior(HighlightMatchingSelection)
 edit.addBehavior(LineNumber)
+edit.addBehavior(AutoBracket)
 
 
 win.setCentralWidget(edit)
