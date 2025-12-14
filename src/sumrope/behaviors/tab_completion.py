@@ -242,8 +242,10 @@ class TabCompletion(HasKeyPress, Behavior):
 
         self.last_tree: Optional[Tree] = None
         self._last_context: CompletionContext = CompletionContext(0, 0, "", 0, "", None)
+        self._typing_mode: bool = False  # Track if we're in active typing session
 
         self.editor.cursorPositionChanged.connect(self.on_cursor_changed)
+        self.editor.textChanged.connect(self.on_text_changed)
 
         # Debounce timer to avoid triggering on every keystroke
         self.debounce_timer = QTimer()
@@ -262,6 +264,10 @@ class TabCompletion(HasKeyPress, Behavior):
         self._providers.append(ret)
         return ret
 
+    def on_text_changed(self):
+        """Called when text changes - indicates typing is happening"""
+        self._typing_mode = True
+
     def on_cursor_changed(self):
         """Called when cursor position changes (connected to cursorPositionChanged signal)"""
         context = self._extract_context()
@@ -269,6 +275,8 @@ class TabCompletion(HasKeyPress, Behavior):
             # Hide popup if trigger conditions not met
             if self.completion_popup.isVisible():
                 self.completion_popup.hide()
+            # Reset typing mode when conditions not met
+            self._typing_mode = False
         else:
             # If popup is already visible and we're still in the same completion context,
             # update the filter immediately without debouncing
@@ -279,11 +287,15 @@ class TabCompletion(HasKeyPress, Behavior):
             ):
                 self.completion_popup.update_filter(context.prefix)
                 self._last_context = context
-            else:
+            elif self._typing_mode:
+                # Only auto-show popup if we're in typing mode (not just clicking around)
                 # Cancel any pending completion
                 self.debounce_timer.stop()
                 # Start new debounce timer (150ms delay)
                 self.debounce_timer.start(self.debounce_delay)
+
+            # Reset typing mode flag after handling
+            self._typing_mode = False
 
     def _should_trigger(self, context: CompletionContext) -> bool:
         """Determine if completion should be triggered for this context
