@@ -33,12 +33,10 @@ class Completion:
     priority: int  # For sorting (higher = more important)
 
     def display(self):
-        return COMPLETION_FORMAT.format(
-            text=self.text, kind=self.kind, priority=self.priority
-        )
+        return COMPLETION_FORMAT.format(text=self.text, kind=self.kind)
 
     def __hash__(self):
-        return hash((self.text, self.kind, self.priority))
+        return hash((self.text, self.kind))
 
 
 @dataclass
@@ -131,9 +129,28 @@ class CompletionPopup(QListWidget):
 
     def _update_items(self):
         """Update the list widget items based on current prefix"""
-        self.clear()
-
         prefix_lower = self.current_prefix.lower()
+
+        # If we already have items, try to update visibility instead of rebuilding
+        if self.count() > 0:
+            visible_count = 0
+            for i in range(self.count()):
+                item = self.item(i)
+                comp: Completion = item.data(Qt.UserRole)
+                should_show = (
+                    comp.text.lower().startswith(prefix_lower)
+                    and comp.text != self.current_prefix
+                )
+                item.setHidden(not should_show)
+                if should_show:
+                    visible_count += 1
+
+            # If visible count matches, we're done
+            if visible_count > 0:
+                return
+
+        # Otherwise, rebuild the list (first time or no matches with current items)
+        self.clear()
         for comp in self.all_completions:
             if (
                 comp.text.lower().startswith(prefix_lower)
@@ -363,14 +380,22 @@ class TabCompletion(HasKeyPress, Behavior):
             self.last_tree = self.editor.tree_manager.tree
 
         context = self._extract_context()
+
+        # Verify we should still trigger (context might have changed during debounce)
+        if not self._should_trigger(context):
+            self.completion_popup.hide()
+            return
+
+        # If we're in the same completion location, just update the filter
         if (
             context.line_num == self._last_context.line_num
             and context.start == self._last_context.start
         ):
             self.completion_popup.update_filter(context.prefix)
+            self._last_context = context
             return
 
-        # Get completions from identifier cache
+        # Get completions from providers
         completions = set()
         for pr in self._providers:
             completions |= pr.provide()
