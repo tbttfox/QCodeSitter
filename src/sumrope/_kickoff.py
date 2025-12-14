@@ -10,6 +10,9 @@ from sumrope.behaviors.highlight_matching_brackets import HighlightMatchingBrack
 from sumrope.behaviors.highlight_matching_selection import HighlightMatchingSelection
 from sumrope.behaviors.syntax_highlighting import SyntaxHighlighting
 from sumrope.behaviors.tab_completion import TabCompletion
+
+from sumrope.behaviors.providers.identifiers import IdentifierProvider
+
 from sumrope.editor_options import EditorOptions
 from sumrope.hl_groups import FORMAT_SPECS
 import tree_sitter_python as tspython
@@ -29,19 +32,22 @@ options = EditorOptions(
         "language": Language(tspython.language()),
         "highlights": (tspython.HIGHLIGHTS_QUERY, FORMAT_SPECS),
         "font": QFont("MS Shell Dlg 2", pointSize=8),
-        "vim_completion_keys": True,
-        "debounce_delay": 150,
+        "vim_completion_keys": True,  # c-n c-p for next/prev  c-y for accept
+        "debounce_delay": 150,  # in milliseconds
     }
 )
 
 edit = CodeEditor(options, parent=win)
 
-edit.replaceBehavior(TabCompletion)
-edit.replaceBehavior(SyntaxHighlighting)
-edit.replaceBehavior(SmartIndent)
-edit.replaceBehavior(HighlightMatchingBrackets)
-edit.replaceBehavior(HighlightMatchingSelection)
-edit.replaceBehavior(LineNumber)
+_old, cmp_bh = edit.addBehavior(TabCompletion)
+cmp_bh.addProvider(IdentifierProvider)
+
+edit.addBehavior(SyntaxHighlighting)
+edit.addBehavior(SmartIndent)
+edit.addBehavior(HighlightMatchingBrackets)
+edit.addBehavior(HighlightMatchingSelection)
+edit.addBehavior(LineNumber)
+
 
 win.setCentralWidget(edit)
 win.show()

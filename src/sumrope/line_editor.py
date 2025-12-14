@@ -6,7 +6,7 @@ from Qt.QtGui import (
     QKeyEvent,
     QTextBlock,
 )
-from typing import Callable, Optional, Collection, Type
+from typing import Callable, Optional, Collection, Type, TypeVar
 from tree_sitter import Language, Point
 
 from .line_tracker import TrackedDocument
@@ -15,6 +15,8 @@ from .tree_manager import TreeManager
 from .syntax_analyzer import SyntaxAnalyzer
 from .editor_options import EditorOptions
 from .utils import hk
+
+T_Behavior = TypeVar('T_Behavior', bound=Behavior)
 
 
 class CodeEditor(QPlainTextEdit):
@@ -72,7 +74,9 @@ class CodeEditor(QPlainTextEdit):
             new_end_point,
         )
 
-    def replaceBehavior(self, behaviorCls: Type[Behavior]) -> tuple[Optional[Behavior], Behavior]:
+    def addBehavior(
+        self, behaviorCls: Type[T_Behavior]
+    ) -> tuple[Optional[T_Behavior], T_Behavior]:
         """Set the given behavior to the class. If a behavior of the given type already exists, remove it
         Return both the old and newly instantiated behaviors.
         """
@@ -81,7 +85,7 @@ class CodeEditor(QPlainTextEdit):
         self._behaviors.append(behavior)
         return old_bh, behavior
 
-    def removeBehavior(self, behaviorCls: Type[Behavior]) -> Optional[Behavior]:
+    def removeBehavior(self, behaviorCls: Type[T_Behavior]) -> Optional[T_Behavior]:
         """Remove all existing behaviors of the given type"""
         ridxs = []
         for i, bh in enumerate(self._behaviors):
@@ -96,7 +100,7 @@ class CodeEditor(QPlainTextEdit):
             print("Warning: Multiple behaviors of the same type found to remove")
         return torem[0]
 
-    def getBehavior(self, behaviorCls: Type[Behavior]) -> Optional[Behavior]:
+    def getBehavior(self, behaviorCls: Type[T_Behavior]) -> Optional[T_Behavior]:
         for bh in self._behaviors:
             if type(bh) is behaviorCls:
                 return bh
@@ -148,7 +152,7 @@ class CodeEditor(QPlainTextEdit):
         # When using encoding='utf16', ts_point.column is in BYTES, not code units
         # So we need to divide by 2 to get the character position
         char_col = ts_point.column // 2
-        return linetext[char_col:].encode('utf-16-le')
+        return linetext[char_col:].encode("utf-16-le")
 
     def keyPressEvent(self, event: QKeyEvent):
         key = event.key()

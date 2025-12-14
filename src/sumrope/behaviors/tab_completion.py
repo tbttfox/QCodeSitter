@@ -3,15 +3,20 @@ from Qt.QtCore import QTimer, Qt
 from Qt.QtGui import QKeyEvent
 from Qt.QtWidgets import QListWidget, QListWidgetItem, QAbstractItemView, QApplication
 from dataclasses import dataclass
-from tree_sitter import Node, Point, Tree, Query, QueryCursor
-from typing import Optional, TYPE_CHECKING, Collection
+from tree_sitter import Node, Point, Tree
+from typing import Optional, TYPE_CHECKING, Collection, Type, TypeVar
 from . import Behavior, HasKeyPress
 from ..utils import hk
 
+from .providers import Provider
+
 
 if TYPE_CHECKING:
-    from .line_editor import CodeEditor
+    from ..line_editor import CodeEditor
 
+COMPLETION_FORMAT = "{text} ({kind})"
+
+T_Provider = TypeVar("T_Provider", bound=Provider)
 
 @dataclass
 class IdentifierInfo:
@@ -19,9 +24,6 @@ class IdentifierInfo:
 
     text: str
     kind: str  # "function", "class", "variable", etc.
-
-
-COMPLETION_FORMAT = "{text} ({kind})"
 
 
 @dataclass
@@ -233,77 +235,16 @@ class CompletionPopup(QListWidget):
         self.scrollToItem(item)
 
 
-class Provider:
-    def provide(self) -> set[Completion]:
-        raise NotImplementedError("A Provider must override the .provide() method")
-
-
-class IdentifierProvider(Provider):
-    IDENTIFIER_QUERY = """
-    (function_definition name: (identifier) @function)
-    (class_definition name: (identifier) @class)
-    (assignment left: (identifier) @variable)
-    (parameters (identifier) @parameter)
-    (import_statement name: (dotted_name (identifier) @import))
-    (import_from_statement name: (dotted_name (identifier) @import))
-    (aliased_import name: (dotted_name (identifier) @import))
-    (aliased_import alias: (identifier) @import)
-    """
-    # TODO: Get id queries for non-python languages from the editorOptions
-    # Also, pull Providers out into their own files
-
-    def __init__(self, tabcomplete: TabCompletion):
-        self.tabcomplete = tabcomplete
-        self.query: Optional[Query] = None
-
-        tree = self.tabcomplete.last_tree
-        if tree is None:
-            return
-
-        self.query = Query(tree.language, self.IDENTIFIER_QUERY)
-
-    def provide(self) -> set[Completion]:
-        """Extract identifiers from the document's tree"""
-        tree = self.tabcomplete.last_tree
-        if tree is None:
-            return set()
-
-        if self.query is None:
-            self.query = Query(tree.language, self.IDENTIFIER_QUERY)
-
-        cursor = QueryCursor(self.query)
-
-        # Set the byte range for the query cursor
-        cursor.set_byte_range(0, tree.root_node.end_byte)
-        identifiers = set()
-
-        captures = cursor.captures(tree.root_node)
-        for capture_name, nodes in captures.items():
-            for node in nodes:
-                if node.text is None:
-                    continue
-
-                name = node.text.decode("utf-16-le")
-                # Skip empty or invalid identifiers
-                if name and name.isidentifier():
-                    identifiers.add(
-                        Completion(
-                            text=name,
-                            kind=capture_name,
-                            priority=3,
-                        )
-                    )
-        return identifiers
-
-
 class TabCompletion(HasKeyPress, Behavior):
     """Orchestrates completion requests with debouncing and caching"""
 
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
 
+        #
         self.vim_completion_keys = True
         self.debounce_delay = 150
+
         self.setListen({"vim_completion_keys", "debounce_delay"})
 
         self._providers: list[Provider] = []
@@ -325,7 +266,13 @@ class TabCompletion(HasKeyPress, Behavior):
             self.last_tree = editor.tree_manager.tree
         self.updateAll()
 
+        from .providers.identifiers import IdentifierProvider
         self._providers.append(IdentifierProvider(self))
+
+    def addProvider(self, providercls: Type[T_Provider]) -> T_Provider:
+        ret = providercls(self)
+        self._providers.append(ret)
+        return ret
 
     def on_cursor_changed(self):
         """Called when cursor position changes (connected to cursorPositionChanged signal)"""
