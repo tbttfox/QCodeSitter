@@ -29,6 +29,8 @@ options = EditorOptions(
         "language": Language(tspython.language()),
         "highlights": (tspython.HIGHLIGHTS_QUERY, FORMAT_SPECS),
         "font": QFont("MS Shell Dlg 2", pointSize=8),
+        "vim_completion_keys": True,
+        "debounce_delay": 150,
     }
 )
 

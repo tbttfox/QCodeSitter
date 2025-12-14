@@ -68,6 +68,7 @@ class CompletionPopup(QListWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating)
 
         # Styling
+        '''
         self.setStyleSheet("""
             QListWidget {
                 background-color: #2b2b2b;
@@ -83,6 +84,7 @@ class CompletionPopup(QListWidget):
                 background-color: #094771;
             }
         """)
+        '''
 
         # Size constraints
         self.setMinimumWidth(200)
@@ -92,6 +94,11 @@ class CompletionPopup(QListWidget):
         # Scrolling
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        self._min_width = 200
+        self._max_width = 500
+        self._min_height = 20
+        self._max_height = 300
 
     def show_completions(self, completions: Collection[Completion], prefix: str):
         """Show completions with the given prefix
@@ -115,9 +122,9 @@ class CompletionPopup(QListWidget):
         """
         self.current_prefix = new_prefix
         self._update_items()
-        self.updateShown()
+        self.update_shown()
 
-    def updateShown(self):
+    def update_shown(self):
         if self.count() > 0:
             self.setCurrentRow(0)
             self._position_at_cursor()
@@ -171,18 +178,18 @@ class CompletionPopup(QListWidget):
         # Adjust width based on content
         if self.count() > 0:
             # Calculate optimal width from items
-            max_width = 200
+            max_width = self._min_width
             for i in range(min(self.count(), 20)):  # Check first 20 items
                 item_width = (
                     self.fontMetrics().horizontalAdvance(self.item(i).text()) + 30
                 )
                 max_width = max(max_width, item_width)
 
-            self.setFixedWidth(min(max_width, 500))
+            self.setFixedWidth(min(max_width, self._max_width))
 
         # Calculate optimal height
-        row_height = self.sizeHintForRow(0) if self.count() > 0 else 20
-        optimal_height = min(self.count() * row_height + 4, 300)
+        row_height = self.sizeHintForRow(0) if self.count() > 0 else self._min_height
+        optimal_height = min(self.count() * row_height + 4, self._max_height)
         self.setFixedHeight(optimal_height)
 
         # Check if popup fits below cursor, otherwise show above
@@ -218,7 +225,7 @@ class CompletionPopup(QListWidget):
         self.editor.setTextCursor(cursor)
         self.hide()
 
-    def offsetCurrent(self, offset):
+    def offset_current(self, offset):
         current = self.currentRow()
         current = (current + offset) % self.count()
         item = self.item(current)
@@ -256,13 +263,7 @@ class IdentifierProvider(Provider):
         self.query = Query(tree.language, self.IDENTIFIER_QUERY)
 
     def provide(self) -> set[Completion]:
-        """Extract identifiers from a specific byte range in the tree
-
-        Args:
-            tree: The tree-sitter Tree to extract from
-            start_byte: The start byte for the range. Defaults to 0
-            end_byte: The end byte of the range. Defatuls to -1 (the end of the range)
-        """
+        """Extract identifiers from the document's tree"""
         tree = self.tabcomplete.last_tree
         if tree is None:
             return set()
@@ -301,6 +302,10 @@ class TabCompletion(HasKeyPress, Behavior):
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
 
+        self.vim_completion_keys = True
+        self.debounce_delay = 150
+        self.setListen({"vim_completion_keys", "debounce_delay"})
+
         self._providers: list[Provider] = []
 
         self.last_tree: Optional[Tree] = None
@@ -314,7 +319,6 @@ class TabCompletion(HasKeyPress, Behavior):
         self.debounce_timer.timeout.connect(self.do_completion)
 
         self.completion_popup: CompletionPopup = CompletionPopup(self.editor)
-        self.vim_completion_keys = True
 
         # Initial cache population
         if editor.tree_manager.tree:
@@ -344,7 +348,7 @@ class TabCompletion(HasKeyPress, Behavior):
                 # Cancel any pending completion
                 self.debounce_timer.stop()
                 # Start new debounce timer (150ms delay)
-                self.debounce_timer.start(150)
+                self.debounce_timer.start(self.debounce_delay)
 
     def _should_trigger(self, context: CompletionContext) -> bool:
         """Determine if completion should be triggered for this context
@@ -369,7 +373,7 @@ class TabCompletion(HasKeyPress, Behavior):
             return False
 
         # Don't trigger if prefix isn't a valid identifier start
-        if not (context.prefix[0].isalpha() or context.prefix[0] == '_'):
+        if not (context.prefix[0].isalpha() or context.prefix[0] == "_"):
             return False
 
         return True
@@ -468,7 +472,7 @@ class TabCompletion(HasKeyPress, Behavior):
             last_dot = prefix.rfind(".")
             # Update start to point to the character after the last dot
             start = start + last_dot + 1
-            prefix = prefix[last_dot + 1:]
+            prefix = prefix[last_dot + 1 :]
 
         return start, prefix
 
@@ -487,10 +491,10 @@ class TabCompletion(HasKeyPress, Behavior):
                 self.completion_popup.accept_completion()
             return True
         elif event.key() == Qt.Key_Up:
-            self.completion_popup.offsetCurrent(-1)
+            self.completion_popup.offset_current(-1)
             return True
         elif event.key() == Qt.Key_Down:
-            self.completion_popup.offsetCurrent(1)
+            self.completion_popup.offset_current(1)
             return True
         elif event.key() == Qt.Key_Escape:
             self.completion_popup.hide()
@@ -504,10 +508,10 @@ class TabCompletion(HasKeyPress, Behavior):
                     self.completion_popup.accept_completion()
                 return True
             elif hotkey == hk(Qt.Key_P, Qt.KeyboardModifier.ControlModifier):
-                self.completion_popup.offsetCurrent(-1)
+                self.completion_popup.offset_current(-1)
                 return True
             elif hotkey == hk(Qt.Key_N, Qt.KeyboardModifier.ControlModifier):
-                self.completion_popup.offsetCurrent(1)
+                self.completion_popup.offset_current(1)
                 return True
 
         return False
