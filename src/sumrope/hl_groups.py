@@ -1,8 +1,13 @@
 # Only "bg" and "fg" are required for this
 # "gutter" and "gutter_fg" are required for the line number
+# "fg_dim" "bg_dim" "hl_dim" are used for code folding
+
 COLORS = {
     "bg": "#282A36",
     "fg": "#F8F8F2",
+    "fg_dim": "#787878",
+    "bg_dim": "#3C3C4C",
+    "hl_dim": "#4C4C5C",
     "gutter": "#282828",
     "gutter_fg": "#4B5263",
     "selection": "#44475A",

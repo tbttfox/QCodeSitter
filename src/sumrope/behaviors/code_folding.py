@@ -2,7 +2,7 @@ from __future__ import annotations
 from . import HasResize, Behavior
 from typing import TYPE_CHECKING
 from Qt import QtGui, QtCore, QtWidgets
-from Qt.QtCore import QEvent, QObject
+from Qt.QtCore import QObject
 from tree_sitter import Node
 
 if TYPE_CHECKING:
@@ -12,7 +12,9 @@ if TYPE_CHECKING:
 class FoldableRegion:
     """Represents a foldable code region"""
 
-    def __init__(self, start_line: int, end_line: int, node: Node, hide_last_line: bool = True):
+    def __init__(
+        self, start_line: int, end_line: int, node: Node, hide_last_line: bool = True
+    ):
         self.start_line = start_line  # 0-indexed
         self.end_line = end_line  # 0-indexed
         self.node = node
@@ -180,50 +182,30 @@ class FoldingGutterArea(QtWidgets.QWidget):
 
         # Update the editor viewport
         self.editor.viewport().update()
-        self.editor.updateRequest.emit(
-            self.editor.viewport().rect(), 0
-        )
+        self.editor.updateRequest.emit(self.editor.viewport().rect(), 0)
 
 
 class CodeFolding(QObject, HasResize, Behavior):
     """Behavior that provides code folding based on tree-sitter AST"""
 
-    # Node types that should be foldable (language-specific)
-    FOLDABLE_NODE_TYPES = {
-        "function_definition",
-        "class_definition",
-        "if_statement",
-        "for_statement",
-        "while_statement",
-        "with_statement",
-        "try_statement",
-        "match_statement",
-        "block",
-        "dictionary",
-        "list",
-        "tuple",
-        "argument_list",
-    }
-
     # Node types where the last line should be hidden (Python indentation-based blocks)
     HIDE_LAST_LINE_TYPES = {
-        "function_definition",
         "class_definition",
-        "if_statement",
         "for_statement",
+        "function_definition",
+        "if_statement",
+        "match_statement",
+        "try_statement",
         "while_statement",
         "with_statement",
-        "try_statement",
-        "match_statement",
     }
 
     # Node types where the last line should stay visible (explicit delimiters)
     KEEP_LAST_LINE_TYPES = {
+        "argument_list",
         "dictionary",
         "list",
         "tuple",
-        "argument_list",
-        "block",
     }
 
     def __init__(self, editor: CodeEditor):
@@ -231,11 +213,22 @@ class CodeFolding(QObject, HasResize, Behavior):
         Behavior.__init__(self, editor)
         self.setListen({"font", "colors"})
 
+        # Colors for fold indicators
+        self.fold_line_bg_color = QtGui.QColor(
+            60, 60, 60, 80
+        )  # Subtle background for folded lines
+        self.fold_ellipsis_bg_color = QtGui.QColor(
+            70, 70, 70, 150
+        )  # Background box for ellipsis
+        self.fold_ellipsis_fg_color = QtGui.QColor(
+            120, 120, 120, 200
+        )  # Ellipsis text color
+
         # Create the folding gutter area
         self.folding_area: FoldingGutterArea = FoldingGutterArea(
             self.editor,
-            QtGui.QColor(150, 150, 150),
-            QtGui.QColor(40, 40, 40),
+            QtGui.QColor(150, 150, 150),  # temp default
+            QtGui.QColor(40, 40, 40),  # temp default
         )
 
         # Connect to tree updates
@@ -296,7 +289,7 @@ class CodeFolding(QObject, HasResize, Behavior):
                 int(block_geom.top()),
                 self.editor.viewport().width(),
                 int(block_geom.height()),
-                QtGui.QColor(60, 60, 60, 40),
+                self.fold_line_bg_color,
             )
 
             # Position at the end of the text
@@ -324,11 +317,11 @@ class CodeFolding(QObject, HasResize, Behavior):
                 int(block_geom.top()),
                 full_width + box_padding * 2,
                 int(block_geom.height()),
-                QtGui.QColor(70, 70, 70, 150),
+                self.fold_ellipsis_bg_color,
             )
 
             # Draw the text
-            painter.setPen(QtGui.QColor(120, 120, 120, 200))
+            painter.setPen(self.fold_ellipsis_fg_color)
             painter.drawText(int(ellipsis_x), ellipsis_y, full_text)
 
     def _update_foldable_regions(self):
@@ -351,7 +344,7 @@ class CodeFolding(QObject, HasResize, Behavior):
     def _find_foldable_nodes(self, node: Node, regions: list[FoldableRegion]):
         """Recursively find foldable nodes in the AST"""
         # Check if this node is foldable
-        if node.type in self.FOLDABLE_NODE_TYPES:
+        if node.type in self.HIDE_LAST_LINE_TYPES | self.KEEP_LAST_LINE_TYPES:
             # Only fold if the node spans multiple lines
             start_line = node.start_point.row
             end_line = node.end_point.row
@@ -374,6 +367,13 @@ class CodeFolding(QObject, HasResize, Behavior):
         self.folding_area.setColors(
             QtGui.QColor(val["gutter_fg"]), QtGui.QColor(val["gutter"])
         )
+
+        # Subtle background for folded lines
+        self.fold_line_bg_color = QtGui.QColor(val["bg_dim"])
+        # Background box for ellipsis
+        self.fold_ellipsis_bg_color = QtGui.QColor(val["hl_dim"])
+        # Ellipsis text color
+        self.fold_ellipsis_fg_color = QtGui.QColor(val["fg_dim"])
 
     colors = property(None, _colors)
 
