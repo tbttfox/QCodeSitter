@@ -257,12 +257,16 @@ class CodeFolding(QObject, HasResize, Behavior):
 
     def eventFilter(self, obj, event):
         """Event filter to draw ellipsis on folded lines"""
-        if obj == self.editor.viewport() and event.type() == QtCore.QEvent.Paint:
-            # Let the normal painting happen first
-            result = super().eventFilter(obj, event)
-            # Then draw our fold indicators
-            self._draw_fold_ellipsis()
-            return result
+        try:
+            if obj == self.editor.viewport() and event.type() == QtCore.QEvent.Paint:
+                # Let the normal painting happen first
+                result = super().eventFilter(obj, event)
+                # Then draw our fold indicators
+                self._draw_fold_ellipsis()
+                return result
+        except RuntimeError:
+            # Editor has been deleted during shutdown
+            return False
         return super().eventFilter(obj, event)
 
     def _draw_fold_ellipsis(self):
