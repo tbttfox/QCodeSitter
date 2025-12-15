@@ -38,6 +38,18 @@ class AutoBracket(HasKeyPress, Behavior):
         if not self.enabled:
             return False
 
+        # Check if multi-cursor mode is active
+        if self.editor.multi_cursor_manager.is_active():
+            text = event.text()
+            if text and len(text) == 1:
+                char = text[0]
+                # Handle inserting opening character with its pair
+                if char in self.PAIRS:
+                    return self._insert_pair_multi_cursor(char)
+                # Note: skipping and backspace deletion in multi-cursor mode
+                # will be handled by the multi-cursor manager itself
+            return False
+
         text = event.text()
         if not text or len(text) != 1:
             return False
@@ -224,3 +236,46 @@ class AutoBracket(HasKeyPress, Behavior):
                 return True
 
         return False
+
+    def _insert_pair_multi_cursor(self, open_char: str) -> bool:
+        """Insert opening character and its closing pair at all cursors"""
+        close_char = self.PAIRS[open_char]
+        cursors = self.editor.multi_cursor_manager.get_all_cursors()
+
+        # Sort reverse for insertions (back to front)
+        cursors.sort(key=lambda c: c.selection_start, reverse=True)
+
+        qt_cursor = self.editor.textCursor()
+        qt_cursor.beginEditBlock()
+
+        new_positions = []
+        for cursor_state in cursors:
+            qt_cursor.setPosition(cursor_state.anchor)
+            qt_cursor.setPosition(cursor_state.position, QTextCursor.MoveMode.KeepAnchor)
+
+            selected_text = qt_cursor.selectedText()
+            if selected_text:
+                # Wrap selection
+                qt_cursor.insertText(open_char + selected_text + close_char)
+                # Position cursor after opening char with selection
+                new_pos = qt_cursor.position()
+                new_anchor = new_pos - len(selected_text) - 1
+                new_positions.append((new_anchor, new_pos - 1))
+            else:
+                # Insert pair and position between them
+                qt_cursor.insertText(open_char + close_char)
+                qt_cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.MoveAnchor, 1)
+                new_pos = qt_cursor.position()
+                new_positions.append((new_pos, new_pos))
+
+        qt_cursor.endEditBlock()
+
+        # Reverse to get original order
+        new_positions.reverse()
+
+        # Update cursor positions
+        from ..multi_cursor_manager import CursorState
+        cursor_states = [CursorState(anchor, pos) for anchor, pos in new_positions]
+        self.editor.multi_cursor_manager._set_all_cursors(cursor_states)
+
+        return True

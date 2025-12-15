@@ -46,6 +46,13 @@ class SmartIndent(HasKeyPress, Behavior):
     font = property(None, _font)
 
     def keyPressEvent(self, event: QKeyEvent, hotkey: str) -> bool:
+        # Check if multi-cursor mode is active and handle Return key
+        if self.editor.multi_cursor_manager.is_active():
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                return self._smart_newline_multi_cursor()
+            # Let other keys be handled by multi-cursor manager
+            return False
+
         # Check for closing brackets that should trigger auto-dedent
         func = self.hotkeys.get(hotkey)
         if func is not None:
@@ -288,5 +295,86 @@ class SmartIndent(HasKeyPress, Behavior):
         # Restore selection, adjusting for the removed indent
         cursor.setPosition(start_pos)
         cursor.setPosition(end_pos - indent_removed, QTextCursor.KeepAnchor)
+        return True
+
+    def _smart_newline_multi_cursor(self) -> bool:
+        """Insert smart newlines at all cursor positions"""
+        cursors = self.editor.multi_cursor_manager.get_all_cursors()
+
+        # Sort reverse for insertions (back to front)
+        cursors.sort(key=lambda c: c.selection_start, reverse=True)
+
+        qt_cursor = self.editor.textCursor()
+        qt_cursor.beginEditBlock()
+
+        new_positions = []
+        for cursor_state in cursors:
+            qt_cursor.setPosition(cursor_state.position)
+            block = qt_cursor.block()
+            line_text = block.text()
+            stripped = line_text.lstrip()
+            indent = line_text[: len(line_text) - len(stripped)]
+
+            line_num = block.blockNumber()
+            col = qt_cursor.positionInBlock()
+
+            # Calculate indentation similar to single cursor
+            extra_indent = ""
+            dedent = False
+
+            if stripped == "":
+                # Empty line - just copy indent
+                qt_cursor.insertText("\n" + indent)
+            elif col == 0:
+                # At beginning of line
+                prev_block = block.previous()
+                if prev_block.isValid():
+                    prev_text = prev_block.text()
+                    prev_stripped = prev_text.lstrip()
+                    prev_indent = prev_text[: len(prev_text) - len(prev_stripped)]
+                    qt_cursor.insertText("\n" + prev_indent)
+                else:
+                    qt_cursor.insertText("\n")
+            else:
+                # Normal case - check syntax
+                lookup_col = max(0, col - 1) if col > 0 else 0
+
+                if hasattr(self.editor, 'syntax_analyzer') and self.editor.syntax_analyzer:
+                    should_indent = self.editor.syntax_analyzer.should_indent_after_position(
+                        line_num, lookup_col
+                    )
+
+                    if should_indent:
+                        if self.indent_using_tabs:
+                            extra_indent = "\t"
+                        else:
+                            extra_indent = " " * self.space_indent_width
+                    elif self.editor.syntax_analyzer.should_dedent_after_position(
+                        line_num, lookup_col, line_text
+                    ):
+                        dedent = True
+
+                final_indent = indent
+                if dedent:
+                    final_indent = dedent_string(
+                        indent, self.indent_using_tabs, self.space_indent_width
+                    )
+
+                qt_cursor.insertText("\n" + final_indent + extra_indent)
+
+            # Track new position
+            new_pos = qt_cursor.position()
+            new_positions.append((new_pos, new_pos))
+
+        qt_cursor.endEditBlock()
+
+        # Reverse to get original order
+        new_positions.reverse()
+
+        # Update cursor positions
+        from ..multi_cursor_manager import CursorState
+        cursor_states = [CursorState(anchor, pos) for anchor, pos in new_positions]
+        self.editor.multi_cursor_manager._set_all_cursors(cursor_states)
+
         return True
 

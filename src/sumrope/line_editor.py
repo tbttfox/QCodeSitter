@@ -3,6 +3,7 @@ from Qt.QtWidgets import QPlainTextEdit
 from Qt.QtGui import (
     QColor,
     QKeyEvent,
+    QMouseEvent,
     QPalette,
     QResizeEvent,
     QTextBlock,
@@ -10,6 +11,7 @@ from Qt.QtGui import (
 )
 from typing import Callable, Optional, Collection, Type, TypeVar
 from tree_sitter import Language, Point
+from Qt import QtCore
 
 from .line_tracker import TrackedDocument
 from .behaviors import Behavior, HasKeyPress, HasResize
@@ -17,6 +19,7 @@ from .tree_manager import TreeManager
 from .syntax_analyzer import SyntaxAnalyzer
 from .editor_options import EditorOptions
 from .selection_manager import SelectionManager
+from .multi_cursor_manager import MultiCursorManager
 from .utils import hk
 
 T_Behavior = TypeVar("T_Behavior", bound=Behavior)
@@ -38,9 +41,15 @@ class CodeEditor(QPlainTextEdit):
         self.tree_manager: TreeManager
         self.syntax_analyzer: SyntaxAnalyzer
         self.selection_manager: SelectionManager = SelectionManager(self)
+        self.multi_cursor_manager: MultiCursorManager = MultiCursorManager(self)
 
         # Hotkeys
         self.hotkeys: dict[str, Callable[[QTextCursor], bool]] = {}
+
+        # Register Ctrl+D for multi-cursor next occurrence
+        self.hotkeys[hk(QtCore.Qt.Key.Key_D, QtCore.Qt.KeyboardModifier.ControlModifier)] = (
+            lambda cursor: self.multi_cursor_manager.add_next_occurrence()
+        )
 
         self._behaviors: list[Behavior] = []
 
@@ -169,6 +178,11 @@ class CodeEditor(QPlainTextEdit):
         return linetext[char_col:].encode("utf-16-le")
 
     def keyPressEvent(self, event: QKeyEvent):
+        # Check if multi-cursor manager wants to handle this
+        if self.multi_cursor_manager.is_active():
+            if self.multi_cursor_manager.handle_key_event(event):
+                return
+
         key = event.key()
         modifiers = event.modifiers()
         hotkey = hk(key, modifiers)
@@ -189,6 +203,13 @@ class CodeEditor(QPlainTextEdit):
                 return
 
         super().keyPressEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent):
+        """Handle mouse press events"""
+        # Exit multi-cursor mode on click
+        if self.multi_cursor_manager.is_active():
+            self.multi_cursor_manager.exit_multi_cursor_mode()
+        super().mousePressEvent(event)
 
     def resizeEvent(self, e: QResizeEvent):
         """Handle resize events to update line number area geometry"""
