@@ -312,6 +312,8 @@ class SmartIndent(HasKeyPress, Behavior):
 
         new_positions = []
         primary_index = None
+        inserted_texts = []  # Track what was inserted at each position
+
         for cursor_state, original_index in sorted_with_index:
             if cursor_state == primary:
                 primary_index = len(new_positions)
@@ -327,10 +329,11 @@ class SmartIndent(HasKeyPress, Behavior):
             # Calculate indentation similar to single cursor
             extra_indent = ""
             dedent = False
+            text_to_insert = ""
 
             if stripped == "":
                 # Empty line - just copy indent
-                qt_cursor.insertText("\n" + indent)
+                text_to_insert = "\n" + indent
             elif col == 0:
                 # At beginning of line
                 prev_block = block.previous()
@@ -338,9 +341,9 @@ class SmartIndent(HasKeyPress, Behavior):
                     prev_text = prev_block.text()
                     prev_stripped = prev_text.lstrip()
                     prev_indent = prev_text[: len(prev_text) - len(prev_stripped)]
-                    qt_cursor.insertText("\n" + prev_indent)
+                    text_to_insert = "\n" + prev_indent
                 else:
-                    qt_cursor.insertText("\n")
+                    text_to_insert = "\n"
             else:
                 # Normal case - check syntax
                 lookup_col = max(0, col - 1) if col > 0 else 0
@@ -366,23 +369,46 @@ class SmartIndent(HasKeyPress, Behavior):
                         indent, self.indent_using_tabs, self.space_indent_width
                     )
 
-                qt_cursor.insertText("\n" + final_indent + extra_indent)
+                text_to_insert = "\n" + final_indent + extra_indent
 
-            # Track new position
+            qt_cursor.insertText(text_to_insert)
+            inserted_texts.append(text_to_insert)
+
+            # Track new position (raw, will adjust later)
             new_pos = qt_cursor.position()
             new_positions.append((new_pos, new_pos))
 
         qt_cursor.endEditBlock()
 
-        # Reverse to get original order
-        new_positions.reverse()
+        # Now adjust all positions to account for the length changes
+        # new_positions = [later_pos, earlier_pos, ...] (reverse doc order)
+        # We iterate backwards and accumulate offsets for earlier positions
+        adjusted_positions = []
+        cumulative_offset = 0
 
-        # Adjust primary index and move to front
+        for i in range(len(new_positions) - 1, -1, -1):  # Iterate backwards
+            pos = new_positions[i]
+            # This position needs to be adjusted by all the edits that happened AFTER it (earlier in the loop)
+            adjusted_pos = (pos[0] + cumulative_offset, pos[1] + cumulative_offset)
+            adjusted_positions.insert(0, adjusted_pos)  # Insert at front to build in document order
+
+            # Calculate the length change that THIS edit caused
+            original_cursor = sorted_with_index[i][0]
+            selection_length = abs(original_cursor.position - original_cursor.anchor)
+            length_change = len(inserted_texts[i]) - selection_length
+            cumulative_offset += length_change
+
+        new_positions = adjusted_positions
+
+        # Adjust primary index after reversal
         if primary_index is not None:
             primary_index = len(new_positions) - 1 - primary_index
-            if primary_index < len(new_positions):
-                primary_cursor = new_positions.pop(primary_index)
-                new_positions.insert(0, primary_cursor)
+
+        # Set primary cursor explicitly
+        if primary_index is not None and primary_index < len(new_positions):
+            # Move primary to front
+            primary_cursor = new_positions.pop(primary_index)
+            new_positions.insert(0, primary_cursor)
 
         # Update cursor positions
         from ..multi_cursor_manager import CursorState
