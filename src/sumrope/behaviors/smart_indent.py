@@ -299,16 +299,22 @@ class SmartIndent(HasKeyPress, Behavior):
 
     def _smart_newline_multi_cursor(self) -> bool:
         """Insert smart newlines at all cursor positions"""
-        cursors = self.editor.multi_cursor_manager.get_all_cursors()
+        # Get primary cursor before sorting
+        primary = self.editor.multi_cursor_manager.get_primary_cursor()
+        all_cursors = self.editor.multi_cursor_manager.get_all_cursors()
 
-        # Sort reverse for insertions (back to front)
-        cursors.sort(key=lambda c: c.selection_start, reverse=True)
+        # Sort reverse for insertions (back to front) but track primary
+        sorted_with_index = [(c, i) for i, c in enumerate(all_cursors)]
+        sorted_with_index.sort(key=lambda x: x[0].selection_start, reverse=True)
 
         qt_cursor = self.editor.textCursor()
         qt_cursor.beginEditBlock()
 
         new_positions = []
-        for cursor_state in cursors:
+        primary_index = None
+        for cursor_state, original_index in sorted_with_index:
+            if cursor_state == primary:
+                primary_index = len(new_positions)
             qt_cursor.setPosition(cursor_state.position)
             block = qt_cursor.block()
             line_text = block.text()
@@ -370,6 +376,13 @@ class SmartIndent(HasKeyPress, Behavior):
 
         # Reverse to get original order
         new_positions.reverse()
+
+        # Adjust primary index and move to front
+        if primary_index is not None:
+            primary_index = len(new_positions) - 1 - primary_index
+            if primary_index < len(new_positions):
+                primary_cursor = new_positions.pop(primary_index)
+                new_positions.insert(0, primary_cursor)
 
         # Update cursor positions
         from ..multi_cursor_manager import CursorState

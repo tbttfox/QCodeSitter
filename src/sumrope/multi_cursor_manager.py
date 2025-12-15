@@ -332,16 +332,25 @@ class MultiCursorManager:
 
     def insert_text(self, text: str):
         """Insert text at all cursor positions"""
-        cursors = self.get_all_cursors()
+        primary = self.get_primary_cursor()
+        all_cursors = self.get_all_cursors()
 
         # Sort reverse for insertions (back to front prevents position shifts)
-        cursors.sort(key=lambda c: c.selection_start, reverse=True)
+        # But keep track of which one was primary
+        sorted_with_index = [(c, i) for i, c in enumerate(all_cursors)]
+        sorted_with_index.sort(key=lambda x: x[0].selection_start, reverse=True)
 
         qt_cursor = self.editor.textCursor()
         qt_cursor.beginEditBlock()
 
         new_positions = []
-        for cursor in cursors:
+        primary_index = None
+
+        for cursor, original_index in sorted_with_index:
+            # Check if this is the primary cursor
+            if cursor == primary:
+                primary_index = len(new_positions)
+
             qt_cursor.setPosition(cursor.anchor)
             qt_cursor.setPosition(cursor.position, QTextCursor.MoveMode.KeepAnchor)
 
@@ -349,25 +358,61 @@ class MultiCursorManager:
             qt_cursor.insertText(text)
 
             # Track new position (cursor is after inserted text)
+            # Don't apply any offset yet - we'll adjust all positions after we're done
             new_pos = qt_cursor.position()
             new_positions.append(CursorState(new_pos, new_pos))
 
         qt_cursor.endEditBlock()
 
-        # Reverse to get original order (we edited in reverse)
-        new_positions.reverse()
+        # Now adjust all positions to account for the length changes
+        # new_positions = [later_pos, earlier_pos, ...] (reverse doc order)
+        # We iterate backwards and accumulate offsets for earlier positions
+        adjusted_positions = []
+        cumulative_offset = 0
+
+        for i in range(len(new_positions) - 1, -1, -1):  # Iterate backwards
+            pos = new_positions[i]
+            # This position needs to be adjusted by all the edits that happened AFTER it (earlier in the loop)
+            adjusted_pos = CursorState(pos.anchor + cumulative_offset, pos.position + cumulative_offset)
+            adjusted_positions.insert(0, adjusted_pos)  # Insert at front to build in document order
+
+            # Calculate the length change that THIS edit caused
+            original_cursor = sorted_with_index[i][0]
+            selection_length = abs(original_cursor.position - original_cursor.anchor)
+            length_change = len(text) - selection_length
+            cumulative_offset += length_change
+
+        new_positions = adjusted_positions
+
+        # Adjust primary index after reversal
+        if primary_index is not None:
+            primary_index = len(new_positions) - 1 - primary_index
+
+        # Set primary cursor explicitly
+        if primary_index is not None and primary_index < len(new_positions):
+            # Move primary to front
+            primary_cursor = new_positions.pop(primary_index)
+            new_positions.insert(0, primary_cursor)
+
         self._set_all_cursors(new_positions)
 
     def backspace(self):
         """Delete character before cursor at all positions"""
-        cursors = self.get_all_cursors()
-        cursors.sort(key=lambda c: c.selection_start, reverse=True)
+        primary = self.get_primary_cursor()
+        all_cursors = self.get_all_cursors()
+
+        sorted_with_index = [(c, i) for i, c in enumerate(all_cursors)]
+        sorted_with_index.sort(key=lambda x: x[0].selection_start, reverse=True)
 
         qt_cursor = self.editor.textCursor()
         qt_cursor.beginEditBlock()
 
         new_positions = []
-        for cursor in cursors:
+        primary_index = None
+        for cursor, original_index in sorted_with_index:
+            if cursor == primary:
+                primary_index = len(new_positions)
+
             qt_cursor.setPosition(cursor.position)
             if cursor.has_selection:
                 # Delete selection
@@ -385,18 +430,33 @@ class MultiCursorManager:
 
         # Reverse to get original order
         new_positions.reverse()
+
+        # Adjust primary index and move to front
+        if primary_index is not None:
+            primary_index = len(new_positions) - 1 - primary_index
+            if primary_index < len(new_positions):
+                primary_cursor = new_positions.pop(primary_index)
+                new_positions.insert(0, primary_cursor)
+
         self._set_all_cursors(new_positions)
 
     def delete_char(self):
         """Delete character at cursor at all positions"""
-        cursors = self.get_all_cursors()
-        cursors.sort(key=lambda c: c.selection_start, reverse=True)
+        primary = self.get_primary_cursor()
+        all_cursors = self.get_all_cursors()
+
+        sorted_with_index = [(c, i) for i, c in enumerate(all_cursors)]
+        sorted_with_index.sort(key=lambda x: x[0].selection_start, reverse=True)
 
         qt_cursor = self.editor.textCursor()
         qt_cursor.beginEditBlock()
 
         new_positions = []
-        for cursor in cursors:
+        primary_index = None
+        for cursor, original_index in sorted_with_index:
+            if cursor == primary:
+                primary_index = len(new_positions)
+
             qt_cursor.setPosition(cursor.position)
             if cursor.has_selection:
                 # Delete selection
@@ -414,18 +474,33 @@ class MultiCursorManager:
 
         # Reverse to get original order
         new_positions.reverse()
+
+        # Adjust primary index and move to front
+        if primary_index is not None:
+            primary_index = len(new_positions) - 1 - primary_index
+            if primary_index < len(new_positions):
+                primary_cursor = new_positions.pop(primary_index)
+                new_positions.insert(0, primary_cursor)
+
         self._set_all_cursors(new_positions)
 
     def delete_word_forward(self):
         """Delete word forward from cursor at all positions"""
-        cursors = self.get_all_cursors()
-        cursors.sort(key=lambda c: c.selection_start, reverse=True)
+        primary = self.get_primary_cursor()
+        all_cursors = self.get_all_cursors()
+
+        sorted_with_index = [(c, i) for i, c in enumerate(all_cursors)]
+        sorted_with_index.sort(key=lambda x: x[0].selection_start, reverse=True)
 
         qt_cursor = self.editor.textCursor()
         qt_cursor.beginEditBlock()
 
         new_positions = []
-        for cursor in cursors:
+        primary_index = None
+        for cursor, original_index in sorted_with_index:
+            if cursor == primary:
+                primary_index = len(new_positions)
+
             qt_cursor.setPosition(cursor.position)
             if cursor.has_selection:
                 # Delete selection
@@ -444,18 +519,33 @@ class MultiCursorManager:
 
         # Reverse to get original order
         new_positions.reverse()
+
+        # Adjust primary index and move to front
+        if primary_index is not None:
+            primary_index = len(new_positions) - 1 - primary_index
+            if primary_index < len(new_positions):
+                primary_cursor = new_positions.pop(primary_index)
+                new_positions.insert(0, primary_cursor)
+
         self._set_all_cursors(new_positions)
 
     def delete_word_backward(self):
         """Delete word backward from cursor at all positions"""
-        cursors = self.get_all_cursors()
-        cursors.sort(key=lambda c: c.selection_start, reverse=True)
+        primary = self.get_primary_cursor()
+        all_cursors = self.get_all_cursors()
+
+        sorted_with_index = [(c, i) for i, c in enumerate(all_cursors)]
+        sorted_with_index.sort(key=lambda x: x[0].selection_start, reverse=True)
 
         qt_cursor = self.editor.textCursor()
         qt_cursor.beginEditBlock()
 
         new_positions = []
-        for cursor in cursors:
+        primary_index = None
+        for cursor, original_index in sorted_with_index:
+            if cursor == primary:
+                primary_index = len(new_positions)
+
             qt_cursor.setPosition(cursor.position)
             if cursor.has_selection:
                 # Delete selection
@@ -474,6 +564,14 @@ class MultiCursorManager:
 
         # Reverse to get original order
         new_positions.reverse()
+
+        # Adjust primary index and move to front
+        if primary_index is not None:
+            primary_index = len(new_positions) - 1 - primary_index
+            if primary_index < len(new_positions):
+                primary_cursor = new_positions.pop(primary_index)
+                new_positions.insert(0, primary_cursor)
+
         self._set_all_cursors(new_positions)
 
     def move_cursors(self, direction: str, select: bool = False, word_mode: bool = False):
