@@ -214,15 +214,12 @@ class CodeFolding(QObject, HasResize, Behavior):
         self.setListen({"font", "colors"})
 
         # Colors for fold indicators
-        self.fold_line_bg_color = QtGui.QColor(
-            60, 60, 60, 80
-        )  # Subtle background for folded lines
-        self.fold_ellipsis_bg_color = QtGui.QColor(
-            70, 70, 70, 150
-        )  # Background box for ellipsis
-        self.fold_ellipsis_fg_color = QtGui.QColor(
-            120, 120, 120, 200
-        )  # Ellipsis text color
+        # Subtle background for folded lines
+        self.fold_line_bg_color = QtGui.QColor(60, 60, 60, 80)
+        # Background box for ellipsis
+        self.fold_ellipsis_bg_color = QtGui.QColor(70, 70, 70, 150)
+        # Ellipsis text color
+        self.fold_ellipsis_fg_color = QtGui.QColor(120, 120, 120, 200)
 
         # Create the folding gutter area
         self.folding_area: FoldingGutterArea = FoldingGutterArea(
@@ -368,11 +365,8 @@ class CodeFolding(QObject, HasResize, Behavior):
             QtGui.QColor(val["gutter_fg"]), QtGui.QColor(val["gutter"])
         )
 
-        # Subtle background for folded lines
         self.fold_line_bg_color = QtGui.QColor(val["bg_dim"])
-        # Background box for ellipsis
         self.fold_ellipsis_bg_color = QtGui.QColor(val["hl_dim"])
-        # Ellipsis text color
         self.fold_ellipsis_fg_color = QtGui.QColor(val["fg_dim"])
 
     colors = property(None, _colors)
