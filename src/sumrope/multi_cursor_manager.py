@@ -148,12 +148,21 @@ class MultiCursorManager:
             self.editor.selection_manager.clear_selections("multi_cursor")
             return
 
+        doc = self.editor.document()
+        max_pos = doc.characterCount()
+
         selections = []
         for cursor_state in self.secondary_cursors:
+            # Validate cursor position is within document bounds
+            if cursor_state.position < 0 or cursor_state.position > max_pos:
+                continue  # Skip invalid cursor
+            if cursor_state.anchor < 0 or cursor_state.anchor > max_pos:
+                continue  # Skip invalid cursor
+
             # Create a QTextCursor for this position
             cursor = QTextCursor(self.editor.document())
-            cursor.setPosition(cursor_state.anchor)
-            cursor.setPosition(cursor_state.position, QTextCursor.MoveMode.KeepAnchor)
+            cursor.setPosition(min(cursor_state.anchor, max_pos))
+            cursor.setPosition(min(cursor_state.position, max_pos), QTextCursor.MoveMode.KeepAnchor)
 
             # Create ExtraSelection
             selection = QTextEdit.ExtraSelection()
@@ -166,8 +175,22 @@ class MultiCursorManager:
                 # Selection background
                 fmt.setBackground(self.secondary_cursor_color.lighter(150))
             else:
-                # Cursor line (make it visible as a thin line)
+                # For cursor positions (no selection), we need to select one character
+                # to make it visible. If at end of line, select the newline.
+                # If at end of document, select backwards one char.
+                if cursor_state.position < max_pos - 1:
+                    # Select next character
+                    cursor.setPosition(cursor_state.position)
+                    cursor.setPosition(cursor_state.position + 1, QTextCursor.MoveMode.KeepAnchor)
+                elif cursor_state.position > 0 and cursor_state.position <= max_pos:
+                    # At end - select previous character
+                    cursor.setPosition(cursor_state.position - 1)
+                    cursor.setPosition(min(cursor_state.position, max_pos), QTextCursor.MoveMode.KeepAnchor)
+
+                selection.cursor = cursor
+                # Use underline to show cursor position
                 fmt.setBackground(self.secondary_cursor_color)
+                fmt.setForeground(QColor(0, 0, 0))  # Black text on gray background
 
             selection.format = fmt
             selections.append(selection)
@@ -279,10 +302,14 @@ class MultiCursorManager:
             return True
 
         # Handle printable characters (typing)
+        # But let auto-bracket behavior handle bracket/quote characters
         if text and text.isprintable() and modifiers in (
             QtCore.Qt.KeyboardModifier.NoModifier,
             QtCore.Qt.KeyboardModifier.ShiftModifier,
         ):
+            # Let auto-bracket behavior handle these characters
+            if text in '([{"\'`)]}"\'`':
+                return False
             self.insert_text(text)
             return True
 
@@ -428,8 +455,24 @@ class MultiCursorManager:
 
         qt_cursor.endEditBlock()
 
-        # Reverse to get original order
-        new_positions.reverse()
+        # Now adjust all positions to account for the length changes
+        adjusted_positions = []
+        cumulative_offset = 0
+
+        for i in range(len(new_positions) - 1, -1, -1):  # Iterate backwards
+            pos = new_positions[i]
+            adjusted_pos = CursorState(pos.anchor + cumulative_offset, pos.position + cumulative_offset)
+            adjusted_positions.insert(0, adjusted_pos)
+
+            # Calculate the length change that THIS deletion caused
+            original_cursor = sorted_with_index[i][0]
+            if original_cursor.has_selection:
+                length_change = -(original_cursor.selection_end - original_cursor.selection_start)
+            else:
+                length_change = -1  # Deleted one character
+            cumulative_offset += length_change
+
+        new_positions = adjusted_positions
 
         # Adjust primary index and move to front
         if primary_index is not None:
@@ -472,8 +515,24 @@ class MultiCursorManager:
 
         qt_cursor.endEditBlock()
 
-        # Reverse to get original order
-        new_positions.reverse()
+        # Now adjust all positions to account for the length changes
+        adjusted_positions = []
+        cumulative_offset = 0
+
+        for i in range(len(new_positions) - 1, -1, -1):  # Iterate backwards
+            pos = new_positions[i]
+            adjusted_pos = CursorState(pos.anchor + cumulative_offset, pos.position + cumulative_offset)
+            adjusted_positions.insert(0, adjusted_pos)
+
+            # Calculate the length change that THIS deletion caused
+            original_cursor = sorted_with_index[i][0]
+            if original_cursor.has_selection:
+                length_change = -(original_cursor.selection_end - original_cursor.selection_start)
+            else:
+                length_change = -1  # Deleted one character
+            cumulative_offset += length_change
+
+        new_positions = adjusted_positions
 
         # Adjust primary index and move to front
         if primary_index is not None:
@@ -497,19 +556,27 @@ class MultiCursorManager:
 
         new_positions = []
         primary_index = None
+        deletion_lengths = []  # Track how much was deleted at each position
+
         for cursor, original_index in sorted_with_index:
             if cursor == primary:
                 primary_index = len(new_positions)
 
             qt_cursor.setPosition(cursor.position)
+            start_pos = cursor.position
+
             if cursor.has_selection:
                 # Delete selection
                 qt_cursor.setPosition(cursor.anchor, QTextCursor.MoveMode.KeepAnchor)
+                deleted_length = cursor.selection_end - cursor.selection_start
                 qt_cursor.removeSelectedText()
             else:
                 # Delete to end of word
                 qt_cursor.movePosition(QTextCursor.MoveOperation.EndOfWord, QTextCursor.MoveMode.KeepAnchor)
+                deleted_length = qt_cursor.position() - start_pos
                 qt_cursor.removeSelectedText()
+
+            deletion_lengths.append(deleted_length)
 
             # Track new position
             new_pos = qt_cursor.position()
@@ -517,8 +584,20 @@ class MultiCursorManager:
 
         qt_cursor.endEditBlock()
 
-        # Reverse to get original order
-        new_positions.reverse()
+        # Now adjust all positions to account for the length changes
+        adjusted_positions = []
+        cumulative_offset = 0
+
+        for i in range(len(new_positions) - 1, -1, -1):  # Iterate backwards
+            pos = new_positions[i]
+            adjusted_pos = CursorState(pos.anchor + cumulative_offset, pos.position + cumulative_offset)
+            adjusted_positions.insert(0, adjusted_pos)
+
+            # Calculate the length change that THIS deletion caused
+            length_change = -deletion_lengths[i]
+            cumulative_offset += length_change
+
+        new_positions = adjusted_positions
 
         # Adjust primary index and move to front
         if primary_index is not None:
@@ -542,19 +621,28 @@ class MultiCursorManager:
 
         new_positions = []
         primary_index = None
+        deletion_lengths = []  # Track how much was deleted at each position
+
         for cursor, original_index in sorted_with_index:
             if cursor == primary:
                 primary_index = len(new_positions)
 
             qt_cursor.setPosition(cursor.position)
+            start_pos = cursor.position
+
             if cursor.has_selection:
                 # Delete selection
                 qt_cursor.setPosition(cursor.anchor, QTextCursor.MoveMode.KeepAnchor)
+                deleted_length = cursor.selection_end - cursor.selection_start
                 qt_cursor.removeSelectedText()
             else:
-                # Delete to start of word
+                # Delete to start of word - calculate length BEFORE deleting
                 qt_cursor.movePosition(QTextCursor.MoveOperation.StartOfWord, QTextCursor.MoveMode.KeepAnchor)
+                # Calculate the selection length before removing
+                deleted_length = abs(qt_cursor.position() - qt_cursor.anchor())
                 qt_cursor.removeSelectedText()
+
+            deletion_lengths.append(deleted_length)
 
             # Track new position
             new_pos = qt_cursor.position()
@@ -562,8 +650,20 @@ class MultiCursorManager:
 
         qt_cursor.endEditBlock()
 
-        # Reverse to get original order
-        new_positions.reverse()
+        # Now adjust all positions to account for the length changes
+        adjusted_positions = []
+        cumulative_offset = 0
+
+        for i in range(len(new_positions) - 1, -1, -1):  # Iterate backwards
+            pos = new_positions[i]
+            adjusted_pos = CursorState(pos.anchor + cumulative_offset, pos.position + cumulative_offset)
+            adjusted_positions.insert(0, adjusted_pos)
+
+            # Calculate the length change that THIS deletion caused
+            length_change = -deletion_lengths[i]
+            cumulative_offset += length_change
+
+        new_positions = adjusted_positions
 
         # Adjust primary index and move to front
         if primary_index is not None:

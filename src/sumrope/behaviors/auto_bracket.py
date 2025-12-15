@@ -46,7 +46,10 @@ class AutoBracket(HasKeyPress, Behavior):
                 # Handle inserting opening character with its pair
                 if char in self.PAIRS:
                     return self._insert_pair_multi_cursor(char)
-                # Note: skipping and backspace deletion in multi-cursor mode
+                # Handle skipping over closing character
+                if char in self.SKIP_CHARS:
+                    return self._skip_closing_multi_cursor(char)
+                # Note: backspace deletion in multi-cursor mode
                 # will be handled by the multi-cursor manager itself
             return False
 
@@ -254,6 +257,8 @@ class AutoBracket(HasKeyPress, Behavior):
 
         new_positions = []
         primary_index = None
+        inserted_texts = []  # Track what was inserted at each position
+
         for cursor_state, original_index in sorted_with_index:
             if cursor_state == primary:
                 primary_index = len(new_positions)
@@ -264,22 +269,40 @@ class AutoBracket(HasKeyPress, Behavior):
             selected_text = qt_cursor.selectedText()
             if selected_text:
                 # Wrap selection
-                qt_cursor.insertText(open_char + selected_text + close_char)
+                text_to_insert = open_char + selected_text + close_char
+                qt_cursor.insertText(text_to_insert)
+                inserted_texts.append(text_to_insert)
                 # Position cursor after opening char with selection
                 new_pos = qt_cursor.position()
                 new_anchor = new_pos - len(selected_text) - 1
                 new_positions.append((new_anchor, new_pos - 1))
             else:
                 # Insert pair and position between them
-                qt_cursor.insertText(open_char + close_char)
+                text_to_insert = open_char + close_char
+                qt_cursor.insertText(text_to_insert)
+                inserted_texts.append(text_to_insert)
                 qt_cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.MoveAnchor, 1)
                 new_pos = qt_cursor.position()
                 new_positions.append((new_pos, new_pos))
 
         qt_cursor.endEditBlock()
 
-        # Reverse to get original order
-        new_positions.reverse()
+        # Now adjust all positions to account for the length changes
+        adjusted_positions = []
+        cumulative_offset = 0
+
+        for i in range(len(new_positions) - 1, -1, -1):  # Iterate backwards
+            pos = new_positions[i]
+            adjusted_pos = (pos[0] + cumulative_offset, pos[1] + cumulative_offset)
+            adjusted_positions.insert(0, adjusted_pos)
+
+            # Calculate the length change that THIS edit caused
+            original_cursor = sorted_with_index[i][0]
+            selection_length = abs(original_cursor.position - original_cursor.anchor)
+            length_change = len(inserted_texts[i]) - selection_length
+            cumulative_offset += length_change
+
+        new_positions = adjusted_positions
 
         # Adjust primary index and move to front
         if primary_index is not None:
@@ -293,4 +316,39 @@ class AutoBracket(HasKeyPress, Behavior):
         cursor_states = [CursorState(anchor, pos) for anchor, pos in new_positions]
         self.editor.multi_cursor_manager._set_all_cursors(cursor_states)
 
+        return True
+
+    def _skip_closing_multi_cursor(self, char: str) -> bool:
+        """Skip over a closing character if it's already there at all cursors"""
+        from ..multi_cursor_manager import CursorState
+
+        all_cursors = self.editor.multi_cursor_manager.get_all_cursors()
+
+        # Check if ALL cursors have the closing character after them
+        # If any cursor doesn't, we should insert instead of skip
+        doc = self.editor.document()
+        for cursor_state in all_cursors:
+            if cursor_state.has_selection:
+                # If there's a selection, don't skip (would be wrapping)
+                return False
+
+            block = doc.findBlock(cursor_state.position)
+            if not block.isValid():
+                return False
+
+            text = block.text()
+            col = cursor_state.position - block.position()
+
+            # Check if the character after cursor matches
+            if col >= len(text) or text[col] != char:
+                # This cursor doesn't have the closing char to skip
+                return False
+
+        # All cursors have the closing character - skip over it at all positions
+        new_cursors = []
+        for cursor_state in all_cursors:
+            new_pos = cursor_state.position + 1
+            new_cursors.append(CursorState(new_pos, new_pos))
+
+        self.editor.multi_cursor_manager._set_all_cursors(new_cursors)
         return True

@@ -22,13 +22,10 @@ from Qt.QtWidgets import QMainWindow, QApplication
 from Qt.QtGui import QFont
 
 
-
-
-
 app = QApplication(sys.argv)
 win = QMainWindow()
 
-HL_QUERY = open(os.path.join(path, "sumrope","highlights.scm"), 'r').read()
+HL_QUERY = open(os.path.join(path, "sumrope", "highlights.scm"), "r").read()
 
 
 options = EditorOptions(
@@ -37,9 +34,8 @@ options = EditorOptions(
         "tab_indent_width": 8,
         "indent_using_tabs": False,
         "language": Language(tspython.language()),
-        #"highlights": (tspython.HIGHLIGHTS_QUERY, FORMAT_SPECS),
+        # "highlights": (tspython.HIGHLIGHTS_QUERY, FORMAT_SPECS),
         "highlights": (HL_QUERY, FORMAT_SPECS),
-
         "colors": COLORS,
         "font": QFont("MS Shell Dlg 2", pointSize=8),
         "vim_completion_keys": True,  # c-n c-p for next/prev  c-y for accept
