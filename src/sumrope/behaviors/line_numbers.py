@@ -36,7 +36,17 @@ class LineNumberArea(QtWidgets.QWidget):
         return 10 + self.fontMetrics().horizontalAdvance("9") * digits
 
     def update_line_number_area_width(self):
-        self.editor.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
+        # Check if code folding behavior exists and account for its width
+        folding_width = 0
+        from .code_folding import CodeFolding
+
+        folding_behavior = self.editor.getBehavior(CodeFolding)
+        if folding_behavior is not None:
+            folding_width = folding_behavior.folding_area.width_hint()
+
+        self.editor.setViewportMargins(
+            self.line_number_area_width() + folding_width, 0, 0, 0
+        )
 
     def clear_line_number_area_width(self):
         self.editor.setViewportMargins(0, 0, 0, 0)

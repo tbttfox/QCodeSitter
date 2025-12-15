@@ -13,12 +13,16 @@ from sumrope.behaviors.syntax_highlighting import SyntaxHighlighting
 from sumrope.behaviors.auto_bracket import AutoBracket
 from sumrope.behaviors.tab_completion import TabCompletion
 from sumrope.behaviors.providers.identifiers import IdentifierProvider
+from sumrope.behaviors.code_folding import CodeFolding
 from sumrope.editor_options import EditorOptions
 from sumrope.hl_groups import FORMAT_SPECS, COLORS
 import tree_sitter_python as tspython
 from tree_sitter import Language
 from Qt.QtWidgets import QMainWindow, QApplication
 from Qt.QtGui import QFont
+
+
+
 
 
 app = QApplication(sys.argv)
@@ -54,6 +58,7 @@ edit.addBehavior(HighlightMatchingBrackets)
 edit.addBehavior(HighlightMatchingSelection)
 edit.addBehavior(LineNumber)
 edit.addBehavior(AutoBracket)
+edit.addBehavior(CodeFolding)
 
 
 win.setCentralWidget(edit)
