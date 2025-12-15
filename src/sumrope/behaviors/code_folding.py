@@ -34,9 +34,9 @@ class FoldingGutterArea(QtWidgets.QWidget):
         self.bg_color = bg
         self.regions: list[FoldableRegion] = []
 
-        # Size of the fold icon
-        self.icon_size = 12
-        self.padding = 4
+        # Size of the fold icon (smaller for less width)
+        self.icon_size = 9
+        self.padding = 2
 
         self.editor.blockCountChanged.connect(self.update_width)
         self.editor.updateRequest.connect(self.update_area)
