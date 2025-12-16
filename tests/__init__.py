@@ -1,1 +1,1 @@
-# Test package for sumrope
+# Test package for QCodeSitter

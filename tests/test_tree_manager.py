@@ -1,7 +1,7 @@
 import pytest
 from tree_sitter import Language, Point
 import tree_sitter_python as tspython
-from sumrope.tree_manager import TreeManager
+from QCodeSitter.tree_manager import TreeManager
 
 
 class TestTreeManager:

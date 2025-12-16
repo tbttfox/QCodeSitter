@@ -1,8 +1,8 @@
 import pytest
 from tree_sitter import Language, Point
 import tree_sitter_python as tspython
-from sumrope.tree_manager import TreeManager
-from sumrope.syntax_analyzer import SyntaxAnalyzer
+from QCodeSitter.tree_manager import TreeManager
+from QCodeSitter.syntax_analyzer import SyntaxAnalyzer
 
 
 class MockDocument:
