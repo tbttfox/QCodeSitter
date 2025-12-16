@@ -56,12 +56,6 @@ class MultiCursorManager:
         self.primary_cursor_color = QColor(255, 255, 255, 255)  # White, fully opaque
         self.secondary_cursor_color = QColor(180, 180, 180, 200)  # Dimmed gray
 
-        # Blinking
-        self.blink_timer = QtCore.QTimer()
-        self.blink_timer.timeout.connect(self._toggle_blink)
-        self.blink_visible = True
-        self.blink_interval = 500  # ms
-
     def is_active(self) -> bool:
         """Returns True if multi-cursor mode is active with secondary cursors"""
         return self.active and len(self.secondary_cursors) > 0
@@ -132,21 +126,13 @@ class MultiCursorManager:
         """Update visual rendering of secondary cursors"""
         if not self.is_active():
             self.editor.selection_manager.clear_selections("multi_cursor")
-            self.blink_timer.stop()
             return
 
-        # Start blinking timer if not already running
-        if not self.blink_timer.isActive():
-            self.blink_visible = True
-            self.blink_timer.start(self.blink_interval)
-
+        # Render secondary cursors as solid (non-blinking) for simplicity
         self._render_cursors()
 
     def _render_cursors(self):
         """Render secondary cursors as ExtraSelections"""
-        if not self.blink_visible:
-            self.editor.selection_manager.clear_selections("multi_cursor")
-            return
 
         doc = self.editor.document()
         max_pos = doc.characterCount()
@@ -197,16 +183,10 @@ class MultiCursorManager:
 
         self.editor.selection_manager.set_selections("multi_cursor", selections)
 
-    def _toggle_blink(self):
-        """Toggle cursor blink visibility"""
-        self.blink_visible = not self.blink_visible
-        self._render_cursors()
-
     def exit_multi_cursor_mode(self):
         """Exit multi-cursor mode, keep only primary cursor"""
         self.secondary_cursors.clear()
         self.active = False
-        self.blink_timer.stop()
         self.editor.selection_manager.clear_selections("multi_cursor")
 
     def add_next_occurrence(self) -> bool:
@@ -1040,6 +1020,9 @@ class MultiCursorManager:
             # Enter multi-cursor mode with these cursors
             self.primary_cursor = cursors[0]
             self.secondary_cursors = cursors[1:]
+            self.active = True
+            # Update the visual Qt cursor to the primary position
+            self.set_primary_cursor(self.primary_cursor)
             self._render_cursors()
             return True
 
