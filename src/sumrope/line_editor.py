@@ -51,6 +51,24 @@ class CodeEditor(QPlainTextEdit):
             lambda cursor: self.multi_cursor_manager.add_next_occurrence()
         )
 
+        # Register Ctrl+Alt+Up to add cursor above
+        self.hotkeys[hk(
+            QtCore.Qt.Key.Key_Up,
+            QtCore.Qt.KeyboardModifier.ControlModifier | QtCore.Qt.KeyboardModifier.AltModifier
+        )] = lambda cursor: self.multi_cursor_manager.add_cursor_above()
+
+        # Register Ctrl+Alt+Down to add cursor below
+        self.hotkeys[hk(
+            QtCore.Qt.Key.Key_Down,
+            QtCore.Qt.KeyboardModifier.ControlModifier | QtCore.Qt.KeyboardModifier.AltModifier
+        )] = lambda cursor: self.multi_cursor_manager.add_cursor_below()
+
+        # Register Ctrl+Shift+L to add cursor to each line in selection
+        self.hotkeys[hk(
+            QtCore.Qt.Key.Key_L,
+            QtCore.Qt.KeyboardModifier.ControlModifier | QtCore.Qt.KeyboardModifier.ShiftModifier
+        )] = lambda cursor: self.multi_cursor_manager.add_cursors_to_line_ends()
+
         self._behaviors: list[Behavior] = []
 
         self.options.optionsUpdated.connect(self.updateOptions)
@@ -199,14 +217,26 @@ class CodeEditor(QPlainTextEdit):
         if func is not None:
             cursor = self.textCursor()
             if func(cursor):
-                self.setTextCursor(cursor)
+                # Don't restore cursor if we're in multi-cursor mode
+                # (multi-cursor functions manage their own cursor positions)
+                if not self.multi_cursor_manager.is_active():
+                    self.setTextCursor(cursor)
                 return
 
         super().keyPressEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent):
         """Handle mouse press events"""
-        # Exit multi-cursor mode on click
+        # Check for Alt+Click to add cursor
+        if event.modifiers() & QtCore.Qt.KeyboardModifier.AltModifier:
+            # Get the position at the click location
+            cursor = self.cursorForPosition(event.pos())
+            position = cursor.position()
+            self.multi_cursor_manager.add_cursor_at_position(position)
+            event.accept()
+            return
+
+        # Exit multi-cursor mode on normal click
         if self.multi_cursor_manager.is_active():
             self.multi_cursor_manager.exit_multi_cursor_mode()
         super().mousePressEvent(event)

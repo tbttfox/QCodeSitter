@@ -328,7 +328,11 @@ class MultiCursorManager:
                 self.delete_char()
             return True
 
-        # Handle arrow keys
+        # Handle arrow keys (but not Ctrl+Alt+Up/Down - those are for adding cursors)
+        if modifiers & QtCore.Qt.KeyboardModifier.AltModifier:
+            # Let Alt+arrow combinations be handled by hotkeys
+            return False
+
         select = bool(modifiers & QtCore.Qt.KeyboardModifier.ShiftModifier)
         word_mode = bool(modifiers & QtCore.Qt.KeyboardModifier.ControlModifier)
 
@@ -896,3 +900,164 @@ class MultiCursorManager:
         # Update cursors
         cursor_states = [CursorState(anchor, pos) for anchor, pos in adjusted_positions]
         self._set_all_cursors(cursor_states)
+
+    def add_cursor_above(self) -> bool:
+        """Add a new cursor on the line above the primary cursor (primary moves up, leaves cursor behind)"""
+        # Get current cursor position - use primary cursor if already active
+        if self.is_active():
+            current_position = self.primary_cursor.position
+        else:
+            cursor = self.editor.textCursor()
+            current_position = cursor.position()
+
+        # Get current block and column
+        doc = self.editor.document()
+        block = doc.findBlock(current_position)
+        if not block.isValid():
+            return False
+
+        # Move to previous block
+        previous_block = block.previous()
+        if not previous_block.isValid():
+            return False
+
+        # Calculate column position
+        col = current_position - block.position()
+
+        # Position in previous line (this will be the new primary)
+        new_primary_pos = previous_block.position() + min(col, len(previous_block.text()))
+
+        if not self.is_active():
+            # Start multi-cursor mode
+            # Primary cursor moves to the line above
+            self.primary_cursor = CursorState(new_primary_pos, new_primary_pos)
+            # Leave a cursor at the original position
+            self.secondary_cursors = [CursorState(current_position, current_position)]
+            self.active = True
+            # Update the visual Qt cursor to the new primary position
+            self.set_primary_cursor(self.primary_cursor)
+            self._render_cursors()
+        else:
+            # Already in multi-cursor mode
+            # Move primary to the line above and leave it behind as secondary
+            old_primary = self.primary_cursor
+
+            # Add old primary position to secondaries
+            self.secondary_cursors.append(CursorState(current_position, current_position))
+
+            # Set new primary
+            self.primary_cursor = CursorState(new_primary_pos, new_primary_pos)
+            # Update the visual Qt cursor to the new primary position
+            self.set_primary_cursor(self.primary_cursor)
+            self._render_cursors()
+
+        return True
+
+    def add_cursor_below(self) -> bool:
+        """Add a new cursor on the line below the primary cursor (primary moves down, leaves cursor behind)"""
+        # Get current cursor position - use primary cursor if already active
+        if self.is_active():
+            current_position = self.primary_cursor.position
+        else:
+            cursor = self.editor.textCursor()
+            current_position = cursor.position()
+
+        # Get current block and column
+        doc = self.editor.document()
+        block = doc.findBlock(current_position)
+        if not block.isValid():
+            return False
+
+        # Move to next block
+        next_block = block.next()
+        if not next_block.isValid():
+            return False
+
+        # Calculate column position
+        col = current_position - block.position()
+
+        # Position in next line (this will be the new primary)
+        new_primary_pos = next_block.position() + min(col, len(next_block.text()))
+
+        if not self.is_active():
+            # Start multi-cursor mode
+            # Primary cursor moves to the line below
+            self.primary_cursor = CursorState(new_primary_pos, new_primary_pos)
+            # Leave a cursor at the original position
+            self.secondary_cursors = [CursorState(current_position, current_position)]
+            self.active = True
+            # Update the visual Qt cursor to the new primary position
+            self.set_primary_cursor(self.primary_cursor)
+            self._render_cursors()
+        else:
+            # Already in multi-cursor mode
+            # Move primary to the line below and leave it behind as secondary
+            old_primary = self.primary_cursor
+
+            # Add old primary position to secondaries
+            self.secondary_cursors.append(CursorState(current_position, current_position))
+
+            # Set new primary
+            self.primary_cursor = CursorState(new_primary_pos, new_primary_pos)
+            # Update the visual Qt cursor to the new primary position
+            self.set_primary_cursor(self.primary_cursor)
+            self._render_cursors()
+
+        return True
+
+    def add_cursors_to_line_ends(self) -> bool:
+        """Add a cursor at the end of each line in the current selection"""
+        cursor = self.editor.textCursor()
+
+        if not cursor.hasSelection():
+            return False
+
+        # Get the selection range
+        start = min(cursor.anchor(), cursor.position())
+        end = max(cursor.anchor(), cursor.position())
+
+        # Find all blocks in the selection
+        doc = self.editor.document()
+        start_block = doc.findBlock(start)
+        end_block = doc.findBlock(end)
+
+        if not start_block.isValid() or not end_block.isValid():
+            return False
+
+        # Collect cursor positions at the end of each line
+        cursors = []
+        block = start_block
+        while block.isValid():
+            # Add cursor at end of this line
+            line_end = block.position() + len(block.text())
+            cursors.append(CursorState(line_end, line_end))
+
+            if block == end_block:
+                break
+            block = block.next()
+
+        if cursors:
+            # Enter multi-cursor mode with these cursors
+            self.primary_cursor = cursors[0]
+            self.secondary_cursors = cursors[1:]
+            self._render_cursors()
+            return True
+
+        return False
+
+    def add_cursor_at_position(self, position: int) -> bool:
+        """Add a cursor at the specified position (for Alt+Click)"""
+        if not self.is_active():
+            # Start multi-cursor mode with current cursor
+            cursor = self.editor.textCursor()
+            self.primary_cursor = CursorState(cursor.anchor(), cursor.position())
+            self.secondary_cursors = []
+
+        # Add the new cursor at the clicked position
+        new_cursor = CursorState(position, position)
+        all_cursors = self.get_all_cursors()
+        all_cursors.append(new_cursor)
+        self._set_all_cursors(all_cursors)
+
+        return True
+
