@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from dataclasses import dataclass
 from Qt import QtCore, QtGui
 from Qt.QtGui import QTextCursor, QColor
-from Qt.QtWidgets import QTextEdit
+from Qt.QtWidgets import QTextEdit, QApplication
 
 if TYPE_CHECKING:
     from .line_editor import CodeEditor
@@ -354,6 +354,21 @@ class MultiCursorManager:
         if key in (QtCore.Qt.Key.Key_Return, QtCore.Qt.Key.Key_Enter):
             # Will be handled by smart_indent behavior if integrated
             return False
+
+        # Handle Copy (Ctrl+C)
+        if key == QtCore.Qt.Key.Key_C and modifiers & QtCore.Qt.KeyboardModifier.ControlModifier:
+            self.copy()
+            return True
+
+        # Handle Paste (Ctrl+V)
+        if key == QtCore.Qt.Key.Key_V and modifiers & QtCore.Qt.KeyboardModifier.ControlModifier:
+            self.paste()
+            return True
+
+        # Handle Cut (Ctrl+X)
+        if key == QtCore.Qt.Key.Key_X and modifiers & QtCore.Qt.KeyboardModifier.ControlModifier:
+            self.cut()
+            return True
 
         return False
 
@@ -713,3 +728,171 @@ class MultiCursorManager:
 
         # Update all cursors (this will merge if needed)
         self._set_all_cursors(new_cursors)
+
+    def copy(self):
+        """Copy text from all cursors to clipboard (joined with newlines)"""
+        all_cursors = self.get_all_cursors()
+
+        # Collect selected text from all cursors
+        selected_texts = []
+        qt_cursor = self.editor.textCursor()
+
+        for cursor_state in all_cursors:
+            qt_cursor.setPosition(cursor_state.anchor)
+            qt_cursor.setPosition(cursor_state.position, QTextCursor.MoveMode.KeepAnchor)
+            selected_text = qt_cursor.selectedText()
+            selected_texts.append(selected_text)
+
+        # Join all selections with a special separator
+        # We use a marker that's unlikely to appear in normal text
+        clipboard_text = "\n".join(selected_texts)
+
+        # Store both the joined text and the count of selections
+        clipboard = QApplication.clipboard()
+        clipboard.setText(clipboard_text)
+
+        # Store the number of selections in a member variable for paste
+        self._clipboard_cursor_count = len(selected_texts)
+
+    def cut(self):
+        """Cut text from all cursors to clipboard"""
+        # First copy the text
+        self.copy()
+
+        # Then delete all selections
+        primary = self.get_primary_cursor()
+        all_cursors = self.get_all_cursors()
+
+        # Sort reverse for deletions (back to front)
+        sorted_with_index = [(c, i) for i, c in enumerate(all_cursors)]
+        sorted_with_index.sort(key=lambda x: x[0].selection_start, reverse=True)
+
+        qt_cursor = self.editor.textCursor()
+        qt_cursor.beginEditBlock()
+
+        new_positions = []
+        primary_index = None
+
+        for cursor_state, original_index in sorted_with_index:
+            if cursor_state == primary:
+                primary_index = len(new_positions)
+
+            qt_cursor.setPosition(cursor_state.anchor)
+            qt_cursor.setPosition(cursor_state.position, QTextCursor.MoveMode.KeepAnchor)
+
+            if cursor_state.has_selection:
+                qt_cursor.removeSelectedText()
+
+            new_pos = qt_cursor.position()
+            new_positions.append((new_pos, new_pos))
+
+        qt_cursor.endEditBlock()
+
+        # Adjust positions for cumulative deletions
+        adjusted_positions = []
+        cumulative_offset = 0
+
+        for i in range(len(new_positions) - 1, -1, -1):
+            pos = new_positions[i]
+            adjusted_pos = (pos[0] + cumulative_offset, pos[1] + cumulative_offset)
+            adjusted_positions.insert(0, adjusted_pos)
+
+            # Calculate the deletion length
+            original_cursor = sorted_with_index[i][0]
+            if original_cursor.has_selection:
+                deletion_length = abs(original_cursor.position - original_cursor.anchor)
+                cumulative_offset -= deletion_length
+
+        # Adjust primary index and move to front
+        if primary_index is not None:
+            primary_index = len(adjusted_positions) - 1 - primary_index
+            if primary_index < len(adjusted_positions):
+                primary_cursor = adjusted_positions.pop(primary_index)
+                adjusted_positions.insert(0, primary_cursor)
+
+        # Update cursors
+        cursor_states = [CursorState(anchor, pos) for anchor, pos in adjusted_positions]
+        self._set_all_cursors(cursor_states)
+
+    def paste(self):
+        """Paste clipboard text at all cursor positions"""
+        clipboard = QApplication.clipboard()
+        clipboard_text = clipboard.text()
+
+        if not clipboard_text:
+            return
+
+        # Check if we have multi-cursor clipboard data
+        cursor_count = getattr(self, '_clipboard_cursor_count', None)
+        all_cursors = self.get_all_cursors()
+
+        # Split clipboard by newlines
+        lines = clipboard_text.split('\n')
+
+        # If the number of lines matches the number of cursors and we copied from multi-cursor
+        if cursor_count and len(lines) == len(all_cursors) == cursor_count:
+            # Paste each line to corresponding cursor
+            self._paste_multi(lines)
+        else:
+            # Paste the whole clipboard content at each cursor
+            self.insert_text(clipboard_text)
+
+    def _paste_multi(self, texts: list[str]):
+        """Paste different text at each cursor position"""
+        primary = self.get_primary_cursor()
+        all_cursors = self.get_all_cursors()
+
+        # Sort reverse for insertions (back to front)
+        sorted_with_index = [(c, i) for i, c in enumerate(all_cursors)]
+        sorted_with_index.sort(key=lambda x: x[0].selection_start, reverse=True)
+
+        qt_cursor = self.editor.textCursor()
+        qt_cursor.beginEditBlock()
+
+        new_positions = []
+        primary_index = None
+
+        for cursor_state, original_index in sorted_with_index:
+            if cursor_state == primary:
+                primary_index = len(new_positions)
+
+            # Get the text for this cursor (in reverse order)
+            text_index = len(sorted_with_index) - 1 - len(new_positions)
+            text_to_insert = texts[text_index] if text_index < len(texts) else ""
+
+            qt_cursor.setPosition(cursor_state.anchor)
+            qt_cursor.setPosition(cursor_state.position, QTextCursor.MoveMode.KeepAnchor)
+            qt_cursor.insertText(text_to_insert)
+
+            new_pos = qt_cursor.position()
+            new_positions.append((new_pos, new_pos))
+
+        qt_cursor.endEditBlock()
+
+        # Adjust positions
+        adjusted_positions = []
+        cumulative_offset = 0
+
+        for i in range(len(new_positions) - 1, -1, -1):
+            pos = new_positions[i]
+            adjusted_pos = (pos[0] + cumulative_offset, pos[1] + cumulative_offset)
+            adjusted_positions.insert(0, adjusted_pos)
+
+            # Calculate the length change
+            text_index = len(sorted_with_index) - 1 - i
+            inserted_text = texts[text_index] if text_index < len(texts) else ""
+            original_cursor = sorted_with_index[i][0]
+            selection_length = abs(original_cursor.position - original_cursor.anchor)
+            length_change = len(inserted_text) - selection_length
+            cumulative_offset += length_change
+
+        # Adjust primary index and move to front
+        if primary_index is not None:
+            primary_index = len(adjusted_positions) - 1 - primary_index
+            if primary_index < len(adjusted_positions):
+                primary_cursor = adjusted_positions.pop(primary_index)
+                adjusted_positions.insert(0, primary_cursor)
+
+        # Update cursors
+        cursor_states = [CursorState(anchor, pos) for anchor, pos in adjusted_positions]
+        self._set_all_cursors(cursor_states)
