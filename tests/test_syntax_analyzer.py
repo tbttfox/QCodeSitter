@@ -3,13 +3,14 @@ from tree_sitter import Language, Point
 import tree_sitter_python as tspython
 from QCodeSitter.tree_manager import TreeManager
 from QCodeSitter.syntax_analyzer import SyntaxAnalyzer
+from QCodeSitter.constants import ENC
 
 
 class MockDocument:
     """Mock TrackedDocument for testing"""
 
     def __init__(self, source_text: str):
-        self.source_bytes = source_text.encode('utf-16-le')
+        self.source_bytes = source_text.encode(ENC)
         self.lines = source_text.split("\n")
 
     def point_to_byte(self, point: Point) -> int:

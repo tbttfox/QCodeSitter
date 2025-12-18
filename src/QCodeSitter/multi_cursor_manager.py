@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from Qt import QtCore, QtGui
 from Qt.QtGui import QTextCursor, QColor
 from Qt.QtWidgets import QTextEdit, QApplication
+from .utils import len16
 
 if TYPE_CHECKING:
     from .line_editor import CodeEditor
@@ -12,6 +13,7 @@ if TYPE_CHECKING:
 @dataclass
 class CursorState:
     """Represents a single cursor's position and selection"""
+
     anchor: int  # UTF-16 position
     position: int  # UTF-16 position
 
@@ -99,7 +101,9 @@ class MultiCursorManager:
 
         self._update_visual()
 
-    def _merge_overlapping_cursors(self, cursors: list[CursorState]) -> list[CursorState]:
+    def _merge_overlapping_cursors(
+        self, cursors: list[CursorState]
+    ) -> list[CursorState]:
         """Merge cursors that overlap or are adjacent"""
         if len(cursors) <= 1:
             return cursors
@@ -148,7 +152,9 @@ class MultiCursorManager:
             # Create a QTextCursor for this position
             cursor = QTextCursor(self.editor.document())
             cursor.setPosition(min(cursor_state.anchor, max_pos))
-            cursor.setPosition(min(cursor_state.position, max_pos), QTextCursor.MoveMode.KeepAnchor)
+            cursor.setPosition(
+                min(cursor_state.position, max_pos), QTextCursor.MoveMode.KeepAnchor
+            )
 
             # Create ExtraSelection
             selection = QTextEdit.ExtraSelection()
@@ -167,11 +173,16 @@ class MultiCursorManager:
                 if cursor_state.position < max_pos - 1:
                     # Select next character
                     cursor.setPosition(cursor_state.position)
-                    cursor.setPosition(cursor_state.position + 1, QTextCursor.MoveMode.KeepAnchor)
+                    cursor.setPosition(
+                        cursor_state.position + 1, QTextCursor.MoveMode.KeepAnchor
+                    )
                 elif cursor_state.position > 0 and cursor_state.position <= max_pos:
                     # At end - select previous character
                     cursor.setPosition(cursor_state.position - 1)
-                    cursor.setPosition(min(cursor_state.position, max_pos), QTextCursor.MoveMode.KeepAnchor)
+                    cursor.setPosition(
+                        min(cursor_state.position, max_pos),
+                        QTextCursor.MoveMode.KeepAnchor,
+                    )
 
                 selection.cursor = cursor
                 # Use underline to show cursor position
@@ -283,12 +294,17 @@ class MultiCursorManager:
 
         # Handle printable characters (typing)
         # But let auto-bracket behavior handle bracket/quote characters
-        if text and text.isprintable() and modifiers in (
-            QtCore.Qt.KeyboardModifier.NoModifier,
-            QtCore.Qt.KeyboardModifier.ShiftModifier,
+        if (
+            text
+            and text.isprintable()
+            and modifiers
+            in (
+                QtCore.Qt.KeyboardModifier.NoModifier,
+                QtCore.Qt.KeyboardModifier.ShiftModifier,
+            )
         ):
             # Let auto-bracket behavior handle these characters
-            if text in '([{"\'`)]}"\'`':
+            if text in "([{\"'`)]}\"'`":
                 return False
             self.insert_text(text)
             return True
@@ -317,21 +333,21 @@ class MultiCursorManager:
         word_mode = bool(modifiers & QtCore.Qt.KeyboardModifier.ControlModifier)
 
         if key == QtCore.Qt.Key.Key_Left:
-            self.move_cursors('left', select, word_mode)
+            self.move_cursors("left", select, word_mode)
             return True
         elif key == QtCore.Qt.Key.Key_Right:
-            self.move_cursors('right', select, word_mode)
+            self.move_cursors("right", select, word_mode)
             return True
         elif key == QtCore.Qt.Key.Key_Up:
-            self.move_cursors('up', select, word_mode)
+            self.move_cursors("up", select, word_mode)
             return True
         elif key == QtCore.Qt.Key.Key_Down:
-            self.move_cursors('down', select, word_mode)
+            self.move_cursors("down", select, word_mode)
             return True
 
         # Handle Tab
         if key == QtCore.Qt.Key.Key_Tab:
-            self.insert_text('\t')
+            self.insert_text("\t")
             return True
 
         # Handle Return/Enter
@@ -340,17 +356,26 @@ class MultiCursorManager:
             return False
 
         # Handle Copy (Ctrl+C)
-        if key == QtCore.Qt.Key.Key_C and modifiers & QtCore.Qt.KeyboardModifier.ControlModifier:
+        if (
+            key == QtCore.Qt.Key.Key_C
+            and modifiers & QtCore.Qt.KeyboardModifier.ControlModifier
+        ):
             self.copy()
             return True
 
         # Handle Paste (Ctrl+V)
-        if key == QtCore.Qt.Key.Key_V and modifiers & QtCore.Qt.KeyboardModifier.ControlModifier:
+        if (
+            key == QtCore.Qt.Key.Key_V
+            and modifiers & QtCore.Qt.KeyboardModifier.ControlModifier
+        ):
             self.paste()
             return True
 
         # Handle Cut (Ctrl+X)
-        if key == QtCore.Qt.Key.Key_X and modifiers & QtCore.Qt.KeyboardModifier.ControlModifier:
+        if (
+            key == QtCore.Qt.Key.Key_X
+            and modifiers & QtCore.Qt.KeyboardModifier.ControlModifier
+        ):
             self.cut()
             return True
 
@@ -399,8 +424,12 @@ class MultiCursorManager:
         for i in range(len(new_positions) - 1, -1, -1):  # Iterate backwards
             pos = new_positions[i]
             # This position needs to be adjusted by all the edits that happened AFTER it (earlier in the loop)
-            adjusted_pos = CursorState(pos.anchor + cumulative_offset, pos.position + cumulative_offset)
-            adjusted_positions.insert(0, adjusted_pos)  # Insert at front to build in document order
+            adjusted_pos = CursorState(
+                pos.anchor + cumulative_offset, pos.position + cumulative_offset
+            )
+            adjusted_positions.insert(
+                0, adjusted_pos
+            )  # Insert at front to build in document order
 
             # Calculate the length change that THIS edit caused
             original_cursor = sorted_with_index[i][0]
@@ -460,13 +489,17 @@ class MultiCursorManager:
 
         for i in range(len(new_positions) - 1, -1, -1):  # Iterate backwards
             pos = new_positions[i]
-            adjusted_pos = CursorState(pos.anchor + cumulative_offset, pos.position + cumulative_offset)
+            adjusted_pos = CursorState(
+                pos.anchor + cumulative_offset, pos.position + cumulative_offset
+            )
             adjusted_positions.insert(0, adjusted_pos)
 
             # Calculate the length change that THIS deletion caused
             original_cursor = sorted_with_index[i][0]
             if original_cursor.has_selection:
-                length_change = -(original_cursor.selection_end - original_cursor.selection_start)
+                length_change = -(
+                    original_cursor.selection_end - original_cursor.selection_start
+                )
             else:
                 length_change = -1  # Deleted one character
             cumulative_offset += length_change
@@ -520,13 +553,17 @@ class MultiCursorManager:
 
         for i in range(len(new_positions) - 1, -1, -1):  # Iterate backwards
             pos = new_positions[i]
-            adjusted_pos = CursorState(pos.anchor + cumulative_offset, pos.position + cumulative_offset)
+            adjusted_pos = CursorState(
+                pos.anchor + cumulative_offset, pos.position + cumulative_offset
+            )
             adjusted_positions.insert(0, adjusted_pos)
 
             # Calculate the length change that THIS deletion caused
             original_cursor = sorted_with_index[i][0]
             if original_cursor.has_selection:
-                length_change = -(original_cursor.selection_end - original_cursor.selection_start)
+                length_change = -(
+                    original_cursor.selection_end - original_cursor.selection_start
+                )
             else:
                 length_change = -1  # Deleted one character
             cumulative_offset += length_change
@@ -571,7 +608,9 @@ class MultiCursorManager:
                 qt_cursor.removeSelectedText()
             else:
                 # Delete to end of word
-                qt_cursor.movePosition(QTextCursor.MoveOperation.EndOfWord, QTextCursor.MoveMode.KeepAnchor)
+                qt_cursor.movePosition(
+                    QTextCursor.MoveOperation.EndOfWord, QTextCursor.MoveMode.KeepAnchor
+                )
                 deleted_length = qt_cursor.position() - start_pos
                 qt_cursor.removeSelectedText()
 
@@ -589,7 +628,9 @@ class MultiCursorManager:
 
         for i in range(len(new_positions) - 1, -1, -1):  # Iterate backwards
             pos = new_positions[i]
-            adjusted_pos = CursorState(pos.anchor + cumulative_offset, pos.position + cumulative_offset)
+            adjusted_pos = CursorState(
+                pos.anchor + cumulative_offset, pos.position + cumulative_offset
+            )
             adjusted_positions.insert(0, adjusted_pos)
 
             # Calculate the length change that THIS deletion caused
@@ -636,7 +677,10 @@ class MultiCursorManager:
                 qt_cursor.removeSelectedText()
             else:
                 # Delete to start of word - calculate length BEFORE deleting
-                qt_cursor.movePosition(QTextCursor.MoveOperation.StartOfWord, QTextCursor.MoveMode.KeepAnchor)
+                qt_cursor.movePosition(
+                    QTextCursor.MoveOperation.StartOfWord,
+                    QTextCursor.MoveMode.KeepAnchor,
+                )
                 # Calculate the selection length before removing
                 deleted_length = abs(qt_cursor.position() - qt_cursor.anchor())
                 qt_cursor.removeSelectedText()
@@ -655,7 +699,9 @@ class MultiCursorManager:
 
         for i in range(len(new_positions) - 1, -1, -1):  # Iterate backwards
             pos = new_positions[i]
-            adjusted_pos = CursorState(pos.anchor + cumulative_offset, pos.position + cumulative_offset)
+            adjusted_pos = CursorState(
+                pos.anchor + cumulative_offset, pos.position + cumulative_offset
+            )
             adjusted_positions.insert(0, adjusted_pos)
 
             # Calculate the length change that THIS deletion caused
@@ -673,7 +719,9 @@ class MultiCursorManager:
 
         self._set_all_cursors(new_positions)
 
-    def move_cursors(self, direction: str, select: bool = False, word_mode: bool = False):
+    def move_cursors(
+        self, direction: str, select: bool = False, word_mode: bool = False
+    ):
         """Move all cursors in direction
 
         Args:
@@ -693,19 +741,31 @@ class MultiCursorManager:
                 qt_cursor.setPosition(cursor.position)
 
             # Determine move operation
-            if direction == 'left':
-                move_op = QTextCursor.MoveOperation.WordLeft if word_mode else QTextCursor.MoveOperation.Left
-            elif direction == 'right':
-                move_op = QTextCursor.MoveOperation.WordRight if word_mode else QTextCursor.MoveOperation.Right
-            elif direction == 'up':
+            if direction == "left":
+                move_op = (
+                    QTextCursor.MoveOperation.WordLeft
+                    if word_mode
+                    else QTextCursor.MoveOperation.Left
+                )
+            elif direction == "right":
+                move_op = (
+                    QTextCursor.MoveOperation.WordRight
+                    if word_mode
+                    else QTextCursor.MoveOperation.Right
+                )
+            elif direction == "up":
                 move_op = QTextCursor.MoveOperation.Up
-            elif direction == 'down':
+            elif direction == "down":
                 move_op = QTextCursor.MoveOperation.Down
             else:
                 continue
 
             # Move cursor
-            mode = QTextCursor.MoveMode.KeepAnchor if select else QTextCursor.MoveMode.MoveAnchor
+            mode = (
+                QTextCursor.MoveMode.KeepAnchor
+                if select
+                else QTextCursor.MoveMode.MoveAnchor
+            )
             qt_cursor.movePosition(move_op, mode)
 
             new_cursors.append(CursorState(qt_cursor.anchor(), qt_cursor.position()))
@@ -723,7 +783,9 @@ class MultiCursorManager:
 
         for cursor_state in all_cursors:
             qt_cursor.setPosition(cursor_state.anchor)
-            qt_cursor.setPosition(cursor_state.position, QTextCursor.MoveMode.KeepAnchor)
+            qt_cursor.setPosition(
+                cursor_state.position, QTextCursor.MoveMode.KeepAnchor
+            )
             selected_text = qt_cursor.selectedText()
             selected_texts.append(selected_text)
 
@@ -762,7 +824,9 @@ class MultiCursorManager:
                 primary_index = len(new_positions)
 
             qt_cursor.setPosition(cursor_state.anchor)
-            qt_cursor.setPosition(cursor_state.position, QTextCursor.MoveMode.KeepAnchor)
+            qt_cursor.setPosition(
+                cursor_state.position, QTextCursor.MoveMode.KeepAnchor
+            )
 
             if cursor_state.has_selection:
                 qt_cursor.removeSelectedText()
@@ -807,11 +871,11 @@ class MultiCursorManager:
             return
 
         # Check if we have multi-cursor clipboard data
-        cursor_count = getattr(self, '_clipboard_cursor_count', None)
+        cursor_count = getattr(self, "_clipboard_cursor_count", None)
         all_cursors = self.get_all_cursors()
 
         # Split clipboard by newlines
-        lines = clipboard_text.split('\n')
+        lines = clipboard_text.split("\n")
 
         # If the number of lines matches the number of cursors and we copied from multi-cursor
         if cursor_count and len(lines) == len(all_cursors) == cursor_count:
@@ -845,7 +909,9 @@ class MultiCursorManager:
             text_to_insert = texts[text_index] if text_index < len(texts) else ""
 
             qt_cursor.setPosition(cursor_state.anchor)
-            qt_cursor.setPosition(cursor_state.position, QTextCursor.MoveMode.KeepAnchor)
+            qt_cursor.setPosition(
+                cursor_state.position, QTextCursor.MoveMode.KeepAnchor
+            )
             qt_cursor.insertText(text_to_insert)
 
             new_pos = qt_cursor.position()
@@ -905,7 +971,9 @@ class MultiCursorManager:
         col = current_position - block.position()
 
         # Position in previous line (this will be the new primary)
-        new_primary_pos = previous_block.position() + min(col, len(previous_block.text()))
+        new_primary_pos = previous_block.position() + min(
+            col, len16(previous_block.text())
+        )
 
         if not self.is_active():
             # Start multi-cursor mode
@@ -923,7 +991,9 @@ class MultiCursorManager:
             old_primary = self.primary_cursor
 
             # Add old primary position to secondaries
-            self.secondary_cursors.append(CursorState(current_position, current_position))
+            self.secondary_cursors.append(
+                CursorState(current_position, current_position)
+            )
 
             # Set new primary
             self.primary_cursor = CursorState(new_primary_pos, new_primary_pos)
@@ -957,7 +1027,7 @@ class MultiCursorManager:
         col = current_position - block.position()
 
         # Position in next line (this will be the new primary)
-        new_primary_pos = next_block.position() + min(col, len(next_block.text()))
+        new_primary_pos = next_block.position() + min(col, len16(next_block.text()))
 
         if not self.is_active():
             # Start multi-cursor mode
@@ -975,7 +1045,9 @@ class MultiCursorManager:
             old_primary = self.primary_cursor
 
             # Add old primary position to secondaries
-            self.secondary_cursors.append(CursorState(current_position, current_position))
+            self.secondary_cursors.append(
+                CursorState(current_position, current_position)
+            )
 
             # Set new primary
             self.primary_cursor = CursorState(new_primary_pos, new_primary_pos)
@@ -1009,7 +1081,7 @@ class MultiCursorManager:
         block = start_block
         while block.isValid():
             # Add cursor at end of this line
-            line_end = block.position() + len(block.text())
+            line_end = block.position() + len16(block.text())
             cursors.append(CursorState(line_end, line_end))
 
             if block == end_block:
@@ -1043,4 +1115,3 @@ class MultiCursorManager:
         self._set_all_cursors(all_cursors)
 
         return True
-

@@ -2,6 +2,7 @@ from __future__ import annotations
 from tree_sitter import Query, QueryCursor
 from typing import Optional
 from ..tab_completion import Completion, TabCompletion
+from ...constants import ENC
 from . import Provider
 
 
@@ -50,7 +51,7 @@ class IdentifierProvider(Provider):
                 if node.text is None:
                     continue
 
-                name = node.text.decode("utf-16-le")
+                name = node.text.decode(ENC)
                 # Skip empty or invalid identifiers
                 if name and name.isidentifier():
                     identifiers.add(

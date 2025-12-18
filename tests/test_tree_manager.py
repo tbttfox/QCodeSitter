@@ -2,6 +2,7 @@ import pytest
 from tree_sitter import Language, Point
 import tree_sitter_python as tspython
 from QCodeSitter.tree_manager import TreeManager
+from QCodeSitter.constants import ENC
 
 
 class TestTreeManager:
@@ -10,7 +11,7 @@ class TestTreeManager:
     @pytest.fixture
     def source_text(self):
         """Sample Python source code for testing"""
-        return "def foo():\n    pass\n".encode('utf-16-le')
+        return "def foo():\n    pass\n".encode(ENC)
 
     @pytest.fixture
     def source_callback(self, source_text):
@@ -80,7 +81,7 @@ class TestTreeManager:
         language = Language(tspython.language())
 
         # Create initial source - "x = 1\n" in UTF-16LE
-        initial_source = "x = 1\n".encode('utf-16-le')
+        initial_source = "x = 1\n".encode(ENC)
 
         def init_src_callback(byte_offset, point):
             return initial_source[byte_offset:]
@@ -101,7 +102,7 @@ class TestTreeManager:
         old_tree = tm.tree
 
         # Modify source (change "x = 1" to "x = 2")
-        modified_source = "x = 2\n".encode('utf-16-le')
+        modified_source = "x = 2\n".encode(ENC)
 
         def mod_src_callback(byte_offset, point):
             return modified_source[byte_offset:]

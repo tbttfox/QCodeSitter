@@ -13,6 +13,7 @@ from typing import Callable, Optional, Collection, Type, TypeVar
 from tree_sitter import Language, Point
 from Qt import QtCore
 
+from .constants import ENC
 from .line_tracker import TrackedDocument
 from .behaviors import Behavior, HasKeyPress, HasResize
 from .tree_manager import TreeManager
@@ -47,27 +48,36 @@ class CodeEditor(QPlainTextEdit):
         self.hotkeys: dict[str, Callable[[QTextCursor], bool]] = {}
 
         # Register Ctrl+D for multi-cursor next occurrence
-        self.hotkeys[hk(QtCore.Qt.Key.Key_D, QtCore.Qt.KeyboardModifier.ControlModifier)] = (
-            lambda cursor: self.multi_cursor_manager.add_next_occurrence()
-        )
+        self.hotkeys[
+            hk(QtCore.Qt.Key.Key_D, QtCore.Qt.KeyboardModifier.ControlModifier)
+        ] = lambda cursor: self.multi_cursor_manager.add_next_occurrence()
 
         # Register Ctrl+Alt+Up to add cursor above
-        self.hotkeys[hk(
-            QtCore.Qt.Key.Key_Up,
-            QtCore.Qt.KeyboardModifier.ControlModifier | QtCore.Qt.KeyboardModifier.AltModifier
-        )] = lambda cursor: self.multi_cursor_manager.add_cursor_above()
+        self.hotkeys[
+            hk(
+                QtCore.Qt.Key.Key_Up,
+                QtCore.Qt.KeyboardModifier.ControlModifier
+                | QtCore.Qt.KeyboardModifier.AltModifier,
+            )
+        ] = lambda cursor: self.multi_cursor_manager.add_cursor_above()
 
         # Register Ctrl+Alt+Down to add cursor below
-        self.hotkeys[hk(
-            QtCore.Qt.Key.Key_Down,
-            QtCore.Qt.KeyboardModifier.ControlModifier | QtCore.Qt.KeyboardModifier.AltModifier
-        )] = lambda cursor: self.multi_cursor_manager.add_cursor_below()
+        self.hotkeys[
+            hk(
+                QtCore.Qt.Key.Key_Down,
+                QtCore.Qt.KeyboardModifier.ControlModifier
+                | QtCore.Qt.KeyboardModifier.AltModifier,
+            )
+        ] = lambda cursor: self.multi_cursor_manager.add_cursor_below()
 
         # Register Ctrl+Shift+L to add cursor to each line in selection
-        self.hotkeys[hk(
-            QtCore.Qt.Key.Key_L,
-            QtCore.Qt.KeyboardModifier.ControlModifier | QtCore.Qt.KeyboardModifier.ShiftModifier
-        )] = lambda cursor: self.multi_cursor_manager.add_cursors_to_line_ends()
+        self.hotkeys[
+            hk(
+                QtCore.Qt.Key.Key_L,
+                QtCore.Qt.KeyboardModifier.ControlModifier
+                | QtCore.Qt.KeyboardModifier.ShiftModifier,
+            )
+        ] = lambda cursor: self.multi_cursor_manager.add_cursors_to_line_ends()
 
         self._behaviors: list[Behavior] = []
 
@@ -95,6 +105,10 @@ class CodeEditor(QPlainTextEdit):
         self.tree_manager = TreeManager(lang, self._treesitter_source_callback)
         self.syntax_analyzer = SyntaxAnalyzer(self.tree_manager, self._doc)
         self._doc.byteContentsChange.connect(self.updateTree)
+        self._doc.fullUpdateRequest.connect(self.updateFullTree)
+
+    def updateFullTree(self):
+        self.tree_manager.fullUpdate()
 
     def updateTree(
         self,
@@ -113,7 +127,6 @@ class CodeEditor(QPlainTextEdit):
             old_end_point,
             new_end_point,
         )
-        #print(str(self.tree_manager.tree.root_node))
 
     def addBehavior(
         self, behaviorCls: Type[T_Behavior]
@@ -129,10 +142,13 @@ class CodeEditor(QPlainTextEdit):
     def removeBehavior(self, behaviorCls: Type[T_Behavior]) -> Optional[T_Behavior]:
         """Remove all existing behaviors of the given type"""
         ridxs = []
+        torem = []
         for i, bh in enumerate(self._behaviors):
             if type(bh) is behaviorCls:
                 ridxs.append(i)
-        torem = [self._behaviors.pop(i) for i in reversed(ridxs)]
+                torem.append(bh)
+        for i in reversed(ridxs):
+            self._behaviors.pop(i)
         for rem in torem:
             rem.remove()
         if not torem:
@@ -192,8 +208,7 @@ class CodeEditor(QPlainTextEdit):
         # Return UTF-16LE encoded bytes starting from the column offset
         # When using encoding='utf16', ts_point.column is in BYTES, not code units
         # So we need to divide by 2 to get the character position
-        char_col = ts_point.column // 2
-        return linetext[char_col:].encode("utf-16-le")
+        return linetext.encode(ENC)[ts_point.column :]
 
     def keyPressEvent(self, event: QKeyEvent):
         # Check if multi-cursor manager wants to handle this

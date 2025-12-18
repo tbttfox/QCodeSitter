@@ -1,5 +1,6 @@
 from __future__ import annotations
 from . import HasKeyPress, Behavior
+from ..constants import ENC
 from ..utils import hk, dedent_string
 from typing import TYPE_CHECKING, Callable
 from Qt.QtGui import QFontMetrics, QTextCursor, QFont, QKeyEvent
@@ -112,7 +113,7 @@ class SmartIndent(HasKeyPress, Behavior):
         dedent = False
 
         # Check if we should add indent (opening block)
-        if hasattr(self.editor, 'syntax_analyzer') and self.editor.syntax_analyzer:
+        if hasattr(self.editor, "syntax_analyzer") and self.editor.syntax_analyzer:
             should_indent = self.editor.syntax_analyzer.should_indent_after_position(
                 line_num, lookup_col
             )
@@ -150,6 +151,7 @@ class SmartIndent(HasKeyPress, Behavior):
         Returns:
             True if we handled the bracket insertion, False to use default behavior
         """
+        # This is only concerned with whitespace, so we don't have to deal with encoding
         # Only auto-dedent if we're at the end of a line that contains only whitespace
         block = cursor.block()
         line_text = block.text()
@@ -198,6 +200,7 @@ class SmartIndent(HasKeyPress, Behavior):
             return False  # normal backspace
 
         # Check if all preceding characters are spaces
+        # This is only dealing with whitespace, so we don't have to worry about encoding
         text = cursor.block().text()
         lset = set(text[:col])
         if len(lset) != 1:
@@ -278,7 +281,9 @@ class SmartIndent(HasKeyPress, Behavior):
         if self.indent_using_tabs:
             newlines = [line[1:] if line[0] == "\t" else line for line in lines]
             # Calculate removed indent: count lines that had a tab removed
-            indent_removed = sum(1 for i, line in enumerate(lines) if len(line) > 0 and line[0] == "\t")
+            indent_removed = sum(
+                1 for i, line in enumerate(lines) if len(line) > 0 and line[0] == "\t"
+            )
         else:
             newlines = [
                 line[: self.space_indent_width].lstrip(" ")
@@ -287,8 +292,7 @@ class SmartIndent(HasKeyPress, Behavior):
             ]
             # Calculate removed indent: count actual spaces removed from each line
             indent_removed = sum(
-                len(lines[i]) - len(newlines[i])
-                for i in range(len(lines))
+                len(lines[i]) - len(newlines[i]) for i in range(len(lines))
             )
         cursor.insertText("\n".join(newlines))
 
@@ -348,9 +352,14 @@ class SmartIndent(HasKeyPress, Behavior):
                 # Normal case - check syntax
                 lookup_col = max(0, col - 1) if col > 0 else 0
 
-                if hasattr(self.editor, 'syntax_analyzer') and self.editor.syntax_analyzer:
-                    should_indent = self.editor.syntax_analyzer.should_indent_after_position(
-                        line_num, lookup_col
+                if (
+                    hasattr(self.editor, "syntax_analyzer")
+                    and self.editor.syntax_analyzer
+                ):
+                    should_indent = (
+                        self.editor.syntax_analyzer.should_indent_after_position(
+                            line_num, lookup_col
+                        )
                     )
 
                     if should_indent:
@@ -390,7 +399,9 @@ class SmartIndent(HasKeyPress, Behavior):
             pos = new_positions[i]
             # This position needs to be adjusted by all the edits that happened AFTER it (earlier in the loop)
             adjusted_pos = (pos[0] + cumulative_offset, pos[1] + cumulative_offset)
-            adjusted_positions.insert(0, adjusted_pos)  # Insert at front to build in document order
+            adjusted_positions.insert(
+                0, adjusted_pos
+            )  # Insert at front to build in document order
 
             # Calculate the length change that THIS edit caused
             original_cursor = sorted_with_index[i][0]
@@ -412,8 +423,8 @@ class SmartIndent(HasKeyPress, Behavior):
 
         # Update cursor positions
         from ..multi_cursor_manager import CursorState
+
         cursor_states = [CursorState(anchor, pos) for anchor, pos in new_positions]
         self.editor.multi_cursor_manager._set_all_cursors(cursor_states)
 
         return True
-

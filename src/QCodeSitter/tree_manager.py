@@ -25,6 +25,9 @@ class TreeManager:
         self.tree: Optional[Tree] = None
         self._source_callback = source_callback
 
+    def fullUpdate(self):
+        self.tree = self.parser.parse(self._source_callback, encoding="utf16")
+
     def update(
         self,
         start_byte: int,
@@ -54,10 +57,12 @@ class TreeManager:
                 old_end_point=old_end_point,
                 new_end_point=new_end_point,
             )
-            self.tree = self.parser.parse(self._source_callback, self.tree, encoding='utf16')
+            self.tree = self.parser.parse(
+                self._source_callback, self.tree, encoding="utf16"
+            )
         else:
             # First parse - no old tree to pass
-            self.tree = self.parser.parse(self._source_callback, encoding='utf16')
+            self.tree = self.parser.parse(self._source_callback, encoding="utf16")
         return old_tree
 
     def get_node_at_point(self, byte_offset: int) -> Optional[Node]:

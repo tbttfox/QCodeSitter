@@ -7,6 +7,7 @@ from Qt.QtGui import (
     QTextDocument,
 )
 from tree_sitter import Point
+from .utils import len16
 
 
 class TrackedDocument(QTextDocument):
@@ -19,11 +20,14 @@ class TrackedDocument(QTextDocument):
     """
 
     byteContentsChange = Signal(int, int, int, Point, Point, Point)
+    fullUpdateRequest = Signal()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.lay = QPlainTextDocumentLayout(self)
         self.setDocumentLayout(self.lay)
+        self._prev_line_count = 0
+        self._prev_char_count = 0
         self.contentsChange.connect(self._on_contents_change)
 
     def point_to_char(self, point: Point) -> int:
@@ -90,119 +94,6 @@ class TrackedDocument(QTextDocument):
                 break
             block = nextblock
 
-    def _get_line_length_utf16(self, block: QTextBlock) -> int:
-        """Get the length of a line in UTF-16 code units, including newline if present"""
-        length = len(block.text())
-        if block.next().isValid():
-            length += 1  # Add 1 for newline
-        return length
-
-    def _single_char_change(
-        self, position: int, chars_added: int, chars_removed: int
-    ) -> tuple[int, int, int, Point, Point, Point]:
-        """Handle a single character change in UTF-16 code units
-
-        With UTF-16 encoding, position values directly correspond to code units.
-        Qt's position values already count surrogate pairs as 2 units, matching UTF-16.
-        """
-        start_block = self.findBlock(position)
-        start_line = start_block.blockNumber()
-        linebytes = (position - start_block.position()) * 2
-
-        bytes_added = chars_added * 2
-        bytes_removed = chars_removed * 2
-        start_bytes = position * 2
-
-        start_point = Point(start_line, linebytes)
-
-        if chars_removed == 0:
-            # Character added
-            old_end_bytes = start_bytes
-            old_end_point = start_point
-            new_end_bytes = start_bytes + bytes_added
-
-            # Check if we added a newline
-            new_end_block = self.findBlock(position + chars_added)
-            if new_end_block.blockNumber() > start_line:
-                # Newline was added
-                new_end_point = Point(start_line + 1, 0)
-            else:
-                # Regular character
-                new_end_point = Point(start_line, linebytes + bytes_added)
-        else:
-            # Character removed
-            new_end_bytes = start_bytes
-            new_end_point = start_point
-            old_end_bytes = start_bytes + bytes_removed
-
-            # Assume we knew the character that was removed
-            # If line count decreased, a newline was removed
-            new_line_count = self.blockCount()
-            if new_line_count < self.blockCount():
-                # Newline was removed
-                old_end_point = Point(start_line + 1, 0)
-            else:
-                # Regular character
-                old_end_point = Point(start_line, linebytes + bytes_added)
-
-        return (
-            start_bytes,
-            old_end_bytes,
-            new_end_bytes,
-            start_point,
-            old_end_point,
-            new_end_point,
-        )
-
-    def _multi_char_change(
-        self, position: int, chars_added: int, chars_removed: int
-    ) -> tuple[int, int, int, Point, Point, Point]:
-        """Handle a multiple character change in UTF-16 code units
-
-        For multi-character changes, we can still provide accurate positions
-        since Qt's position values are already in UTF-16 code units.
-        """
-        start_block = self.findBlock(position)
-        start_line = start_block.blockNumber()
-        linebytes = (position - start_block.position()) * 2
-
-        bytes_added = chars_added * 2
-        bytes_removed = chars_removed * 2
-        start_point = Point(start_line, linebytes)
-
-        start_bytes = (position) * 2
-        old_end_bytes = start_bytes + bytes_removed
-        new_end_bytes = start_bytes + bytes_added
-
-        # Calculate old end point (before the change)
-        # We need to figure out where the old text ended
-        if chars_removed > 0:
-            # Estimate old end position by looking at current position
-            # and the amount removed
-            old_end_point = Point(start_line, linebytes + bytes_removed)
-            # This is approximate - if newlines were removed, this won't be exact
-            # but tree-sitter can handle approximate old positions
-        else:
-            old_end_point = Point(start_line, linebytes)
-
-        # Calculate new end point (after the change)
-        if chars_added > 0:
-            new_end_block = self.findBlock(position + bytes_added)
-            new_end_line = new_end_block.blockNumber()
-            new_end_col = (start_bytes + bytes_added) - (new_end_block.position() * 2)
-            new_end_point = Point(new_end_line, new_end_col)
-        else:
-            new_end_point = Point(start_line, linebytes)
-
-        return (
-            start_bytes,
-            old_end_bytes,
-            new_end_bytes,
-            start_point,
-            old_end_point,
-            new_end_point,
-        )
-
     @Slot(int, int, int)
     def _on_contents_change(self, position: int, chars_removed: int, chars_added: int):
         """Handle document content changes incrementally.
@@ -217,9 +108,29 @@ class TrackedDocument(QTextDocument):
             # Document is now empty and nothing was added, just signal empty tree
             return
 
-        # Short-circuit if just doing normal typing and backspacing
-        if chars_removed | chars_added == 1 and chars_removed & chars_added == 0:
-            ret = self._single_char_change(position, chars_added, chars_removed)
-        else:
-            ret = self._multi_char_change(position, chars_added, chars_removed)
-        self.byteContentsChange.emit(*ret)
+        new_char_count = self.characterCount()
+        new_line_count = self.blockCount()
+        if self._prev_char_count - chars_removed + chars_added != new_char_count:
+            # oops there's a tracking issue
+            self._prev_char_count = new_char_count
+            self._prev_line_count = new_line_count
+            self.fullUpdateRequest.emit()
+            return
+
+        start_block = self.findBlock(position)
+        start_line = start_block.blockNumber()
+        new_end_line = self.findBlock(position + chars_added).blockNumber()
+        old_end_line = new_end_line - new_line_count + self._prev_line_count
+        new_end_bytes = self.findBlockByNumber(start_line + 1).position() * 2
+        byte_delta = 2 * (chars_removed - chars_added)
+
+        self._prev_char_count = new_char_count
+        self._prev_line_count = new_line_count
+        self.byteContentsChange.emit(
+            position * 2,
+            new_end_bytes + byte_delta,
+            new_end_bytes,
+            Point(start_line, (position - start_block.position()) * 2),
+            Point(old_end_line + 1, 0),
+            Point(start_line + 1, 0),
+        )

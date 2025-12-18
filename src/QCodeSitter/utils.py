@@ -1,4 +1,5 @@
 from typing import Union, Optional
+from .constants import ENC
 from Qt.QtCore import Qt
 from Qt.QtGui import QKeySequence
 
@@ -41,3 +42,8 @@ def dedent_string(indent: str, indent_using_tabs: bool, space_indent_width: int)
         if actual_remove > 0:
             return indent[:-actual_remove]
     return indent
+
+
+def len16(val: str):
+    """Get the number of utf16 code points where surrogate pairs count as 2"""
+    return len(val.encode(ENC)) // 2

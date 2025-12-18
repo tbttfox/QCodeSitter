@@ -1,3 +1,4 @@
+HIGHLIGHT_QUERY = """
 ; From tree-sitter-python licensed under MIT License
 ; Copyright (c) 2016 Max Brunsfeld
 ; Variables
@@ -440,3 +441,4 @@
 ((decorator
   (identifier) @attribute.builtin)
   (#any-of? @attribute.builtin "classmethod" "property" "staticmethod"))
+"""
