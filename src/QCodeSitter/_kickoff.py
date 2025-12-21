@@ -1,6 +1,7 @@
 import sys
 
-path = r"C:\blur\dev\GitHub\QCodeSitter\src"
+path = r"C:\Users\Tyler\src\QCodeSitter\src"
+
 sys.path.insert(0, path)
 
 # fmt: off
@@ -17,6 +18,7 @@ from QCodeSitter.behaviors.code_folding import CodeFolding
 from QCodeSitter.editor_options import EditorOptions
 from QCodeSitter.hl_groups import FORMAT_SPECS, COLORS
 from QCodeSitter.highlight_query import HIGHLIGHT_QUERY
+
 import tree_sitter_python as tspython
 from tree_sitter import Language
 from Qt.QtWidgets import QMainWindow, QApplication
@@ -33,7 +35,6 @@ options = EditorOptions(
         "tab_indent_width": 8,
         "indent_using_tabs": False,
         "language": Language(tspython.language()),
-        # "highlights": (tspython.HIGHLIGHTS_QUERY, FORMAT_SPECS),
         "highlights": (HIGHLIGHT_QUERY, FORMAT_SPECS),
         "colors": COLORS,
         "font": QFont("MS Shell Dlg 2", pointSize=11),

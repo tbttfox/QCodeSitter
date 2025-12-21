@@ -1,7 +1,7 @@
 from __future__ import annotations
 from . import HasKeyPress, Behavior
-from ..constants import ENC
 from ..utils import hk, dedent_string
+from ..multi_cursor_manager import CursorState
 from typing import TYPE_CHECKING, Callable
 from Qt.QtGui import QFontMetrics, QTextCursor, QFont, QKeyEvent
 from Qt.QtCore import Qt
@@ -38,11 +38,15 @@ class SmartIndent(HasKeyPress, Behavior):
     def tab_indent_width(self, val: int):
         self._tab_indent_width = val
         metrics = QFontMetrics(self.editor.font())
-        self.editor.setTabStopWidth(self.tab_indent_width * metrics.width(" "))
+        self.editor.setTabStopDistance(
+            self.tab_indent_width * metrics.horizontalAdvance(" ")
+        )
 
     def _font(self, _val: QFont):
         metrics = QFontMetrics(self.editor.font())
-        self.editor.setTabStopWidth(self.tab_indent_width * metrics.width(" "))
+        self.editor.setTabStopDistance(
+            self.tab_indent_width * metrics.horizontalAdvance(" ")
+        )
 
     font = property(None, _font)
 
@@ -113,22 +117,17 @@ class SmartIndent(HasKeyPress, Behavior):
         dedent = False
 
         # Check if we should add indent (opening block)
-        if hasattr(self.editor, "syntax_analyzer") and self.editor.syntax_analyzer:
-            should_indent = self.editor.syntax_analyzer.should_indent_after_position(
-                line_num, lookup_col
-            )
+        saz = self.editor.syntax_analyzer
 
-            if should_indent:
-                if self.indent_using_tabs:
-                    extra_indent = "\t"
-                else:
-                    extra_indent = " " * self.space_indent_width
+        if saz.should_indent_after_position(line_num, lookup_col):
+            if self.indent_using_tabs:
+                extra_indent = "\t"
+            else:
+                extra_indent = " " * self.space_indent_width
 
-            # Check if we should dedent (closing block or return statement)
-            elif self.editor.syntax_analyzer.should_dedent_after_position(
-                line_num, lookup_col, line_text
-            ):
-                dedent = True
+        # Check if we should dedent (closing block or return statement)
+        elif saz.should_dedent_after_position(line_num, lookup_col, line_text):
+            dedent = True
 
         # Apply dedent if needed
         final_indent = indent
@@ -318,7 +317,7 @@ class SmartIndent(HasKeyPress, Behavior):
         primary_index = None
         inserted_texts = []  # Track what was inserted at each position
 
-        for cursor_state, original_index in sorted_with_index:
+        for cursor_state, _original_index in sorted_with_index:
             if cursor_state == primary:
                 primary_index = len(new_positions)
             qt_cursor.setPosition(cursor_state.position)
@@ -352,25 +351,14 @@ class SmartIndent(HasKeyPress, Behavior):
                 # Normal case - check syntax
                 lookup_col = max(0, col - 1) if col > 0 else 0
 
-                if (
-                    hasattr(self.editor, "syntax_analyzer")
-                    and self.editor.syntax_analyzer
-                ):
-                    should_indent = (
-                        self.editor.syntax_analyzer.should_indent_after_position(
-                            line_num, lookup_col
-                        )
-                    )
-
-                    if should_indent:
-                        if self.indent_using_tabs:
-                            extra_indent = "\t"
-                        else:
-                            extra_indent = " " * self.space_indent_width
-                    elif self.editor.syntax_analyzer.should_dedent_after_position(
-                        line_num, lookup_col, line_text
-                    ):
-                        dedent = True
+                saz = self.editor.syntax_analyzer
+                if saz.should_indent_after_position(line_num, lookup_col):
+                    if self.indent_using_tabs:
+                        extra_indent = "\t"
+                    else:
+                        extra_indent = " " * self.space_indent_width
+                elif saz.should_dedent_after_position(line_num, lookup_col, line_text):
+                    dedent = True
 
                 final_indent = indent
                 if dedent:
@@ -422,8 +410,6 @@ class SmartIndent(HasKeyPress, Behavior):
             new_positions.insert(0, primary_cursor)
 
         # Update cursor positions
-        from ..multi_cursor_manager import CursorState
-
         cursor_states = [CursorState(anchor, pos) for anchor, pos in new_positions]
         self.editor.multi_cursor_manager._set_all_cursors(cursor_states)
 

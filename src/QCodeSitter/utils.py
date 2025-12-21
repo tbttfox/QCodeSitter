@@ -2,6 +2,7 @@ from typing import Union, Optional
 from .constants import ENC
 from Qt.QtCore import Qt
 from Qt.QtGui import QKeySequence
+from Qt import QtCompat
 
 
 def hk(
@@ -24,7 +25,8 @@ def hk(
 
     seqval = int(key)
     if mods is not None:
-        seqval |= int(mods)
+        seqval |= QtCompat.enumValue(mods)
+
     return QKeySequence(seqval).toString(QKeySequence.PortableText)
 
 

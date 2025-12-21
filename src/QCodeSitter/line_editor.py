@@ -32,6 +32,7 @@ class CodeEditor(QPlainTextEdit):
         options: EditorOptions,
         parent=None,
     ):
+        print("INSTANTIATING")
         super().__init__(parent=parent)
         self._doc: TrackedDocument = TrackedDocument()
         self.setDocument(self._doc)
