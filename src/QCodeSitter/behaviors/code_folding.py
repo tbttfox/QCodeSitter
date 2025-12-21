@@ -13,13 +13,15 @@ class FoldableRegion:
     """Represents a foldable code region"""
 
     def __init__(
-        self, start_line: int, end_line: int, node: Node, hide_last_line: bool = True
+        self, start_line: int, end_line: int, node: Node | None = None, hide_last_line: bool = True, depth: int = 0
     ):
         self.start_line = start_line  # 0-indexed
         self.end_line = end_line  # 0-indexed
-        self.node = node
+        self.node = node  # Optional: None for manual folds
         self.is_folded = False
         self.hide_last_line = hide_last_line  # Whether to hide the closing line
+        self.depth = depth  # Nesting depth (0 = top level)
+        self.is_manual = node is None  # True if this is a user-created fold
 
     def contains_line(self, line: int) -> bool:
         """Check if this region contains the given line"""
@@ -174,15 +176,34 @@ class FoldingGutterArea(QtWidgets.QWidget):
         # Determine the end line based on hide_last_line setting
         end_line = region.end_line if region.hide_last_line else region.end_line - 1
 
-        # Process all blocks up to (and possibly including) the last line
-        block = start_block
-        while block.isValid() and block.blockNumber() <= end_line:
-            block.setVisible(not region.is_folded)
-            block = block.next()
+        if region.is_folded:
+            # Folding: hide all blocks unconditionally
+            block = start_block
+            while block.isValid() and block.blockNumber() <= end_line:
+                block.setVisible(False)
+                block = block.next()
+        else:
+            # Unfolding: only show blocks that aren't hidden by nested folds
+            block = start_block
+            while block.isValid() and block.blockNumber() <= end_line:
+                line_num = block.blockNumber()
+                # Check if this line is hidden by a nested folded region
+                should_be_visible = not self._is_line_in_folded_region(line_num, region)
+                block.setVisible(should_be_visible)
+                block = block.next()
 
         # Update the editor viewport
         self.editor.viewport().update()
         self.editor.updateRequest.emit(self.editor.viewport().rect(), 0)
+
+    def _is_line_in_folded_region(self, line: int, exclude_region: FoldableRegion) -> bool:
+        """Check if a line is inside a folded region (excluding the specified region)"""
+        for region in self.regions:
+            if region == exclude_region:
+                continue
+            if region.is_folded and region.start_line < line <= region.end_line:
+                return True
+        return False
 
 
 class CodeFolding(QObject, HasResize, Behavior):
@@ -327,21 +348,56 @@ class CodeFolding(QObject, HasResize, Behavior):
             self.folding_area.set_regions([])
             return
 
+        # Save existing fold states
+        # For AST-based folds: use (node_type, start_line, end_line)
+        # For manual folds: preserve them separately
+        old_fold_states = {}
+        manual_folds = []
+        for region in self.folding_area.regions:
+            if region.is_folded:
+                if region.is_manual:
+                    # Preserve manual folds as-is
+                    manual_folds.append(region)
+                elif region.node is not None:
+                    # Save AST-based fold state
+                    key = (region.node.type, region.start_line, region.end_line)
+                    old_fold_states[key] = True
+
         regions = []
         root_node = self.editor.tree_manager.tree.root_node
 
         # Recursively find foldable nodes
-        self._find_foldable_nodes(root_node, regions)
+        self._find_foldable_nodes(root_node, regions, 0)
+
+        # Restore fold states for matching AST nodes
+        for region in regions:
+            if region.node is not None:
+                key = (region.node.type, region.start_line, region.end_line)
+                if key in old_fold_states:
+                    region.is_folded = True
+                    # Re-apply the folding to ensure blocks are hidden
+                    self.folding_area._apply_folding(region)
+
+        # Add back manual folds
+        regions.extend(manual_folds)
 
         # Sort regions by start line
         regions.sort(key=lambda r: r.start_line)
 
         self.folding_area.set_regions(regions)
 
-    def _find_foldable_nodes(self, node: Node, regions: list[FoldableRegion]):
-        """Recursively find foldable nodes in the AST"""
+    def _find_foldable_nodes(self, node: Node, regions: list[FoldableRegion], depth: int = 0):
+        """Recursively find foldable nodes in the AST
+
+        Args:
+            node: Tree-sitter node to examine
+            regions: List to append foldable regions to
+            depth: Current nesting depth (0 = top level)
+        """
         # Check if this node is foldable
-        if node.type in self.HIDE_LAST_LINE_TYPES | self.KEEP_LAST_LINE_TYPES:
+        is_foldable = node.type in self.HIDE_LAST_LINE_TYPES | self.KEEP_LAST_LINE_TYPES
+
+        if is_foldable:
             # Only fold if the node spans multiple lines
             start_line = node.start_point.row
             end_line = node.end_point.row
@@ -349,11 +405,114 @@ class CodeFolding(QObject, HasResize, Behavior):
             if end_line > start_line:
                 # Determine if last line should be hidden based on node type
                 hide_last = node.type in self.HIDE_LAST_LINE_TYPES
-                regions.append(FoldableRegion(start_line, end_line, node, hide_last))
+                regions.append(FoldableRegion(start_line, end_line, node, hide_last, depth))
 
-        # Recurse into children
+        # Recurse into children with incremented depth if this was a foldable node
+        next_depth = depth + 1 if is_foldable else depth
         for child in node.children:
-            self._find_foldable_nodes(child, regions)
+            self._find_foldable_nodes(child, regions, next_depth)
+
+    def fold_to_level(self, max_depth: int):
+        """Fold all regions at or deeper than the specified depth level
+
+        Args:
+            max_depth: Maximum depth to keep unfolded (0 = fold everything, 1 = keep top level visible, etc.)
+        """
+        for region in self.folding_area.regions:
+            should_fold = region.depth >= max_depth
+            if region.is_folded != should_fold:
+                region.is_folded = should_fold
+                self.folding_area._apply_folding(region)
+
+        self.folding_area.update()
+        self.editor.viewport().update()
+
+    def unfold_to_level(self, max_depth: int):
+        """Unfold all regions up to and including the specified depth level
+
+        Args:
+            max_depth: Maximum depth to unfold (0 = unfold top level only, 1 = unfold top and next level, etc.)
+        """
+        for region in self.folding_area.regions:
+            should_unfold = region.depth <= max_depth
+            if should_unfold and region.is_folded:
+                region.is_folded = False
+                self.folding_area._apply_folding(region)
+
+        self.folding_area.update()
+        self.editor.viewport().update()
+
+    def fold_all(self):
+        """Fold all foldable regions"""
+        for region in self.folding_area.regions:
+            if not region.is_folded:
+                region.is_folded = True
+                self.folding_area._apply_folding(region)
+
+        self.folding_area.update()
+        self.editor.viewport().update()
+
+    def unfold_all(self):
+        """Unfold all foldable regions"""
+        for region in self.folding_area.regions:
+            if region.is_folded:
+                region.is_folded = False
+                self.folding_area._apply_folding(region)
+
+        self.folding_area.update()
+        self.editor.viewport().update()
+
+    def create_manual_fold(self):
+        """Create a manual fold from the current selection
+
+        Returns:
+            bool: True if fold was created, False if no valid selection
+        """
+        cursor = self.editor.textCursor()
+        if not cursor.hasSelection():
+            return False
+
+        # Get selection block range
+        selection_start = cursor.selectionStart()
+        selection_end = cursor.selectionEnd()
+
+        # Convert to line numbers
+        doc = self.editor.document()
+        start_block = doc.findBlock(selection_start)
+        end_block = doc.findBlock(selection_end)
+
+        start_line = start_block.blockNumber()
+        end_line = end_block.blockNumber()
+
+        # Need at least 2 lines to fold
+        if end_line <= start_line:
+            return False
+
+        # Check if this region overlaps with existing folds
+        # We'll allow it but the user should be aware
+        new_region = FoldableRegion(
+            start_line=start_line,
+            end_line=end_line,
+            node=None,  # No AST node for manual folds
+            hide_last_line=False,  # Don't hide the last line for manual folds
+            depth=0  # Manual folds are always depth 0
+        )
+
+        # Add to regions list
+        self.folding_area.regions.append(new_region)
+
+        # Sort regions by start line
+        self.folding_area.regions.sort(key=lambda r: r.start_line)
+
+        # Immediately fold it
+        new_region.is_folded = True
+        self.folding_area._apply_folding(new_region)
+
+        # Update display
+        self.folding_area.update()
+        self.editor.viewport().update()
+
+        return True
 
     def _font(self, newfont):
         self.folding_area.setFont(newfont)
