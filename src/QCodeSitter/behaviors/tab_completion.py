@@ -428,9 +428,6 @@ class TabCompletion(HasKeyPress, Behavior):
             if hotkey == hk(Qt.Key_Space, Qt.KeyboardModifier.ControlModifier):
                 self.do_completion()
                 return True
-            elif event.key() == Qt.Key_Escape:
-                self.do_completion()
-                return True
             return False
 
         if event.key() in (Qt.Key_Return, Qt.Key_Tab):

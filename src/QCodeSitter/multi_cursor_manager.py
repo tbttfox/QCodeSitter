@@ -344,6 +344,12 @@ class MultiCursorManager:
         elif key == QtCore.Qt.Key.Key_Down:
             self.move_cursors("down", select, word_mode)
             return True
+        elif key == QtCore.Qt.Key.Key_Home:
+            self.move_cursors("home", select, word_mode)
+            return True
+        elif key == QtCore.Qt.Key.Key_End:
+            self.move_cursors("end", select, word_mode)
+            return True
 
         # Handle Tab
         if key == QtCore.Qt.Key.Key_Tab:
@@ -607,9 +613,10 @@ class MultiCursorManager:
                 deleted_length = cursor.selection_end - cursor.selection_start
                 qt_cursor.removeSelectedText()
             else:
-                # Delete to end of word
+                # Delete to start of next word, including following whitespace
+                # Move to start of next word to match typical IDE behavior
                 qt_cursor.movePosition(
-                    QTextCursor.MoveOperation.EndOfWord, QTextCursor.MoveMode.KeepAnchor
+                    QTextCursor.MoveOperation.NextWord, QTextCursor.MoveMode.KeepAnchor
                 )
                 deleted_length = qt_cursor.position() - start_pos
                 qt_cursor.removeSelectedText()
@@ -676,9 +683,10 @@ class MultiCursorManager:
                 deleted_length = cursor.selection_end - cursor.selection_start
                 qt_cursor.removeSelectedText()
             else:
-                # Delete to start of word - calculate length BEFORE deleting
+                # Delete to start of word, including preceding whitespace
+                # Move to start of previous word to match typical IDE behavior
                 qt_cursor.movePosition(
-                    QTextCursor.MoveOperation.StartOfWord,
+                    QTextCursor.MoveOperation.PreviousWord,
                     QTextCursor.MoveMode.KeepAnchor,
                 )
                 # Calculate the selection length before removing
@@ -725,9 +733,9 @@ class MultiCursorManager:
         """Move all cursors in direction
 
         Args:
-            direction: 'left', 'right', 'up', 'down'
+            direction: 'left', 'right', 'up', 'down', 'home', 'end'
             select: If True, extend selection (Shift+arrow)
-            word_mode: If True, move by word (Ctrl+arrow)
+            word_mode: If True, move by word (Ctrl+arrow) or document start/end for home/end
         """
         cursors = self.get_all_cursors()
 
@@ -757,6 +765,53 @@ class MultiCursorManager:
                 move_op = QTextCursor.MoveOperation.Up
             elif direction == "down":
                 move_op = QTextCursor.MoveOperation.Down
+            elif direction == "home":
+                if word_mode:
+                    # Ctrl+Home: Go to document start
+                    move_op = QTextCursor.MoveOperation.Start
+                else:
+                    # Smart Home: toggle between first non-whitespace and column 0
+                    # Get current line text
+                    qt_cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock, QTextCursor.MoveMode.MoveAnchor)
+                    line_start_pos = qt_cursor.position()
+                    qt_cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+                    line_text = qt_cursor.selectedText()
+
+                    # Find first non-whitespace character
+                    first_non_ws = len(line_text) - len(line_text.lstrip())
+                    first_non_ws_pos = line_start_pos + first_non_ws
+
+                    # Reset cursor to original position
+                    qt_cursor.setPosition(cursor.anchor)
+                    if select or cursor.has_selection:
+                        qt_cursor.setPosition(cursor.position, QTextCursor.MoveMode.KeepAnchor)
+                    else:
+                        qt_cursor.setPosition(cursor.position)
+
+                    # Determine target position
+                    current_pos = cursor.position
+                    if current_pos == first_non_ws_pos or first_non_ws_pos == line_start_pos:
+                        # Already at first non-whitespace or line is all whitespace: go to column 0
+                        target_pos = line_start_pos
+                    else:
+                        # Go to first non-whitespace
+                        target_pos = first_non_ws_pos
+
+                    # Move to target
+                    mode = (
+                        QTextCursor.MoveMode.KeepAnchor
+                        if select
+                        else QTextCursor.MoveMode.MoveAnchor
+                    )
+                    qt_cursor.setPosition(target_pos, mode)
+                    new_cursors.append(CursorState(qt_cursor.anchor(), qt_cursor.position()))
+                    continue
+            elif direction == "end":
+                if word_mode:
+                    # Ctrl+End: Go to document end
+                    move_op = QTextCursor.MoveOperation.End
+                else:
+                    move_op = QTextCursor.MoveOperation.EndOfLine
             else:
                 continue
 
