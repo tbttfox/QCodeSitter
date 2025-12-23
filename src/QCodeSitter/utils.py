@@ -1,33 +1,4 @@
-from typing import Union, Optional
 from .constants import ENC
-from Qt.QtCore import Qt
-from Qt.QtGui import QKeySequence
-from Qt import QtCompat
-
-
-def hk(
-    key: Union[Qt.Key, int],
-    mods: Optional[Union[Qt.KeyboardModifier, Qt.KeyboardModifiers, int]] = None,
-) -> str:
-    """Build a hashable hotkey string"""
-    # Ignore pure modifier presses
-    # And handle the stupidity of backtab
-    kd = {
-        Qt.Key_Shift: "Shift",
-        Qt.Key_Control: "Control",
-        Qt.Key_Alt: "Alt",
-        Qt.Key_Meta: "Meta",
-        Qt.Key_Backtab: "Shift+Tab",
-    }
-    single = kd.get(key)  # type: ignore
-    if single is not None:
-        return single
-
-    seqval = int(key)
-    if mods is not None:
-        seqval |= QtCompat.enumValue(mods)
-
-    return QKeySequence(seqval).toString(QKeySequence.PortableText)
 
 
 def dedent_string(indent: str, indent_using_tabs: bool, space_indent_width: int) -> str:

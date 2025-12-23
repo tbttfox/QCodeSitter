@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from tree_sitter import Node, Point, Tree
 from typing import Optional, TYPE_CHECKING, Collection, Type, TypeVar
 from . import Behavior, HasKeyPress
-from ..utils import hk
+from ..hotkey_manager import HotkeySlot, HotkeyGroup, hk
 
 from .providers import Provider
 

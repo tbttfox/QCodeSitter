@@ -1,4 +1,7 @@
 from __future__ import annotations
+from typing import Callable, Optional, Collection, Type, TypeVar
+
+from Qt import QtCore
 from Qt.QtWidgets import QPlainTextEdit
 from Qt.QtGui import (
     QColor,
@@ -9,9 +12,8 @@ from Qt.QtGui import (
     QTextBlock,
     QTextCursor,
 )
-from typing import Callable, Optional, Collection, Type, TypeVar
+
 from tree_sitter import Language, Point
-from Qt import QtCore
 
 from .constants import ENC
 from .line_tracker import TrackedDocument
@@ -21,7 +23,7 @@ from .syntax_analyzer import SyntaxAnalyzer
 from .editor_options import EditorOptions
 from .selection_manager import SelectionManager
 from .multi_cursor_manager import MultiCursorManager
-from .utils import hk
+from .hotkey_manager import hk, HotkeyManager
 
 T_Behavior = TypeVar("T_Behavior", bound=Behavior)
 
@@ -39,13 +41,13 @@ class CodeEditor(QPlainTextEdit):
         self.options = options
         self._ts_prediction: dict[int, QTextBlock] = {}
 
+        # Hotkeys
+        self.hotkeys: dict[str, Callable[[QTextCursor], bool]] = {}
+
         self.tree_manager: TreeManager
         self.syntax_analyzer: SyntaxAnalyzer
         self.selection_manager: SelectionManager = SelectionManager(self)
         self.multi_cursor_manager: MultiCursorManager = MultiCursorManager(self)
-
-        # Hotkeys
-        self.hotkeys: dict[str, Callable[[QTextCursor], bool]] = {}
 
         # Register Ctrl+D for multi-cursor next occurrence
         self.hotkeys[

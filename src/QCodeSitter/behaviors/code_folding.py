@@ -1,10 +1,12 @@
 from __future__ import annotations
-from . import HasResize, Behavior
-from ..utils import hk
 from typing import TYPE_CHECKING
 from Qt import QtGui, QtCore, QtWidgets
 from Qt.QtCore import QObject, QEvent
 from tree_sitter import Node
+
+from . import HasResize, Behavior
+from ..hotkey_manager import HotkeySlot, HotkeyGroup, hk
+
 
 if TYPE_CHECKING:
     from ..line_editor import CodeEditor
@@ -599,10 +601,8 @@ class CodeFolding(QObject, HasResize, Behavior):
         self.folding_area.deleteLater()
         self.folding_area = None  # type: ignore
 
-
-
     def foldingHKs(self):
-        """asdf"""
+        """zasdf"""
         # Ctrl+Shift+[ = Fold all
         self.editor.hotkeys[
             hk(
@@ -610,7 +610,7 @@ class CodeFolding(QObject, HasResize, Behavior):
                 QtCore.Qt.KeyboardModifier.ControlModifier
                 | QtCore.Qt.KeyboardModifier.ShiftModifier,
             )
-        ] = lambda cursor: self.fold_all()
+        ] = self.fold_all_hotkey
 
         # Ctrl+Shift+] = Unfold all
         self.editor.hotkeys[
@@ -619,23 +619,23 @@ class CodeFolding(QObject, HasResize, Behavior):
                 QtCore.Qt.KeyboardModifier.ControlModifier
                 | QtCore.Qt.KeyboardModifier.ShiftModifier,
             )
-        ] = lambda cursor: self.unfold_all()
+        ] = self.unfold_all_hotkey
 
         # Ctrl+K, Ctrl+0 = Fold all (alternative)
         self.editor.hotkeys[
             hk(QtCore.Qt.Key.Key_0, QtCore.Qt.KeyboardModifier.ControlModifier)
-        ] = lambda cursor: self._fold_all_hotkey()
+        ] = self.fold_all_hotkey
 
         # Ctrl+K, Ctrl+J = Unfold all (alternative)
         self.editor.hotkeys[
             hk(QtCore.Qt.Key.Key_J, QtCore.Qt.KeyboardModifier.ControlModifier)
-        ] = lambda cursor: self.unfold_all()
+        ] = self.unfold_all_hotkey
 
         # Ctrl+1 through Ctrl+9 = Fold to level
         for i in range(1, 10):
             key = getattr(QtCore.Qt.Key, f"Key_{i}")
             self.editor.hotkeys[hk(key, QtCore.Qt.KeyboardModifier.ControlModifier)] = (
-                lambda cursor, level=i: self.fold_to_level(level)
+                lambda cursor, level=i: self.fold_to_level_hotkey(cursor, level)
             )
 
         # Ctrl+Shift+. = Create manual fold from selection
@@ -645,4 +645,124 @@ class CodeFolding(QObject, HasResize, Behavior):
                 QtCore.Qt.KeyboardModifier.ControlModifier
                 | QtCore.Qt.KeyboardModifier.ShiftModifier,
             )
-        ] = lambda cursor: self.create_manual_fold()
+        ] = self.create_manual_fold_hotkey
+
+    def fold_all_hotkey(self, cursor):
+        """Fold all available folds"""
+        self.fold_all()
+        return True
+
+    def unfold_all_hotkey(self, cursor):
+        """Unfold all available folds"""
+        self.unfold_all()
+        return True
+
+    def fold_to_level_0_hotkey(self, cursor):
+        """Fold to level 0"""
+        self.fold_all()
+        return True
+
+    def fold_to_level_1_hotkey(self, cursor):
+        """Fold to level 1"""
+        self.fold_to_level(1)
+        return True
+
+    def fold_to_level_2_hotkey(self, cursor):
+        """Fold to level 2"""
+        self.fold_to_level(2)
+        return True
+
+    def fold_to_level_3_hotkey(self, cursor):
+        """Fold to level 3"""
+        self.fold_to_level(3)
+        return True
+
+    def fold_to_level_4_hotkey(self, cursor):
+        """Fold to level 4"""
+        self.fold_to_level(4)
+        return True
+
+    def fold_to_level_5_hotkey(self, cursor):
+        """Fold to level 5"""
+        self.fold_to_level(5)
+        return True
+
+    def fold_to_level_6_hotkey(self, cursor):
+        """Fold to level 6"""
+        self.fold_to_level(6)
+        return True
+
+    def fold_to_level_7_hotkey(self, cursor):
+        """Fold to level 7"""
+        self.fold_to_level(7)
+        return True
+
+    def fold_to_level_8_hotkey(self, cursor):
+        """Fold to level 8"""
+        self.fold_to_level(8)
+        return True
+
+    def fold_to_level_9_hotkey(self, cursor):
+        """Fold to level 9"""
+        self.fold_to_level(9)
+        return True
+
+    def create_manual_fold_hotkey(self, cursor):
+        """Fold the current user selection"""
+        self.create_manual_fold()
+        return False
+
+    def get_hotkey_group(self) -> HotkeyGroup:
+        slots = []
+        slots.append(
+            HotkeySlot(
+                "Fold All",
+                self.fold_all_hotkey,
+                [
+                    hk(
+                        QtCore.Qt.Key.Key_BracketLeft,
+                        QtCore.Qt.KeyboardModifier.ControlModifier
+                        | QtCore.Qt.KeyboardModifier.ShiftModifier,
+                    )
+                ],
+            )
+        )
+
+        slots.append(
+            HotkeySlot(
+                "Unfold All",
+                self.unfold_all_hotkey,
+                [
+                    hk(
+                        QtCore.Qt.Key.Key_BracketRight,
+                        QtCore.Qt.KeyboardModifier.ControlModifier
+                        | QtCore.Qt.KeyboardModifier.ShiftModifier,
+                    )
+                ],
+            )
+        )
+
+        slots.append(
+            HotkeySlot(
+                "Create Manual Fold",
+                self.create_manual_fold_hotkey,
+                [
+                    hk(
+                        QtCore.Qt.Key.Key_Period,
+                        QtCore.Qt.KeyboardModifier.ControlModifier
+                        | QtCore.Qt.KeyboardModifier.ShiftModifier,
+                    )
+                ],
+            )
+        )
+        for i in range(10):
+            key = getattr(QtCore.Qt.Key, f"Key_{i}")
+            slots.append(
+                HotkeySlot(
+                    f"Fold to Level {i}",
+                    getattr(self, f"fold_to_level_{i}_hotkey"),
+                    [hk(key, QtCore.Qt.KeyboardModifier.ControlModifier)],
+                )
+            )
+
+        return HotkeyGroup("Code Folding", slots=slots)

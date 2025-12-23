@@ -1,6 +1,7 @@
 from __future__ import annotations
 from . import HasKeyPress, Behavior
-from ..utils import hk, dedent_string
+from ..utils import dedent_string
+from ..hotkey_manager import HotkeySlot, HotkeyGroup, hk
 from ..multi_cursor_manager import CursorState
 from typing import TYPE_CHECKING, Callable
 from Qt.QtGui import QFontMetrics, QTextCursor, QFont, QKeyEvent
