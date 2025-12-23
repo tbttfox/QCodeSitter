@@ -1,8 +1,9 @@
 from __future__ import annotations
 from . import HasResize, Behavior
+from ..utils import hk
 from typing import TYPE_CHECKING
 from Qt import QtGui, QtCore, QtWidgets
-from Qt.QtCore import QObject
+from Qt.QtCore import QObject, QEvent
 from tree_sitter import Node
 
 if TYPE_CHECKING:
@@ -13,7 +14,12 @@ class FoldableRegion:
     """Represents a foldable code region"""
 
     def __init__(
-        self, start_line: int, end_line: int, node: Node | None = None, hide_last_line: bool = True, depth: int = 0
+        self,
+        start_line: int,
+        end_line: int,
+        node: Node | None = None,
+        hide_last_line: bool = True,
+        depth: int = 0,
     ):
         self.start_line = start_line  # 0-indexed
         self.end_line = end_line  # 0-indexed
@@ -196,7 +202,9 @@ class FoldingGutterArea(QtWidgets.QWidget):
         self.editor.viewport().update()
         self.editor.updateRequest.emit(self.editor.viewport().rect(), 0)
 
-    def _is_line_in_folded_region(self, line: int, exclude_region: FoldableRegion) -> bool:
+    def _is_line_in_folded_region(
+        self, line: int, exclude_region: FoldableRegion
+    ) -> bool:
         """Check if a line is inside a folded region (excluding the specified region)"""
         for region in self.regions:
             if region == exclude_region:
@@ -266,19 +274,22 @@ class CodeFolding(QObject, HasResize, Behavior):
         self.set_geometry()
         self.updateAll()
 
-    def eventFilter(self, obj, event):
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         """Event filter to draw ellipsis on folded lines"""
         try:
-            if obj == self.editor.viewport() and event.type() == QtCore.QEvent.Paint:
+            if (
+                watched == self.editor.viewport()
+                and event.type() == QtCore.QEvent.Paint
+            ):
                 # Let the normal painting happen first
-                result = super().eventFilter(obj, event)
+                result = super().eventFilter(watched, event)
                 # Then draw our fold indicators
                 self._draw_fold_ellipsis()
                 return result
         except RuntimeError:
             # Editor has been deleted during shutdown
             return False
-        return super().eventFilter(obj, event)
+        return super().eventFilter(watched, event)
 
     def _draw_fold_ellipsis(self):
         """Draw ellipsis indicators and background for folded lines"""
@@ -386,7 +397,9 @@ class CodeFolding(QObject, HasResize, Behavior):
 
         self.folding_area.set_regions(regions)
 
-    def _find_foldable_nodes(self, node: Node, regions: list[FoldableRegion], depth: int = 0):
+    def _find_foldable_nodes(
+        self, node: Node, regions: list[FoldableRegion], depth: int = 0
+    ):
         """Recursively find foldable nodes in the AST
 
         Args:
@@ -405,7 +418,9 @@ class CodeFolding(QObject, HasResize, Behavior):
             if end_line > start_line:
                 # Determine if last line should be hidden based on node type
                 hide_last = node.type in self.HIDE_LAST_LINE_TYPES
-                regions.append(FoldableRegion(start_line, end_line, node, hide_last, depth))
+                regions.append(
+                    FoldableRegion(start_line, end_line, node, hide_last, depth)
+                )
 
         # Recurse into children with incremented depth if this was a foldable node
         next_depth = depth + 1 if is_foldable else depth
@@ -495,7 +510,7 @@ class CodeFolding(QObject, HasResize, Behavior):
             end_line=end_line,
             node=None,  # No AST node for manual folds
             hide_last_line=False,  # Don't hide the last line for manual folds
-            depth=0  # Manual folds are always depth 0
+            depth=0,  # Manual folds are always depth 0
         )
 
         # Add to regions list
@@ -530,8 +545,9 @@ class CodeFolding(QObject, HasResize, Behavior):
 
     colors = property(None, _colors)
 
-    def resizeEvent(self, e: QtGui.QResizeEvent):
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> bool:
         self.set_geometry()
+        return False
 
     def set_geometry(self):
         """Handle resize events to update folding area geometry"""
@@ -582,3 +598,51 @@ class CodeFolding(QObject, HasResize, Behavior):
 
         self.folding_area.deleteLater()
         self.folding_area = None  # type: ignore
+
+
+
+    def foldingHKs(self):
+        """asdf"""
+        # Ctrl+Shift+[ = Fold all
+        self.editor.hotkeys[
+            hk(
+                QtCore.Qt.Key.Key_BracketLeft,
+                QtCore.Qt.KeyboardModifier.ControlModifier
+                | QtCore.Qt.KeyboardModifier.ShiftModifier,
+            )
+        ] = lambda cursor: self.fold_all()
+
+        # Ctrl+Shift+] = Unfold all
+        self.editor.hotkeys[
+            hk(
+                QtCore.Qt.Key.Key_BracketRight,
+                QtCore.Qt.KeyboardModifier.ControlModifier
+                | QtCore.Qt.KeyboardModifier.ShiftModifier,
+            )
+        ] = lambda cursor: self.unfold_all()
+
+        # Ctrl+K, Ctrl+0 = Fold all (alternative)
+        self.editor.hotkeys[
+            hk(QtCore.Qt.Key.Key_0, QtCore.Qt.KeyboardModifier.ControlModifier)
+        ] = lambda cursor: self._fold_all_hotkey()
+
+        # Ctrl+K, Ctrl+J = Unfold all (alternative)
+        self.editor.hotkeys[
+            hk(QtCore.Qt.Key.Key_J, QtCore.Qt.KeyboardModifier.ControlModifier)
+        ] = lambda cursor: self.unfold_all()
+
+        # Ctrl+1 through Ctrl+9 = Fold to level
+        for i in range(1, 10):
+            key = getattr(QtCore.Qt.Key, f"Key_{i}")
+            self.editor.hotkeys[hk(key, QtCore.Qt.KeyboardModifier.ControlModifier)] = (
+                lambda cursor, level=i: self.fold_to_level(level)
+            )
+
+        # Ctrl+Shift+. = Create manual fold from selection
+        self.editor.hotkeys[
+            hk(
+                QtCore.Qt.Key.Key_Period,
+                QtCore.Qt.KeyboardModifier.ControlModifier
+                | QtCore.Qt.KeyboardModifier.ShiftModifier,
+            )
+        ] = lambda cursor: self.create_manual_fold()

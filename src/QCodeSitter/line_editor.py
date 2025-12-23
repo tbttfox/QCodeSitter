@@ -79,51 +79,6 @@ class CodeEditor(QPlainTextEdit):
             )
         ] = lambda cursor: self.multi_cursor_manager.add_cursors_to_line_ends()
 
-        # Code folding hotkeys
-        # Ctrl+Shift+[ = Fold all
-        self.hotkeys[
-            hk(
-                QtCore.Qt.Key.Key_BracketLeft,
-                QtCore.Qt.KeyboardModifier.ControlModifier
-                | QtCore.Qt.KeyboardModifier.ShiftModifier,
-            )
-        ] = lambda cursor: self._fold_all_hotkey()
-
-        # Ctrl+Shift+] = Unfold all
-        self.hotkeys[
-            hk(
-                QtCore.Qt.Key.Key_BracketRight,
-                QtCore.Qt.KeyboardModifier.ControlModifier
-                | QtCore.Qt.KeyboardModifier.ShiftModifier,
-            )
-        ] = lambda cursor: self._unfold_all_hotkey()
-
-        # Ctrl+K, Ctrl+0 = Fold all (alternative)
-        self.hotkeys[
-            hk(QtCore.Qt.Key.Key_0, QtCore.Qt.KeyboardModifier.ControlModifier)
-        ] = lambda cursor: self._fold_all_hotkey()
-
-        # Ctrl+K, Ctrl+J = Unfold all (alternative)
-        self.hotkeys[
-            hk(QtCore.Qt.Key.Key_J, QtCore.Qt.KeyboardModifier.ControlModifier)
-        ] = lambda cursor: self._unfold_all_hotkey()
-
-        # Ctrl+1 through Ctrl+9 = Fold to level
-        for i in range(1, 10):
-            key = getattr(QtCore.Qt.Key, f"Key_{i}")
-            self.hotkeys[
-                hk(key, QtCore.Qt.KeyboardModifier.ControlModifier)
-            ] = lambda cursor, level=i: self._fold_to_level_hotkey(level)
-
-        # Ctrl+Shift+. = Create manual fold from selection
-        self.hotkeys[
-            hk(
-                QtCore.Qt.Key.Key_Period,
-                QtCore.Qt.KeyboardModifier.ControlModifier
-                | QtCore.Qt.KeyboardModifier.ShiftModifier,
-            )
-        ] = lambda cursor: self._create_manual_fold_hotkey()
-
         self._behaviors: list[Behavior] = []
 
         self.options.optionsUpdated.connect(self.updateOptions)
@@ -207,38 +162,6 @@ class CodeEditor(QPlainTextEdit):
             if type(bh) is behaviorCls:
                 return bh
         return None
-
-    def _fold_all_hotkey(self):
-        """Hotkey handler for folding all regions"""
-        from .behaviors.code_folding import CodeFolding
-        folding = self.getBehavior(CodeFolding)
-        if folding:
-            folding.fold_all()
-        return True
-
-    def _unfold_all_hotkey(self):
-        """Hotkey handler for unfolding all regions"""
-        from .behaviors.code_folding import CodeFolding
-        folding = self.getBehavior(CodeFolding)
-        if folding:
-            folding.unfold_all()
-        return True
-
-    def _fold_to_level_hotkey(self, level: int):
-        """Hotkey handler for folding to a specific level"""
-        from .behaviors.code_folding import CodeFolding
-        folding = self.getBehavior(CodeFolding)
-        if folding:
-            folding.fold_to_level(level)
-        return True
-
-    def _create_manual_fold_hotkey(self):
-        """Hotkey handler for creating a manual fold from selection"""
-        from .behaviors.code_folding import CodeFolding
-        folding = self.getBehavior(CodeFolding)
-        if folding:
-            return folding.create_manual_fold()
-        return False
 
     def document(self) -> TrackedDocument:
         doc = super().document()
