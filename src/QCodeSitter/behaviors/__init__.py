@@ -3,6 +3,7 @@ from typing import Collection, TYPE_CHECKING
 from Qt.QtGui import QKeyEvent, QResizeEvent
 
 if TYPE_CHECKING:
+    from ..hotkey_manager import HotkeyGroup
     from ..line_editor import CodeEditor
     from ..editor_options import EditorOptions
 
@@ -37,3 +38,8 @@ class HasKeyPress:
 class HasResize:
     def resizeEvent(self, event: QResizeEvent) -> bool:
         raise NotImplementedError("You must implement the resizeEvent")
+
+
+class HasHotkeys:
+    def getHotkeys(self) -> HotkeyGroup:
+        raise NotImplementedError("You must implement getHotkeys")

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from tree_sitter import Point, Node
 from typing import Optional
 

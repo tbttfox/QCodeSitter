@@ -1,10 +1,10 @@
-import sys
-
-path = r"C:\Users\Tyler\src\QCodeSitter\src"
-
-sys.path.insert(0, path)
-
 # fmt: off
+import sys
+import tree_sitter_python as tspython
+from tree_sitter import Language
+from Qt.QtWidgets import QMainWindow, QApplication
+from Qt.QtGui import QFont
+
 from QCodeSitter.line_editor import CodeEditor
 from QCodeSitter.behaviors.smart_indent import SmartIndent
 from QCodeSitter.behaviors.line_numbers import LineNumber
@@ -18,11 +18,6 @@ from QCodeSitter.behaviors.code_folding import CodeFolding
 from QCodeSitter.editor_options import EditorOptions
 from QCodeSitter.hl_groups import FORMAT_SPECS, COLORS
 from QCodeSitter.highlight_query import HIGHLIGHT_QUERY
-
-import tree_sitter_python as tspython
-from tree_sitter import Language
-from Qt.QtWidgets import QMainWindow, QApplication
-from Qt.QtGui import QFont
 # fmt: on
 
 
@@ -40,6 +35,8 @@ options = EditorOptions(
         "font": QFont("MS Shell Dlg 2", pointSize=11),
         "vim_completion_keys": True,  # c-n c-p for next/prev  c-y for accept
         "debounce_delay": 150,  # in milliseconds
+        "auto_bracket_enabled": True,
+        "auto_bracket_pairs": "()[]{}\"\"''``",
     }
 )
 
@@ -55,7 +52,6 @@ edit.addBehavior(HighlightMatchingSelection)
 edit.addBehavior(LineNumber)
 edit.addBehavior(AutoBracket)
 edit.addBehavior(CodeFolding)
-
 
 win.setCentralWidget(edit)
 win.show()

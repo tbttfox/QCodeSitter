@@ -45,15 +45,22 @@ class HotkeySlot:
         assigned: Optional[list[str]] = None,
         description: Optional[str] = None,
         enabled: bool = True,
+        priority: int = 1,
     ):
         self.name: str = name
         self.slot: Callable = slot
         self.default: list[str] = default
         self.assigned: list[str] = default if assigned is None else assigned
-        self.description: str = (
-            getdoc(self.slot) if description is None else description
-        )
+
+        desc = description
+        if desc is None:
+            desc = getdoc(self.slot)
+        if desc is None:
+            raise ValueError("Hotkey slots MUST have a description")
+
+        self.description: str = desc
         self.enabled = enabled
+        self.priority = priority
 
 
 class HotkeyGroup:
@@ -67,29 +74,39 @@ class HotkeyManager:
         self.hotkey_groups: list[HotkeyGroup] = []
         self.hotkeys_file: Optional[Path] = hotkeys_file
 
-    def load_user_hotkeys(self):
+    def load_user_hotkeys_from_file(self):
         if self.hotkeys_file is None:
             return
 
         with self.hotkeys_file.open() as f:
             prefs = json.load(f)
 
+        self.load_user_hotkeys(prefs)
+
+    def load_user_hotkeys(self, prefs: dict[str, list[tuple[str, list[str]]]]):
+        """Load the user-defined hotkeys from the given prefs dict"""
         groups_by_name = {g.name: g for g in self.hotkey_groups}
         for group_name, slot_datas in prefs.items():
             if group_name not in groups_by_name:
                 continue
             group = groups_by_name[group_name]
             slots_by_name = {s.name: s for s in group.slots}
-            for slot_data in slot_datas:
-                slot = slots_by_name[slot_data["name"]]
-                slot.assigned = slot_data["assigned"]
+            for name, assigned in slot_datas:
+                slot = slots_by_name[name]
+                slot.assigned = list(assigned)
 
     def build_hotkey_dict(self) -> dict[str, Callable]:
-        hk_dict = {}
+        """Build a dictionary of hotkeys mapped to their callables"""
+        slots: list[HotkeySlot] = []
         for group in self.hotkey_groups:
             for slot in group.slots:
-                if not slot.enabled:
-                    continue
-                for hotkey in slot.assigned:
-                    hk_dict[hotkey] = slot.slot
+                if slot.enabled and slot.assigned:
+                    slots.append(slot)
+
+        hk_dict = {}
+        slots = sorted(slots, key=lambda s: s.priority)
+        for slot in slots:
+            for hotkey in slot.assigned:
+                hk_dict[hotkey] = slot.slot
+
         return hk_dict

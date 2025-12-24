@@ -232,10 +232,10 @@ class TabCompletion(HasKeyPress, Behavior):
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
 
-        #
         self.vim_completion_keys = True
         self.debounce_delay = 150
 
+        self.hotkeys = self.build_hotkeys()
         self.setListen({"vim_completion_keys", "debounce_delay"})
 
         self._providers: list[Provider] = []
@@ -423,39 +423,55 @@ class TabCompletion(HasKeyPress, Behavior):
 
         return start, prefix
 
-    def keyPressEvent(self, event: QKeyEvent, hotkey: str):
+    def acceptItem(self):
         if not self.completion_popup.isVisible():
-            if hotkey == hk(Qt.Key_Space, Qt.KeyboardModifier.ControlModifier):
-                self.do_completion()
-                return True
             return False
+        if self.completion_popup.currentItem():
+            self.completion_popup.accept_completion()
+        return True
 
-        if event.key() in (Qt.Key_Return, Qt.Key_Tab):
-            if self.completion_popup.currentItem():
-                self.completion_popup.accept_completion()
-            return True
-        elif event.key() == Qt.Key_Up:
-            self.completion_popup.offset_current(-1)
-            return True
-        elif event.key() == Qt.Key_Down:
-            self.completion_popup.offset_current(1)
-            return True
-        elif event.key() == Qt.Key_Escape:
-            self.completion_popup.hide()
-            return True
-        elif event.key() == Qt.Key_Backspace:
-            self.completion_popup.hide()
+    def offset_up(self):
+        if not self.completion_popup.isVisible():
             return False
-        elif self.vim_completion_keys:
-            if hotkey == hk(Qt.Key_Y, Qt.KeyboardModifier.ControlModifier):
-                if self.completion_popup.currentItem():
-                    self.completion_popup.accept_completion()
-                return True
-            elif hotkey == hk(Qt.Key_P, Qt.KeyboardModifier.ControlModifier):
-                self.completion_popup.offset_current(-1)
-                return True
-            elif hotkey == hk(Qt.Key_N, Qt.KeyboardModifier.ControlModifier):
-                self.completion_popup.offset_current(1)
-                return True
+        self.completion_popup.offset_current(-1)
+        return True
 
+    def offset_down(self):
+        if not self.completion_popup.isVisible():
+            return False
+        self.completion_popup.offset_current(1)
+        return True
+
+    def hide_and_accept(self):
+        if not self.completion_popup.isVisible():
+            return False
+        self.completion_popup.hide()
+        return True
+
+    def hide_and_deny(self):
+        if not self.completion_popup.isVisible():
+            return False
+        self.completion_popup.hide()
+        return False
+
+    def build_hotkeys(self):
+        hotkeys = {}
+        hotkeys[hk(Qt.Key_Return)] = self.acceptItem
+        hotkeys[hk(Qt.Key_Tab)] = self.acceptItem
+        hotkeys[hk(Qt.Key_Up)] = self.offset_up
+        hotkeys[hk(Qt.Key_Down)] = self.offset_down
+        hotkeys[hk(Qt.Key_Escape)] = self.hide_and_accept
+        hotkeys[hk(Qt.Key_Backspace)] = self.hide_and_deny
+
+        if self.vim_completion_keys:
+            ctrl = Qt.KeyboardModifier.ControlModifier
+            hotkeys[hk(Qt.Key_Y, ctrl)] = self.acceptItem
+            hotkeys[hk(Qt.Key_P, ctrl)] = self.offset_up
+            hotkeys[hk(Qt.Key_N, ctrl)] = self.offset_down
+        return hotkeys
+
+    def keyPressEvent(self, event: QKeyEvent, hotkey: str):
+        func = self.hotkeys.get(hotkey)
+        if func is not None:
+            return func()
         return False

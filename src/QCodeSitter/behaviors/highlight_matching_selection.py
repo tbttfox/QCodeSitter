@@ -48,4 +48,6 @@ class HighlightMatchingSelection(Behavior):
                     selection.format = format
                     extra_selections.append(selection)
 
-        self.editor.selection_manager.set_selections("selection_highlight", extra_selections)
+        self.editor.selection_manager.set_selections(
+            "selection_highlight", extra_selections
+        )

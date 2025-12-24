@@ -1,5 +1,11 @@
+from __future__ import annotations
 from tree_sitter import Language, Parser, Tree, Point, Node
-from typing import Callable, Optional
+from typing import Optional, TYPE_CHECKING
+from .constants import ENC
+
+if TYPE_CHECKING:
+    from Qt.QtWidgets import QPlainTextEdit
+    from Qt.QtGui import QTextBlock
 
 
 class TreeManager:
@@ -11,7 +17,9 @@ class TreeManager:
     """
 
     def __init__(
-        self, language: Language, source_callback: Callable[[int, Point], bytes]
+        self,
+        editor: QPlainTextEdit,
+        language: Language,
     ):
         """Initialize the tree manager
 
@@ -21,9 +29,51 @@ class TreeManager:
                 Signature: (byte_offset: int, point: Point) -> bytes
                 Note: bytes should be UTF-16LE encoded
         """
+        self.editor = editor
         self.parser = Parser(language)
         self.tree: Optional[Tree] = None
-        self._source_callback = source_callback
+        self._source_callback = self.treesitter_source_callback
+
+    def treesitter_source_callback(self, _byte_offset: int, ts_point: Point) -> bytes:
+        """Provide source bytes to tree-sitter parser
+
+        A callback for efficient access to the underlying UTF-16LE encoded data
+
+        Args:
+            byte_offset: The byte offset in UTF-16LE encoding where data is requested
+            ts_point: The (row, column) point in code units where data is requested
+
+        Returns:
+            UTF-16LE encoded bytes from the requested position to end of document
+        """
+        # Clear cache at the start of each parse (when row 0 is requested)
+        # This ensures we don't use stale block references after document edits
+        if ts_point.row == 0:
+            self._ts_prediction = {}
+
+        curblock: Optional[QTextBlock] = self._ts_prediction.get(ts_point.row)
+        if curblock is None:
+            try:
+                curblock = self.editor.document().findBlockByNumber(ts_point.row)
+            except IndexError:
+                self._ts_prediction = {}
+                return b""
+
+        # Check if block is valid (can be invalid after undo)
+        if not curblock.isValid():
+            self._ts_prediction = {}
+            return b""
+
+        self._ts_prediction[ts_point.row] = curblock
+        nxt = curblock.next()
+        self._ts_prediction[ts_point.row + 1] = nxt
+        suffix = "\n" if nxt.isValid() else ""
+        linetext = curblock.text() + suffix
+
+        # Return UTF-16LE encoded bytes starting from the column offset
+        # When using encoding='utf16', ts_point.column is in BYTES, not code units
+        # So we need to divide by 2 to get the character position
+        return linetext.encode(ENC)[ts_point.column :]
 
     def fullUpdate(self):
         self.tree = self.parser.parse(self._source_callback, encoding="utf16")

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from Qt.QtCore import QObject, Signal
 from typing import Optional, Any
 

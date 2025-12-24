@@ -26,8 +26,8 @@ class HighlightMatchingBrackets(Behavior):
 
     def update_pairs(self, ordered_pairs: Collection[str]):
         self.ordered_pairs = tuple(ordered_pairs)
-        self.bracket_chars = ''.join(self.ordered_pairs)
-        self.opening_brackets = ''.join(p[0] for p in self.ordered_pairs)
+        self.bracket_chars = "".join(self.ordered_pairs)
+        self.opening_brackets = "".join(p[0] for p in self.ordered_pairs)
         self.bracket_pairs = {p[0]: p[1] for p in self.ordered_pairs}
         self.bracket_pairs.update({p[1]: p[0] for p in self.ordered_pairs})
         self.all_match_chars = self.quote_chars + self.bracket_chars
@@ -37,13 +37,17 @@ class HighlightMatchingBrackets(Behavior):
         extra_selections = []
 
         if self.editor.tree_manager.tree is None:
-            self.editor.selection_manager.set_selections("bracket_matching", extra_selections)
+            self.editor.selection_manager.set_selections(
+                "bracket_matching", extra_selections
+            )
             return
 
         # Find character to match
         match_info = self._find_character_to_match()
         if match_info is None:
-            self.editor.selection_manager.set_selections("bracket_matching", extra_selections)
+            self.editor.selection_manager.set_selections(
+                "bracket_matching", extra_selections
+            )
             return
 
         match_char, match_pos = match_info
@@ -51,7 +55,9 @@ class HighlightMatchingBrackets(Behavior):
         # Get tree-sitter node at position
         node = self._get_node_at_position(match_pos)
         if node is None:
-            self.editor.selection_manager.set_selections("bracket_matching", extra_selections)
+            self.editor.selection_manager.set_selections(
+                "bracket_matching", extra_selections
+            )
             return
 
         # Handle quotes vs brackets differently
@@ -60,7 +66,9 @@ class HighlightMatchingBrackets(Behavior):
         else:
             extra_selections = self._highlight_matching_brackets_pair(node, match_char)
 
-        self.editor.selection_manager.set_selections("bracket_matching", extra_selections)
+        self.editor.selection_manager.set_selections(
+            "bracket_matching", extra_selections
+        )
 
     def _find_character_to_match(self) -> tuple[str, int] | None:
         """Find the character near the cursor that should be matched
@@ -141,7 +149,9 @@ class HighlightMatchingBrackets(Behavior):
         string_cursor.setPosition(string_end_char, QtGui.QTextCursor.KeepAnchor)
         string_text = string_cursor.selectedText()
 
-        quote_len = 3 if string_text.startswith('"""') or string_text.startswith("'''") else 1
+        quote_len = (
+            3 if string_text.startswith('"""') or string_text.startswith("'''") else 1
+        )
 
         # Determine which quotes to highlight
         opening_end = string_start_char + quote_len
@@ -160,10 +170,14 @@ class HighlightMatchingBrackets(Behavior):
         quote_format.setBackground(self._ltGray)
 
         extra_selections.append(
-            self._create_selection(cursor_quote_range[0], cursor_quote_range[1], quote_format)
+            self._create_selection(
+                cursor_quote_range[0], cursor_quote_range[1], quote_format
+            )
         )
         extra_selections.append(
-            self._create_selection(match_quote_range[0], match_quote_range[1], quote_format)
+            self._create_selection(
+                match_quote_range[0], match_quote_range[1], quote_format
+            )
         )
 
         return extra_selections

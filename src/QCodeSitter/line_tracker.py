@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import Generator
 
 from Qt.QtWidgets import QPlainTextDocumentLayout

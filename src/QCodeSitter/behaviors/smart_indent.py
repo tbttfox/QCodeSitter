@@ -23,7 +23,7 @@ class SmartIndent(HasKeyPress, Behavior):
         self.setListen(
             {"space_indent_width", "tab_indent_width", "indent_using_tabs", "font"}
         )
-        self.hotkeys: dict[str, Callable[[QTextCursor], bool]] = {
+        self.hotkeys: dict[str, Callable[[], bool]] = {
             hk(Qt.Key.Key_Tab): self.insertIndent,
             hk(Qt.Key.Key_Tab, Qt.KeyboardModifier.ShiftModifier): self.unindent,
             hk(Qt.Key.Key_Return): self.smartNewline,
@@ -52,7 +52,6 @@ class SmartIndent(HasKeyPress, Behavior):
     font = property(None, _font)
 
     def keyPressEvent(self, event: QKeyEvent, hotkey: str) -> bool:
-        # Check if multi-cursor mode is active and handle Return key
         if self.editor.multi_cursor_manager.is_active():
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 return self._smart_newline_multi_cursor()
@@ -61,24 +60,22 @@ class SmartIndent(HasKeyPress, Behavior):
 
         # Check for closing brackets that should trigger auto-dedent
         func = self.hotkeys.get(hotkey)
+        print("SmartIndent", hotkey, func)
         if func is not None:
-            cursor = self.editor.textCursor()
-            if func(cursor):
-                self.editor.setTextCursor(cursor)
+            if func():
                 return True
 
         text = event.text()
         if text in ("]", ")", "}"):
-            cursor = self.editor.textCursor()
-            if self.smartClosingBracket(cursor, text):
-                self.editor.setTextCursor(cursor)
+            if self.smartClosingBracket(text):
                 return True
         return False
 
-    def smartNewline(self, cursor: QTextCursor) -> bool:
+    def smartNewline(self) -> bool:
         """Insert a newline with smart indentation based on tree-sitter parse tree"""
         if self.editor is None:
             return False
+        cursor = self.editor.textCursor()
         # Get current line text and indentation
         block = cursor.block()
         line_text = block.text()
@@ -94,6 +91,7 @@ class SmartIndent(HasKeyPress, Behavior):
         # Check this BEFORE the col==0 check so empty lines maintain their indentation
         if stripped == "":
             cursor.insertText("\n" + indent)
+            self.editor.setTextCursor(cursor)
             return True
 
         # Special case: if cursor is at the beginning of the line, just insert a blank line
@@ -107,6 +105,7 @@ class SmartIndent(HasKeyPress, Behavior):
                 cursor.insertText("\n" + prev_indent)
             else:
                 cursor.insertText("\n")
+            self.editor.setTextCursor(cursor)
             return True
 
         # Look at the position just before the cursor to find the statement we just finished
@@ -139,9 +138,10 @@ class SmartIndent(HasKeyPress, Behavior):
 
         # Insert newline and indentation
         cursor.insertText("\n" + final_indent + extra_indent)
+        self.editor.setTextCursor(cursor)
         return True
 
-    def smartClosingBracket(self, cursor: QTextCursor, bracket: str) -> bool:
+    def smartClosingBracket(self, bracket: str) -> bool:
         """Auto-dedent when typing a closing bracket if the line only contains whitespace
 
         Args:
@@ -153,6 +153,8 @@ class SmartIndent(HasKeyPress, Behavior):
         """
         # This is only concerned with whitespace, so we don't have to deal with encoding
         # Only auto-dedent if we're at the end of a line that contains only whitespace
+        cursor = self.editor.textCursor()
+
         block = cursor.block()
         line_text = block.text()
         col = cursor.positionInBlock()
@@ -184,14 +186,16 @@ class SmartIndent(HasKeyPress, Behavior):
         cursor.movePosition(QTextCursor.EndOfLine, QTextCursor.KeepAnchor)
         cursor.insertText(dedented_indent + bracket)
 
+        self.editor.setTextCursor(cursor)
         return True
 
-    def smartBackspace(self, cursor: QTextCursor) -> bool:
+    def smartBackspace(self) -> bool:
         """If backspacing at an the end of indentation, remove an entire "tab" of
         spaces. Otherwise just do a regular backspace
         """
         if self.indent_using_tabs:
             return False
+        cursor = self.editor.textCursor()
 
         if cursor.hasSelection():
             return False
@@ -213,6 +217,7 @@ class SmartIndent(HasKeyPress, Behavior):
 
         cursor.movePosition(QTextCursor.Left, QTextCursor.KeepAnchor, delete)
         cursor.removeSelectedText()
+        self.editor.setTextCursor(cursor)
         return True
 
     def tabsToSpaces(self):
@@ -224,7 +229,7 @@ class SmartIndent(HasKeyPress, Behavior):
             if tabcount:
                 line = " " * (self.space_indent_width * tabcount) + stripped
             newlines.append(line)
-        self.editor.updateAllLines("".join(newlines))
+        self.editor.setPlainText("".join(newlines))
 
     def spacesToTabs(self):
         """Convert leading groups of spaces to tabs"""
@@ -237,10 +242,27 @@ class SmartIndent(HasKeyPress, Behavior):
             if tabcount:
                 line = ("\t" * tabcount) + (" " * spacecount) + stripped
             newlines.append(line)
-        self.editor.updateAllLines("".join(newlines))
+        self.editor.setPlainText("".join(newlines))
 
-    def insertIndent(self, cursor: QTextCursor) -> bool:
+    def expandCursorToLines(self, cursor: QTextCursor):
+        """Expand a cursor selection to whole lines
+        If there is no selection, expand to the current line
+        """
+        if cursor.hasSelection():
+            start = cursor.selectionStart()
+            end = cursor.selectionEnd()
+        else:
+            start = cursor.position()
+            end = start
+
+        cursor.setPosition(start)
+        cursor.movePosition(QTextCursor.StartOfLine)
+        cursor.setPosition(end, QTextCursor.KeepAnchor)
+        cursor.movePosition(QTextCursor.EndOfLine, QTextCursor.KeepAnchor)
+
+    def insertIndent(self) -> bool:
         """Indent at the given cursor, either a single line or all the lines in a selection"""
+        cursor = self.editor.textCursor()
         if not cursor.hasSelection():
             if self.indent_using_tabs:
                 indent = "\t"
@@ -251,9 +273,10 @@ class SmartIndent(HasKeyPress, Behavior):
                     indentCount = self.space_indent_width
                 indent = " " * indentCount
             cursor.insertText(indent)
+            self.editor.setTextCursor(cursor)
             return True
 
-        self.editor.expandCursorToLines(cursor)
+        self.expandCursorToLines(cursor)
         start_pos = cursor.selectionStart()
         end_pos = cursor.selectionEnd()
         text = cursor.selection().toPlainText()
@@ -269,11 +292,13 @@ class SmartIndent(HasKeyPress, Behavior):
         indent_added = len([line for line in lines if line.strip() != ""]) * len(indent)
         cursor.setPosition(start_pos)
         cursor.setPosition(end_pos + indent_added, QTextCursor.KeepAnchor)
+        self.editor.setTextCursor(cursor)
         return True
 
-    def unindent(self, cursor: QTextCursor) -> bool:
+    def unindent(self) -> bool:
         """Unindent the given cursor, either a single line or all the lines in a selection"""
-        self.editor.expandCursorToLines(cursor)
+        cursor = self.editor.textCursor()
+        self.expandCursorToLines(cursor)
         start_pos = cursor.selectionStart()
         end_pos = cursor.selectionEnd()
         text = cursor.selection().toPlainText()
@@ -299,6 +324,7 @@ class SmartIndent(HasKeyPress, Behavior):
         # Restore selection, adjusting for the removed indent
         cursor.setPosition(start_pos)
         cursor.setPosition(end_pos - indent_removed, QTextCursor.KeepAnchor)
+        self.editor.setTextCursor(cursor)
         return True
 
     def _smart_newline_multi_cursor(self) -> bool:

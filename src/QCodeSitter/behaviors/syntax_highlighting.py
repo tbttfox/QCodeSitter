@@ -126,7 +126,7 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
 
 
 class DummyHighlighter(QSyntaxHighlighter):
-    def highlightBlock(self, block):
+    def highlightBlock(self, text):
         return
 
 

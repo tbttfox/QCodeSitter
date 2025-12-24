@@ -1,10 +1,11 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 from dataclasses import dataclass
 from Qt import QtCore, QtGui
 from Qt.QtGui import QTextCursor, QColor
 from Qt.QtWidgets import QTextEdit, QApplication
 from .utils import len16
+from .hotkey_manager import hk
 
 if TYPE_CHECKING:
     from .line_editor import CodeEditor
@@ -57,6 +58,19 @@ class MultiCursorManager:
         # Visual appearance
         self.primary_cursor_color = QColor(255, 255, 255, 255)  # White, fully opaque
         self.secondary_cursor_color = QColor(180, 180, 180, 200)  # Dimmed gray
+
+        self.add_hotkeys(editor.hotkeys)
+
+    def add_hotkeys(self, hotkeys: dict[str, Callable[[], bool]]):
+        # Register Ctrl+D for multi-cursor next occurrence
+        ctrl = QtCore.Qt.KeyboardModifier.ControlModifier
+        alt = QtCore.Qt.KeyboardModifier.AltModifier
+        shift = QtCore.Qt.KeyboardModifier.ShiftModifier
+
+        hotkeys[hk(QtCore.Qt.Key.Key_D, ctrl)] = self.add_next_occurrence
+        hotkeys[hk(QtCore.Qt.Key.Key_Up, ctrl | alt)] = self.add_cursor_above
+        hotkeys[hk(QtCore.Qt.Key.Key_Down, ctrl | alt)] = self.add_cursor_below
+        hotkeys[hk(QtCore.Qt.Key.Key_L, ctrl | shift)] = self.add_cursors_to_line_ends
 
     def is_active(self) -> bool:
         """Returns True if multi-cursor mode is active with secondary cursors"""
@@ -772,9 +786,15 @@ class MultiCursorManager:
                 else:
                     # Smart Home: toggle between first non-whitespace and column 0
                     # Get current line text
-                    qt_cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock, QTextCursor.MoveMode.MoveAnchor)
+                    qt_cursor.movePosition(
+                        QTextCursor.MoveOperation.StartOfBlock,
+                        QTextCursor.MoveMode.MoveAnchor,
+                    )
                     line_start_pos = qt_cursor.position()
-                    qt_cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+                    qt_cursor.movePosition(
+                        QTextCursor.MoveOperation.EndOfBlock,
+                        QTextCursor.MoveMode.KeepAnchor,
+                    )
                     line_text = qt_cursor.selectedText()
 
                     # Find first non-whitespace character
@@ -784,13 +804,18 @@ class MultiCursorManager:
                     # Reset cursor to original position
                     qt_cursor.setPosition(cursor.anchor)
                     if select or cursor.has_selection:
-                        qt_cursor.setPosition(cursor.position, QTextCursor.MoveMode.KeepAnchor)
+                        qt_cursor.setPosition(
+                            cursor.position, QTextCursor.MoveMode.KeepAnchor
+                        )
                     else:
                         qt_cursor.setPosition(cursor.position)
 
                     # Determine target position
                     current_pos = cursor.position
-                    if current_pos == first_non_ws_pos or first_non_ws_pos == line_start_pos:
+                    if (
+                        current_pos == first_non_ws_pos
+                        or first_non_ws_pos == line_start_pos
+                    ):
                         # Already at first non-whitespace or line is all whitespace: go to column 0
                         target_pos = line_start_pos
                     else:
@@ -804,7 +829,9 @@ class MultiCursorManager:
                         else QTextCursor.MoveMode.MoveAnchor
                     )
                     qt_cursor.setPosition(target_pos, mode)
-                    new_cursors.append(CursorState(qt_cursor.anchor(), qt_cursor.position()))
+                    new_cursors.append(
+                        CursorState(qt_cursor.anchor(), qt_cursor.position())
+                    )
                     continue
             elif direction == "end":
                 if word_mode:
