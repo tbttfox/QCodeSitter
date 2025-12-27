@@ -1,7 +1,7 @@
 from __future__ import annotations
 from . import HasKeyPress, Behavior
 from ..utils import dedent_string
-from ..hotkey_manager import HotkeySlot, HotkeyGroup, hk
+from ..hotkey_manager import hk
 from ..multi_cursor_manager import CursorState
 from typing import TYPE_CHECKING, Callable
 from Qt.QtGui import QFontMetrics, QTextCursor, QFont, QKeyEvent
@@ -23,7 +23,10 @@ class SmartIndent(HasKeyPress, Behavior):
         self.setListen(
             {"space_indent_width", "tab_indent_width", "indent_using_tabs", "font"}
         )
-        self.hotkeys: dict[str, Callable[[], bool]] = {
+
+        # These are keymaps, not hotkeys
+        # ie, These are intrinsic to the behavior, and don't (generally) use modifier keys
+        self._keymaps: dict[str, Callable[[], bool]] = {
             hk(Qt.Key.Key_Tab): self.insertIndent,
             hk(Qt.Key.Key_Tab, Qt.KeyboardModifier.ShiftModifier): self.unindent,
             hk(Qt.Key.Key_Return): self.smartNewline,
@@ -59,7 +62,7 @@ class SmartIndent(HasKeyPress, Behavior):
             return False
 
         # Check for closing brackets that should trigger auto-dedent
-        func = self.hotkeys.get(hotkey)
+        func = self._keymaps.get(hotkey)
         print("SmartIndent", hotkey, func)
         if func is not None:
             if func():

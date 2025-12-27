@@ -1,13 +1,14 @@
 from __future__ import annotations
-from typing import Callable, Union, Optional
+from typing import Callable, Optional, TYPE_CHECKING
 from inspect import getdoc
 from pathlib import Path
 import json
 
-from Qt.QtCore import Qt
 from Qt.QtGui import QKeySequence
 from Qt.QtWidgets import QAction
-from Qt import QtCompat
+
+if TYPE_CHECKING:
+    from Qt.QtWidgets import QWidget
 
 
 class ShortcutSlot:
@@ -28,16 +29,15 @@ class ShortcutSlot:
         self.defaults = defaults
         self.action: Optional[QAction] = None
         self.enabled = enabled
-        self.assigned: list[QKeySequence] = []
-        if enabled:
-            self.assigned = assigned or self.defaults[:]
+        # Store assignments regardless of enabled state
+        self.assigned: list[QKeySequence] = assigned or self.defaults[:]
 
     def unload(self):
         self.action = None
         self.targetFunc = lambda: None
 
-    def load(self, assignedData: list[str]):
-        self.action = QAction()
+    def load(self, assignedData: list[str], parent: Optional[QWidget] = None):
+        self.action = QAction(parent)
         seqs = [QKeySequence(key, QKeySequence.PortableText) for key in assignedData]
         self.action.setShortcuts(seqs)
         self.action.triggered.connect(self.targetFunc)
@@ -61,11 +61,18 @@ class ShortcutManager:
         self.shortcut_file: Optional[Path] = shortcut_file
 
     def load_user_shortcut_from_file(self):
+        """Load user shortcuts from the configured JSON file"""
         if self.shortcut_file is None:
             return
 
-        with self.shortcut_file.open() as f:
-            prefs = json.load(f)
+        try:
+            with self.shortcut_file.open() as f:
+                prefs = json.load(f)
+        except FileNotFoundError:
+            # File doesn't exist yet - not an error, just use defaults
+            return
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in shortcut file: {e}")
 
         self.load_user_shortcut(prefs)
 
@@ -89,5 +96,43 @@ class ShortcutManager:
                 continue
             slots_by_name = {s.name: s for s in group.slots}
             for slotName, assigned in slot_datas.items():
-                slot = slots_by_name[slotName]
+                slot = slots_by_name.get(slotName)
+                if slot is None:
+                    continue
+                # Convert string keys to QKeySequence objects
+                slot.assigned = [
+                    QKeySequence(key, QKeySequence.PortableText) for key in assigned
+                ]
+                # Load the shortcuts (assigned list already contains the converted sequences)
                 slot.load(assigned)
+
+    def save_user_shortcut_to_file(self):
+        """Save current shortcuts to the configured JSON file"""
+        if self.shortcut_file is None:
+            return
+
+        prefs = self.export_to_dict()
+        with self.shortcut_file.open("w") as f:
+            json.dump(prefs, f, indent=2)
+
+    def export_to_dict(self) -> dict[str, dict[str, list[str]]]:
+        """Export current shortcut state to dictionary format
+
+        Returns:
+            Dictionary formatted as:
+            {
+                "groupName": {
+                    "slotName": ['keySeq1', 'keySeq2', ...],
+                    ...
+                },
+                ...
+            }
+        """
+        prefs: dict[str, dict[str, list[str]]] = {}
+        for group in self.shortcut_groups:
+            prefs[group.name] = {}
+            for slot in group.slots:
+                prefs[group.name][slot.name] = [
+                    seq.toString(QKeySequence.PortableText) for seq in slot.assigned
+                ]
+        return prefs
