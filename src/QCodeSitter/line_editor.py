@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Callable, Optional, Collection, Type, TypeVar
+from typing import Optional, Collection, Type, TypeVar
 
 from Qt import QtCore
 from Qt.QtWidgets import QPlainTextEdit
@@ -21,7 +21,8 @@ from .syntax_analyzer import SyntaxAnalyzer
 from .editor_options import EditorOptions
 from .selection_manager import SelectionManager
 from .multi_cursor_manager import MultiCursorManager
-from .hotkey_manager import hk, HotkeyManager
+from .keymap_utils import hk
+from QtShortcutManager import ShortcutManager
 
 T_Behavior = TypeVar("T_Behavior", bound=Behavior)
 
@@ -39,9 +40,8 @@ class CodeEditor(QPlainTextEdit):
         self.options = options
         self._ts_prediction: dict[int, QTextBlock] = {}
 
-        # Hotkeys
-        self.hotkey_manager = HotkeyManager()
-        self.hotkeys: dict[str, Callable[[], bool]] = {}
+        # Shortcut Manager (for user-configurable shortcuts)
+        self.shortcut_manager = ShortcutManager()
 
         self.tree_manager: TreeManager
         self.syntax_analyzer: SyntaxAnalyzer
@@ -52,9 +52,15 @@ class CodeEditor(QPlainTextEdit):
 
         self.options.optionsUpdated.connect(self.updateOptions)
         self.updateOptions(list(self.options.keys()))
-        self.update_hotkeys()
+        self.update_shortcuts()
 
-    def update_hotkeys(self):
+    def update_shortcuts(self):
+        """Update the shortcut manager with all user-configurable shortcuts.
+
+        This collects shortcuts from managers and behaviors that implement HasHotkeys
+        and loads them into the ShortcutManager. These are user-configurable shortcuts
+        with modifier keys (Ctrl, Alt, Shift), not intrinsic editing behaviors.
+        """
         managers = [
             self.tree_manager,
             self.syntax_analyzer,
@@ -65,8 +71,16 @@ class CodeEditor(QPlainTextEdit):
         for item in managers + self._behaviors:
             if item and isinstance(item, HasHotkeys):
                 groups.append(item.getHotkeys())
-        self.hotkey_manager.hotkey_groups = groups
-        self.hotkeys = self.hotkey_manager.build_hotkey_dict()
+
+        self.shortcut_manager.shortcut_groups = groups
+
+        # Load shortcuts and connect them to actions
+        # This creates QAction objects for each shortcut and connects them to their target functions
+        for group in groups:
+            for slot in group.slots:
+                # Convert assigned QKeySequence objects to strings for loading
+                assigned_strings = [seq.toString() for seq in slot.assigned]
+                slot.load(assigned_strings, parent=self)
 
     def updateOptions(self, keylist: Collection[str]):
         keys = set(keylist)
@@ -100,7 +114,7 @@ class CodeEditor(QPlainTextEdit):
         old_bh = self.removeBehavior(behaviorCls)
         behavior = behaviorCls(self)
         self._behaviors.append(behavior)
-        self.update_hotkeys()
+        self.update_shortcuts()
         return old_bh, behavior
 
     def removeBehavior(self, behaviorCls: Type[T_Behavior]) -> Optional[T_Behavior]:
@@ -119,7 +133,7 @@ class CodeEditor(QPlainTextEdit):
             return None
         if len(torem) > 1:
             print("Warning: Multiple behaviors of the same type found to remove")
-        self.update_hotkeys()
+        self.update_shortcuts()
         return torem[0]
 
     def getBehavior(self, behaviorCls: Type[T_Behavior]) -> Optional[T_Behavior]:
@@ -140,10 +154,13 @@ class CodeEditor(QPlainTextEdit):
             if self.multi_cursor_manager.handle_key_event(e):
                 return
 
+        # Build hotkey string for intrinsic keymaps (Tab, Return, Backspace, etc.)
         key = e.key()
         modifiers = e.modifiers()
         hotkey = hk(key, modifiers)
 
+        # Check intrinsic keymaps in behaviors (Tab, Return, Backspace, etc.)
+        # These are NOT user-configurable shortcuts - they're fundamental editing behaviors
         accepted = False
         for behavior in self._behaviors:
             if not isinstance(behavior, HasKeyPress):
@@ -152,10 +169,8 @@ class CodeEditor(QPlainTextEdit):
             if accepted:
                 return
 
-        func = self.hotkeys.get(hotkey)
-        if func is not None:
-            if func():
-                return
+        # User-configurable shortcuts are handled automatically by Qt's QAction system
+        # (see update_shortcuts method where we create QActions for each shortcut)
 
         super().keyPressEvent(e)
 

@@ -4,9 +4,9 @@ from Qt.QtGui import QKeyEvent, QPalette, QColor
 from Qt.QtWidgets import QListWidget, QListWidgetItem, QAbstractItemView, QApplication
 from dataclasses import dataclass
 from tree_sitter import Node, Point, Tree
-from typing import Optional, TYPE_CHECKING, Collection, Type, TypeVar
+from typing import Optional, TYPE_CHECKING, Collection, Type, TypeVar, Callable
 from . import Behavior, HasKeyPress
-from ..hotkey_manager import HotkeySlot, HotkeyGroup, hk
+from ..keymap_utils import hk
 
 from .providers import Provider
 

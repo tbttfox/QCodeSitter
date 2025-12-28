@@ -1,7 +1,7 @@
 from __future__ import annotations
 from . import HasKeyPress, Behavior
 from ..utils import dedent_string
-from ..hotkey_manager import hk
+from ..keymap_utils import hk
 from ..multi_cursor_manager import CursorState
 from typing import TYPE_CHECKING, Callable
 from Qt.QtGui import QFontMetrics, QTextCursor, QFont, QKeyEvent
@@ -24,8 +24,11 @@ class SmartIndent(HasKeyPress, Behavior):
             {"space_indent_width", "tab_indent_width", "indent_using_tabs", "font"}
         )
 
-        # These are keymaps, not hotkeys
-        # ie, These are intrinsic to the behavior, and don't (generally) use modifier keys
+        # INTRINSIC KEYMAPS (NOT user-configurable shortcuts)
+        # These are core editing behaviors tied to specific keys.
+        # They are NOT exposed through HasHotkeys because they are fundamental
+        # to text editing and context-dependent (handled internally).
+        # Note: Shift+Tab is considered intrinsic because it's the reverse motion of Tab.
         self._keymaps: dict[str, Callable[[], bool]] = {
             hk(Qt.Key.Key_Tab): self.insertIndent,
             hk(Qt.Key.Key_Tab, Qt.KeyboardModifier.ShiftModifier): self.unindent,
@@ -63,7 +66,6 @@ class SmartIndent(HasKeyPress, Behavior):
 
         # Check for closing brackets that should trigger auto-dedent
         func = self._keymaps.get(hotkey)
-        print("SmartIndent", hotkey, func)
         if func is not None:
             if func():
                 return True

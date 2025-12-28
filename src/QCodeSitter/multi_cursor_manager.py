@@ -1,11 +1,12 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 from dataclasses import dataclass
 from Qt import QtCore, QtGui
-from Qt.QtGui import QTextCursor, QColor
+from Qt.QtGui import QTextCursor, QColor, QKeySequence
 from Qt.QtWidgets import QTextEdit, QApplication
 from .utils import len16
-from .hotkey_manager import hk
+from .behaviors import HasHotkeys
+from QtShortcutManager import ShortcutSlot, ShortcutSlotGroup
 
 if TYPE_CHECKING:
     from .line_editor import CodeEditor
@@ -42,7 +43,7 @@ class CursorState:
         return hash((self.anchor, self.position))
 
 
-class MultiCursorManager:
+class MultiCursorManager(HasHotkeys):
     """Manages multiple cursors for simultaneous editing
 
     This manager coordinates multiple cursor positions and applies operations
@@ -59,18 +60,47 @@ class MultiCursorManager:
         self.primary_cursor_color = QColor(255, 255, 255, 255)  # White, fully opaque
         self.secondary_cursor_color = QColor(180, 180, 180, 200)  # Dimmed gray
 
-        self.add_hotkeys(editor.hotkeys)
+    def getHotkeys(self) -> ShortcutSlotGroup:
+        """Return user-configurable shortcuts for multi-cursor operations"""
+        slots = []
 
-    def add_hotkeys(self, hotkeys: dict[str, Callable[[], bool]]):
-        # Register Ctrl+D for multi-cursor next occurrence
-        ctrl = QtCore.Qt.KeyboardModifier.ControlModifier
-        alt = QtCore.Qt.KeyboardModifier.AltModifier
-        shift = QtCore.Qt.KeyboardModifier.ShiftModifier
+        # Add Next Occurrence - Ctrl+D
+        slots.append(
+            ShortcutSlot(
+                name="Add Next Occurrence",
+                targetFunc=self.add_next_occurrence,
+                defaults=[QKeySequence("Ctrl+D")],
+            )
+        )
 
-        hotkeys[hk(QtCore.Qt.Key.Key_D, ctrl)] = self.add_next_occurrence
-        hotkeys[hk(QtCore.Qt.Key.Key_Up, ctrl | alt)] = self.add_cursor_above
-        hotkeys[hk(QtCore.Qt.Key.Key_Down, ctrl | alt)] = self.add_cursor_below
-        hotkeys[hk(QtCore.Qt.Key.Key_L, ctrl | shift)] = self.add_cursors_to_line_ends
+        # Add Cursor Above - Ctrl+Alt+Up
+        slots.append(
+            ShortcutSlot(
+                name="Add Cursor Above",
+                targetFunc=self.add_cursor_above,
+                defaults=[QKeySequence("Ctrl+Alt+Up")],
+            )
+        )
+
+        # Add Cursor Below - Ctrl+Alt+Down
+        slots.append(
+            ShortcutSlot(
+                name="Add Cursor Below",
+                targetFunc=self.add_cursor_below,
+                defaults=[QKeySequence("Ctrl+Alt+Down")],
+            )
+        )
+
+        # Add Cursors to Line Ends - Ctrl+Shift+L
+        slots.append(
+            ShortcutSlot(
+                name="Add Cursors to Line Ends",
+                targetFunc=self.add_cursors_to_line_ends,
+                defaults=[QKeySequence("Ctrl+Shift+L")],
+            )
+        )
+
+        return ShortcutSlotGroup("Multi-Cursor", slots=slots)
 
     def is_active(self) -> bool:
         """Returns True if multi-cursor mode is active with secondary cursors"""

@@ -4,10 +4,11 @@ import functools
 
 from Qt import QtGui, QtCore, QtWidgets
 from Qt.QtCore import QObject, QEvent
+from Qt.QtGui import QKeySequence
 from tree_sitter import Node
 
-from . import HasResize, Behavior
-from ..hotkey_manager import HotkeySlot, HotkeyGroup, hk
+from . import HasResize, Behavior, HasHotkeys
+from QtShortcutManager import ShortcutSlot, ShortcutSlotGroup
 
 
 if TYPE_CHECKING:
@@ -218,7 +219,7 @@ class FoldingGutterArea(QtWidgets.QWidget):
         return False
 
 
-class CodeFolding(QObject, HasResize, Behavior):
+class CodeFolding(QObject, HasResize, HasHotkeys, Behavior):
     """Behavior that provides code folding based on tree-sitter AST"""
 
     # Node types where the last line should be hidden (Python indentation-based blocks)
@@ -622,45 +623,45 @@ class CodeFolding(QObject, HasResize, Behavior):
         self.fold_to_level(level)
         return True
 
-    def get_hotkey_group(self) -> HotkeyGroup:
+    def getHotkeys(self) -> ShortcutSlotGroup:
+        """Return user-configurable shortcuts for code folding operations"""
         slots = []
 
-        ctrl = QtCore.Qt.KeyboardModifier.ControlModifier
-        shift = QtCore.Qt.KeyboardModifier.ShiftModifier
-        csh = ctrl | shift
-
+        # Fold All - Ctrl+Shift+[
         slots.append(
-            HotkeySlot(
-                "Fold All",
-                self.fold_all_hotkey,
-                [hk(QtCore.Qt.Key.Key_BracketLeft, csh)],
+            ShortcutSlot(
+                name="Fold All",
+                targetFunc=self.fold_all_hotkey,
+                defaults=[QKeySequence("Ctrl+Shift+[")],
             )
         )
 
+        # Unfold All - Ctrl+Shift+]
         slots.append(
-            HotkeySlot(
-                "Unfold All",
-                self.unfold_all_hotkey,
-                [hk(QtCore.Qt.Key.Key_BracketRight, csh)],
+            ShortcutSlot(
+                name="Unfold All",
+                targetFunc=self.unfold_all_hotkey,
+                defaults=[QKeySequence("Ctrl+Shift+]")],
             )
         )
 
+        # Create Manual Fold - Ctrl+Shift+.
         slots.append(
-            HotkeySlot(
-                "Create Manual Fold",
-                self.create_manual_fold_hotkey,
-                [hk(QtCore.Qt.Key.Key_Period, csh)],
+            ShortcutSlot(
+                name="Create Manual Fold",
+                targetFunc=self.create_manual_fold_hotkey,
+                defaults=[QKeySequence("Ctrl+Shift+.")],
             )
         )
+
+        # Fold to Level 0-9 - Ctrl+0 through Ctrl+9
         for i in range(10):
-            key = getattr(QtCore.Qt.Key, f"Key_{i}")
-
             slots.append(
-                HotkeySlot(
-                    f"Fold to Level {i}",
-                    functools.partial(self.fold_to_level_hotkey, i),
-                    [hk(key, ctrl)],
+                ShortcutSlot(
+                    name=f"Fold to Level {i}",
+                    targetFunc=functools.partial(self.fold_to_level_hotkey, i),
+                    defaults=[QKeySequence(f"Ctrl+{i}")],
                 )
             )
 
-        return HotkeyGroup("Code Folding", slots=slots)
+        return ShortcutSlotGroup("Code Folding", slots=slots)
