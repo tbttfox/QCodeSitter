@@ -1063,7 +1063,8 @@ class MultiCursorManager(HasHotkeys):
         """Add a new cursor on the line above the primary cursor (primary moves up, leaves cursor behind)"""
         # Get current cursor position - use primary cursor if already active
         if self.is_active():
-            current_position = self.primary_cursor.position
+            primary = self.get_primary_cursor()
+            current_position = primary.position
         else:
             cursor = self.editor.textCursor()
             current_position = cursor.position()
@@ -1090,27 +1091,25 @@ class MultiCursorManager(HasHotkeys):
         if not self.is_active():
             # Start multi-cursor mode
             # Primary cursor moves to the line above
-            self.primary_cursor = CursorState(new_primary_pos, new_primary_pos)
+            new_primary = CursorState(new_primary_pos, new_primary_pos)
             # Leave a cursor at the original position
             self.secondary_cursors = [CursorState(current_position, current_position)]
             self.active = True
             # Update the visual Qt cursor to the new primary position
-            self.set_primary_cursor(self.primary_cursor)
+            self.set_primary_cursor(new_primary)
             self._render_cursors()
         else:
             # Already in multi-cursor mode
             # Move primary to the line above and leave it behind as secondary
-            old_primary = self.primary_cursor
-
             # Add old primary position to secondaries
             self.secondary_cursors.append(
                 CursorState(current_position, current_position)
             )
 
             # Set new primary
-            self.primary_cursor = CursorState(new_primary_pos, new_primary_pos)
+            new_primary = CursorState(new_primary_pos, new_primary_pos)
             # Update the visual Qt cursor to the new primary position
-            self.set_primary_cursor(self.primary_cursor)
+            self.set_primary_cursor(new_primary)
             self._render_cursors()
 
         return True
@@ -1119,7 +1118,8 @@ class MultiCursorManager(HasHotkeys):
         """Add a new cursor on the line below the primary cursor (primary moves down, leaves cursor behind)"""
         # Get current cursor position - use primary cursor if already active
         if self.is_active():
-            current_position = self.primary_cursor.position
+            primary = self.get_primary_cursor()
+            current_position = primary.position
         else:
             cursor = self.editor.textCursor()
             current_position = cursor.position()
@@ -1144,27 +1144,25 @@ class MultiCursorManager(HasHotkeys):
         if not self.is_active():
             # Start multi-cursor mode
             # Primary cursor moves to the line below
-            self.primary_cursor = CursorState(new_primary_pos, new_primary_pos)
+            new_primary = CursorState(new_primary_pos, new_primary_pos)
             # Leave a cursor at the original position
             self.secondary_cursors = [CursorState(current_position, current_position)]
             self.active = True
             # Update the visual Qt cursor to the new primary position
-            self.set_primary_cursor(self.primary_cursor)
+            self.set_primary_cursor(new_primary)
             self._render_cursors()
         else:
             # Already in multi-cursor mode
             # Move primary to the line below and leave it behind as secondary
-            old_primary = self.primary_cursor
-
             # Add old primary position to secondaries
             self.secondary_cursors.append(
                 CursorState(current_position, current_position)
             )
 
             # Set new primary
-            self.primary_cursor = CursorState(new_primary_pos, new_primary_pos)
+            new_primary = CursorState(new_primary_pos, new_primary_pos)
             # Update the visual Qt cursor to the new primary position
-            self.set_primary_cursor(self.primary_cursor)
+            self.set_primary_cursor(new_primary)
             self._render_cursors()
 
         return True
@@ -1202,11 +1200,11 @@ class MultiCursorManager(HasHotkeys):
 
         if cursors:
             # Enter multi-cursor mode with these cursors
-            self.primary_cursor = cursors[0]
+            new_primary = cursors[0]
             self.secondary_cursors = cursors[1:]
             self.active = True
             # Update the visual Qt cursor to the primary position
-            self.set_primary_cursor(self.primary_cursor)
+            self.set_primary_cursor(new_primary)
             self._render_cursors()
             return True
 
@@ -1214,12 +1212,6 @@ class MultiCursorManager(HasHotkeys):
 
     def add_cursor_at_position(self, position: int) -> bool:
         """Add a cursor at the specified position (for Alt+Click)"""
-        if not self.is_active():
-            # Start multi-cursor mode with current cursor
-            cursor = self.editor.textCursor()
-            self.primary_cursor = CursorState(cursor.anchor(), cursor.position())
-            self.secondary_cursors = []
-
         # Add the new cursor at the clicked position
         new_cursor = CursorState(position, position)
         all_cursors = self.get_all_cursors()

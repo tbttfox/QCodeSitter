@@ -65,6 +65,14 @@ class CodeEditor(QPlainTextEdit):
         and loads them into the ShortcutManager. These are user-configurable shortcuts
         with modifier keys (Ctrl, Alt, Shift), not intrinsic editing behaviors.
         """
+        # Unload old shortcuts first to avoid duplicates
+        for group in self.shortcut_manager.shortcut_groups:
+            for slot in group.slots:
+                if slot.action is not None:
+                    # Remove action from widget before unloading
+                    self.removeAction(slot.action)
+                slot.unload()
+
         managers = [
             self.tree_manager,
             self.syntax_analyzer,

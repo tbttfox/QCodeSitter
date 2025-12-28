@@ -37,10 +37,15 @@ class ShortcutSlot:
         self.targetFunc = lambda: None
 
     def load(self, assignedData: list[str], parent: Optional[QWidget] = None):
+        from Qt.QtCore import Qt
         self.action = QAction(parent)
         seqs = [QKeySequence(key, QKeySequence.PortableText) for key in assignedData]
         self.action.setShortcuts(seqs)
+        self.action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.action.triggered.connect(self.targetFunc)
+        # Add the action to the parent widget so shortcuts are active
+        if parent is not None:
+            parent.addAction(self.action)
 
 
 class ShortcutSlotGroup:
