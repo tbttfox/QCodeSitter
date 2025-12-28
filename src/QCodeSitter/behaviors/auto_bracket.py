@@ -44,38 +44,30 @@ class AutoBracket(HasKeyPress, Behavior):
             return False
 
         skip_chars = set(self.pairs.values())
-        # Check if multi-cursor mode is active
-        if self.editor.multi_cursor_manager.is_active():
-            text = event.text()
-            if text and len(text) == 1:
-                char = text[0]
-                # Handle inserting opening character with its pair
-                if char in self.pairs:
-                    return self._insert_pair_multi_cursor(char)
-                # Handle skipping over closing character
-                if char in skip_chars:
-                    return self._skip_closing_multi_cursor(char)
-                # Note: backspace deletion in multi-cursor mode
-                # will be handled by the multi-cursor manager itself
-            return False
-
         text = event.text()
-        if not text or len(text) != 1:
-            return False
 
-        char = text[0]
-        cursor = self.editor.textCursor()
+        # Handle character insertion (opening or closing brackets/quotes)
+        if text and len(text) == 1:
+            char = text[0]
 
-        # Handle inserting opening character with its pair
-        if char in self.pairs:
-            return self._insert_pair(cursor, char)
+            # Handle inserting opening character with its pair
+            if char in self.pairs:
+                return self.editor.cursor.execute(
+                    single_func=lambda c: self._insert_pair(c, char),
+                    multi_func=lambda: self._insert_pair_multi_cursor(char)
+                )
 
-        # Handle skipping over closing character
-        if char in skip_chars:
-            return self._skip_closing(cursor, char)
+            # Handle skipping over closing character
+            if char in skip_chars:
+                return self.editor.cursor.execute(
+                    single_func=lambda c: self._skip_closing(c, char),
+                    multi_func=lambda: self._skip_closing_multi_cursor(char)
+                )
 
-        # Handle backspace to delete pairs
-        if event.key() == Qt.Key_Backspace:
+        # Handle backspace to delete pairs (only in single-cursor mode)
+        # In multi-cursor mode, backspace is handled by the multi-cursor manager
+        if event.key() == Qt.Key_Backspace and not self.editor.cursor.is_multi_mode:
+            cursor = self.editor.textCursor()
             return self._delete_pair(cursor)
 
         return False

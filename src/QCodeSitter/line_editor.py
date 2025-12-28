@@ -21,6 +21,7 @@ from .syntax_analyzer import SyntaxAnalyzer
 from .editor_options import EditorOptions
 from .selection_manager import SelectionManager
 from .multi_cursor_manager import MultiCursorManager
+from .cursor_interface import CursorInterface
 from .keymap_utils import hk
 from QtShortcutManager import ShortcutManager
 
@@ -47,6 +48,9 @@ class CodeEditor(QPlainTextEdit):
         self.syntax_analyzer: SyntaxAnalyzer
         self.selection_manager: SelectionManager = SelectionManager(self)
         self.multi_cursor_manager: MultiCursorManager = MultiCursorManager(self)
+
+        # Unified cursor interface - single access point for cursor operations
+        self.cursor: CursorInterface = CursorInterface(self)
 
         self._behaviors: list[Behavior] = []
 
@@ -149,8 +153,9 @@ class CodeEditor(QPlainTextEdit):
         return doc
 
     def keyPressEvent(self, e: QKeyEvent):
-        # Check if multi-cursor manager wants to handle this
-        if self.multi_cursor_manager.is_active():
+        # In multi-cursor mode, check if the multi-cursor manager handles this event
+        # (handles movement, selection, text insertion for multiple cursors)
+        if self.cursor.is_multi_mode:
             if self.multi_cursor_manager.handle_key_event(e):
                 return
 
@@ -161,6 +166,7 @@ class CodeEditor(QPlainTextEdit):
 
         # Check intrinsic keymaps in behaviors (Tab, Return, Backspace, etc.)
         # These are NOT user-configurable shortcuts - they're fundamental editing behaviors
+        # Behaviors can use self.editor.cursor to access the unified cursor interface
         accepted = False
         for behavior in self._behaviors:
             if not isinstance(behavior, HasKeyPress):
@@ -177,7 +183,7 @@ class CodeEditor(QPlainTextEdit):
     def mousePressEvent(self, e: QMouseEvent):
         """Handle mouse press events"""
         if e.modifiers() & QtCore.Qt.KeyboardModifier.AltModifier:
-            # Get the position at the click location
+            # Alt+Click to add cursor at position
             cursor = self.cursorForPosition(e.pos())
             position = cursor.position()
             self.multi_cursor_manager.add_cursor_at_position(position)
@@ -185,7 +191,7 @@ class CodeEditor(QPlainTextEdit):
             return
 
         # Exit multi-cursor mode on normal click
-        if self.multi_cursor_manager.is_active():
+        if self.cursor.is_multi_mode:
             self.multi_cursor_manager.exit_multi_cursor_mode()
         super().mousePressEvent(e)
 

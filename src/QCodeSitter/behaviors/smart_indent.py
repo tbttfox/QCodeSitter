@@ -58,10 +58,15 @@ class SmartIndent(HasKeyPress, Behavior):
     font = property(None, _font)
 
     def keyPressEvent(self, event: QKeyEvent, hotkey: str) -> bool:
-        if self.editor.multi_cursor_manager.is_active():
-            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                return self._smart_newline_multi_cursor()
-            # Let other keys be handled by multi-cursor manager
+        # Special handling for Return/Enter key using unified cursor interface
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            return self.editor.cursor.execute(
+                single_func=lambda c: self.smartNewline(),
+                multi_func=lambda: self._smart_newline_multi_cursor()
+            )
+
+        # In multi-cursor mode, let other keys be handled by multi-cursor manager
+        if self.editor.cursor.is_multi_mode:
             return False
 
         # Check for closing brackets that should trigger auto-dedent

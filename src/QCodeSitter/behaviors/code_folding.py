@@ -490,7 +490,7 @@ class CodeFolding(QObject, HasResize, HasHotkeys, Behavior):
         """
         cursor = self.editor.textCursor()
         if not cursor.hasSelection():
-            return False
+            return
 
         # Get selection block range
         selection_start = cursor.selectionStart()
@@ -506,7 +506,7 @@ class CodeFolding(QObject, HasResize, HasHotkeys, Behavior):
 
         # Need at least 2 lines to fold
         if end_line <= start_line:
-            return False
+            return
 
         # Check if this region overlaps with existing folds
         # We'll allow it but the user should be aware
@@ -531,8 +531,6 @@ class CodeFolding(QObject, HasResize, HasHotkeys, Behavior):
         # Update display
         self.folding_area.update()
         self.editor.viewport().update()
-
-        return True
 
     def _font(self, newfont):
         self.folding_area.setFont(newfont)
@@ -604,22 +602,22 @@ class CodeFolding(QObject, HasResize, HasHotkeys, Behavior):
         self.folding_area.deleteLater()
         self.folding_area = None  # type: ignore
 
-    def fold_all_hotkey(self):
+    def fold_all_hotkey(self) -> bool:
         """Fold all available folds"""
         self.fold_all()
         return True
 
-    def unfold_all_hotkey(self):
+    def unfold_all_hotkey(self) -> bool:
         """Unfold all available folds"""
         self.unfold_all()
         return True
 
-    def create_manual_fold_hotkey(self):
+    def create_manual_fold_hotkey(self) -> bool:
         """Fold the current user selection"""
         self.create_manual_fold()
         return False
 
-    def fold_to_level_hotkey(self, level: int):
+    def fold_to_level_hotkey(self, level: int) -> bool:
         self.fold_to_level(level)
         return True
 
@@ -627,11 +625,13 @@ class CodeFolding(QObject, HasResize, HasHotkeys, Behavior):
         """Return user-configurable shortcuts for code folding operations"""
         slots = []
 
+        xxtargetFunc = self.fold_all_hotkey
+
         # Fold All - Ctrl+Shift+[
         slots.append(
             ShortcutSlot(
                 name="Fold All",
-                targetFunc=self.fold_all_hotkey,
+                targetFunc=self.fold_all,
                 defaults=[QKeySequence("Ctrl+Shift+[")],
             )
         )
@@ -640,7 +640,7 @@ class CodeFolding(QObject, HasResize, HasHotkeys, Behavior):
         slots.append(
             ShortcutSlot(
                 name="Unfold All",
-                targetFunc=self.unfold_all_hotkey,
+                targetFunc=self.unfold_all,
                 defaults=[QKeySequence("Ctrl+Shift+]")],
             )
         )
@@ -649,7 +649,7 @@ class CodeFolding(QObject, HasResize, HasHotkeys, Behavior):
         slots.append(
             ShortcutSlot(
                 name="Create Manual Fold",
-                targetFunc=self.create_manual_fold_hotkey,
+                targetFunc=self.create_manual_fold,
                 defaults=[QKeySequence("Ctrl+Shift+.")],
             )
         )
@@ -659,7 +659,7 @@ class CodeFolding(QObject, HasResize, HasHotkeys, Behavior):
             slots.append(
                 ShortcutSlot(
                     name=f"Fold to Level {i}",
-                    targetFunc=functools.partial(self.fold_to_level_hotkey, i),
+                    targetFunc=functools.partial(self.fold_to_level, i),
                     defaults=[QKeySequence(f"Ctrl+{i}")],
                 )
             )
