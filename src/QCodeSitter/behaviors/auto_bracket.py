@@ -248,6 +248,8 @@ class AutoBracket(HasKeyPress, Behavior):
 
     def _insert_pair_multi_cursor(self, open_char: str) -> bool:
         """Insert opening character and its closing pair at all cursors"""
+        from ..multi_cursor_manager import CursorState
+
         close_char = self.pairs[open_char]
 
         # Get primary cursor before sorting
@@ -261,13 +263,13 @@ class AutoBracket(HasKeyPress, Behavior):
         qt_cursor = self.editor.textCursor()
         qt_cursor.beginEditBlock()
 
-        new_positions = []
         primary_index = None
-        inserted_texts = []  # Track what was inserted at each position
+        # Track insertion data for position adjustment
+        insertion_data = []  # (original_cursor, text_inserted, (anchor_offset, pos_offset))
 
         for cursor_state, _original_index in sorted_with_index:
             if cursor_state == primary:
-                primary_index = len(new_positions)
+                primary_index = len(insertion_data)
 
             qt_cursor.setPosition(cursor_state.anchor)
             qt_cursor.setPosition(
@@ -279,54 +281,51 @@ class AutoBracket(HasKeyPress, Behavior):
                 # Wrap selection
                 text_to_insert = open_char + selected_text + close_char
                 qt_cursor.insertText(text_to_insert)
-                inserted_texts.append(text_to_insert)
                 # Position cursor after opening char with selection
-                new_pos = qt_cursor.position()
-                new_anchor = new_pos - len(selected_text) - 1
-                new_positions.append((new_anchor, new_pos - 1))
+                # anchor at position 1, position at len - 1 (before close_char)
+                insertion_data.append((cursor_state, text_to_insert, (1, len(text_to_insert) - 1)))
             else:
                 # Insert pair and position between them
                 text_to_insert = open_char + close_char
                 qt_cursor.insertText(text_to_insert)
-                inserted_texts.append(text_to_insert)
-                qt_cursor.movePosition(
-                    QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.MoveAnchor, 1
-                )
-                new_pos = qt_cursor.position()
-                new_positions.append((new_pos, new_pos))
+                # Position cursor between the pair (at offset 1)
+                insertion_data.append((cursor_state, text_to_insert, (1, 1)))
 
         qt_cursor.endEditBlock()
 
-        # Now adjust all positions to account for the length changes
+        # Adjust positions to account for cumulative length changes
+        # insertion_data is in reverse document order
         adjusted_positions = []
         cumulative_offset = 0
 
-        for i in range(len(new_positions) - 1, -1, -1):  # Iterate backwards
-            pos = new_positions[i]
-            adjusted_pos = (pos[0] + cumulative_offset, pos[1] + cumulative_offset)
-            adjusted_positions.insert(0, adjusted_pos)
+        for i in range(len(insertion_data) - 1, -1, -1):  # Iterate backwards
+            original_cursor, text_inserted, (anchor_offset, pos_offset) = insertion_data[i]
+
+            # Calculate raw position (as if this was the only edit)
+            insertion_point = original_cursor.selection_start
+            raw_anchor = insertion_point + anchor_offset
+            raw_pos = insertion_point + pos_offset
+
+            # Adjust for cumulative offset from later edits
+            adjusted_anchor = raw_anchor + cumulative_offset
+            adjusted_pos = raw_pos + cumulative_offset
+            adjusted_positions.insert(0, (adjusted_anchor, adjusted_pos))
 
             # Calculate the length change that THIS edit caused
-            original_cursor = sorted_with_index[i][0]
             selection_length = abs(original_cursor.position - original_cursor.anchor)
-            length_change = len(inserted_texts[i]) - selection_length
+            length_change = len(text_inserted) - selection_length
             cumulative_offset += length_change
 
-        new_positions = adjusted_positions
+        # Convert to CursorState and move primary to front
+        cursor_states = [CursorState(anchor, pos) for anchor, pos in adjusted_positions]
 
-        # Adjust primary index and move to front
         if primary_index is not None:
-            primary_index = len(new_positions) - 1 - primary_index
-            if primary_index < len(new_positions):
-                primary_cursor = new_positions.pop(primary_index)
-                new_positions.insert(0, primary_cursor)
+            primary_index = len(cursor_states) - 1 - primary_index
+            if primary_index < len(cursor_states):
+                primary_cursor = cursor_states.pop(primary_index)
+                cursor_states.insert(0, primary_cursor)
 
-        # Update cursor positions
-        from ..multi_cursor_manager import CursorState
-
-        cursor_states = [CursorState(anchor, pos) for anchor, pos in new_positions]
         self.editor.multi_cursor_manager._set_all_cursors(cursor_states)
-
         return True
 
     def _skip_closing_multi_cursor(self, char: str) -> bool:
