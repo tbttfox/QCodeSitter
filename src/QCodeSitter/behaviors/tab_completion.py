@@ -1,7 +1,7 @@
 from __future__ import annotations
 from Qt.QtCore import QTimer, Qt
-from Qt.QtGui import QKeyEvent, QPalette, QColor
-from Qt.QtWidgets import QListWidget, QListWidgetItem, QAbstractItemView, QApplication
+from Qt.QtGui import QKeyEvent, QPalette, QColor, QGuiApplication
+from Qt.QtWidgets import QListWidget, QListWidgetItem, QAbstractItemView
 from dataclasses import dataclass
 from tree_sitter import Node, Point, Tree
 from typing import Optional, TYPE_CHECKING, Collection, Type, TypeVar, Callable
@@ -186,7 +186,11 @@ class CompletionPopup(QListWidget):
         self.setFixedHeight(optimal_height)
 
         # Check if popup fits below cursor, otherwise show above
-        screen_geom = QApplication.desktop().availableGeometry(self.editor)
+        # Qt 6 compatible: use screen() instead of deprecated desktop()
+        screen = QGuiApplication.screenAt(self.editor.mapToGlobal(self.editor.rect().center()))
+        if screen is None:
+            screen = QGuiApplication.primaryScreen()
+        screen_geom = screen.availableGeometry()
 
         if popup_pos.y() + self.height() > screen_geom.bottom():
             # Show above cursor
