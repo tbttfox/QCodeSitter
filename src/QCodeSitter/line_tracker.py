@@ -8,7 +8,6 @@ from Qt.QtGui import (
     QTextDocument,
 )
 from tree_sitter import Point
-from .utils import len16
 
 
 class TrackedDocument(QTextDocument):
@@ -122,7 +121,13 @@ class TrackedDocument(QTextDocument):
         start_line = start_block.blockNumber()
         new_end_line = self.findBlock(position + chars_added).blockNumber()
         old_end_line = new_end_line - new_line_count + self._prev_line_count
-        new_end_bytes = self.findBlockByNumber(start_line + 1).position() * 2
+
+        next_block = start_block.next()
+        if next_block.isValid():
+            new_end_bytes = next_block.position() * 2
+        else:
+            new_end_bytes = new_char_count * 2
+
         byte_delta = 2 * (chars_removed - chars_added)
 
         self._prev_char_count = new_char_count

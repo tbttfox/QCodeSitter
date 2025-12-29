@@ -143,6 +143,11 @@ class HighlightMatchingBrackets(Behavior):
         except (IndexError, ValueError):
             return extra_selections
 
+        # Validate positions to prevent "Position out of range" errors
+        doc_length = self.editor.document().characterCount() - 1  # -1 for the implicit newline
+        if string_start_char >= doc_length or string_end_char > doc_length:
+            return extra_selections
+
         # Determine quote length (handle triple quotes)
         string_cursor = self.editor.textCursor()
         string_cursor.setPosition(string_start_char)
@@ -263,6 +268,12 @@ class HighlightMatchingBrackets(Behavior):
             ExtraSelection object
         """
         cursor = self.editor.textCursor()
+        # Validate positions to prevent "Position out of range" errors
+        # This can happen if the tree hasn't been updated yet after a document change
+        doc_length = self.editor.document().characterCount() - 1  # -1 for the implicit newline
+        start = min(start, doc_length)
+        end = min(end, doc_length)
+
         cursor.setPosition(start)
         cursor.setPosition(end, QtGui.QTextCursor.KeepAnchor)
         selection = QtWidgets.QTextEdit.ExtraSelection()
