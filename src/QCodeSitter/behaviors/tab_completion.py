@@ -1,7 +1,17 @@
 from __future__ import annotations
 from Qt.QtCore import QTimer, Qt
-from Qt.QtGui import QKeyEvent, QPalette, QColor, QGuiApplication
+from Qt.QtGui import QKeyEvent, QPalette, QColor
 from Qt.QtWidgets import QListWidget, QListWidgetItem, QAbstractItemView
+
+# QGuiApplication is not re-exported by Qt.py, so import directly
+try:
+    from PySide6.QtGui import QGuiApplication
+except ImportError:
+    try:
+        from PySide2.QtGui import QGuiApplication
+    except ImportError:
+        from PyQt5.QtGui import QGuiApplication
+
 from dataclasses import dataclass
 from tree_sitter import Node, Point, Tree
 from typing import Optional, TYPE_CHECKING, Collection, Type, TypeVar, Callable

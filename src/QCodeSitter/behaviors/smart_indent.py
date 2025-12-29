@@ -2,7 +2,6 @@ from __future__ import annotations
 from . import HasKeyPress, Behavior
 from ..utils import dedent_string
 from ..keymap_utils import hk
-from ..multi_cursor_manager import CursorState
 from typing import TYPE_CHECKING, Callable
 from Qt.QtGui import QFontMetrics, QTextCursor, QFont, QKeyEvent
 from Qt.QtCore import Qt
@@ -57,6 +56,70 @@ class SmartIndent(HasKeyPress, Behavior):
 
     font = property(None, _font)
 
+    def _calculate_newline_indent(
+        self, line_num: int, col: int, line_text: str, indent: str
+    ) -> str:
+        """Calculate the indentation string to insert after a newline.
+
+        This is a pure calculation function with no side effects - it just determines
+        what indent string should be inserted based on the syntax and cursor position.
+
+        Args:
+            line_num: The line number (0-indexed)
+            col: The column position in the line
+            line_text: The text of the current line
+            indent: The current indentation of the line
+
+        Returns:
+            The complete indentation string to insert (may include extra indent or dedent)
+        """
+        stripped = line_text.lstrip()
+
+        # Special case: if the current line is empty/whitespace-only, just copy the indentation
+        if stripped == "":
+            return indent
+
+        # Special case: if cursor is at the beginning of the line
+        if col == 0:
+            # Use previous line's indentation if available
+            block = self.editor.document().findBlockByNumber(line_num)
+            prev_block = block.previous()
+            if prev_block.isValid():
+                prev_text = prev_block.text()
+                prev_stripped = prev_text.lstrip()
+                return prev_text[: len(prev_text) - len(prev_stripped)]
+            else:
+                return ""
+
+        # Look at the position just before the cursor to find the statement we just finished
+        lookup_col = max(0, col - 1) if col > 0 else 0
+
+        # Determine indent action based on syntax analysis
+        extra_indent = ""
+        dedent = False
+
+        # Check if we should add indent (opening block)
+        saz = self.editor.syntax_analyzer
+
+        if saz.should_indent_after_position(line_num, lookup_col):
+            if self.indent_using_tabs:
+                extra_indent = "\t"
+            else:
+                extra_indent = " " * self.space_indent_width
+
+        # Check if we should dedent (closing block or return statement)
+        elif saz.should_dedent_after_position(line_num, lookup_col, line_text):
+            dedent = True
+
+        # Apply dedent if needed
+        final_indent = indent
+        if dedent:
+            final_indent = dedent_string(
+                indent, self.indent_using_tabs, self.space_indent_width
+            )
+
+        return final_indent + extra_indent
+
     def keyPressEvent(self, event: QKeyEvent, hotkey: str) -> bool:
         # Special handling for Return/Enter key using unified cursor interface
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
@@ -96,58 +159,11 @@ class SmartIndent(HasKeyPress, Behavior):
         line_num = block.blockNumber()
         col = cursor.positionInBlock()
 
-        # Special case: if the current line is empty/whitespace-only, just copy the indentation
-        # Don't do syntax analysis on empty lines
-        # Check this BEFORE the col==0 check so empty lines maintain their indentation
-        if stripped == "":
-            cursor.insertText("\n" + indent)
-            self.editor.setTextCursor(cursor)
-            return True
-
-        # Special case: if cursor is at the beginning of the line, just insert a blank line
-        # with the indentation from the previous line (if any)
-        if col == 0:
-            prev_block = block.previous()
-            if prev_block.isValid():
-                prev_text = prev_block.text()
-                prev_stripped = prev_text.lstrip()
-                prev_indent = prev_text[: len(prev_text) - len(prev_stripped)]
-                cursor.insertText("\n" + prev_indent)
-            else:
-                cursor.insertText("\n")
-            self.editor.setTextCursor(cursor)
-            return True
-
-        # Look at the position just before the cursor to find the statement we just finished
-        # This handles the case where cursor is after a colon with no content yet
-        lookup_col = max(0, col - 1) if col > 0 else 0
-
-        # Determine indent action based on syntax analysis
-        extra_indent = ""
-        dedent = False
-
-        # Check if we should add indent (opening block)
-        saz = self.editor.syntax_analyzer
-
-        if saz.should_indent_after_position(line_num, lookup_col):
-            if self.indent_using_tabs:
-                extra_indent = "\t"
-            else:
-                extra_indent = " " * self.space_indent_width
-
-        # Check if we should dedent (closing block or return statement)
-        elif saz.should_dedent_after_position(line_num, lookup_col, line_text):
-            dedent = True
-
-        # Apply dedent if needed
-        final_indent = indent
-        if dedent:
-            final_indent = dedent_string(
-                indent, self.indent_using_tabs, self.space_indent_width
-            )
+        # Calculate the indentation to insert using shared helper
+        indent_str = self._calculate_newline_indent(line_num, col, line_text, indent)
 
         # Insert newline and indentation
-        cursor.insertText("\n" + final_indent + extra_indent)
+        cursor.insertText("\n" + indent_str)
         self.editor.setTextCursor(cursor)
         return True
 
@@ -339,6 +355,8 @@ class SmartIndent(HasKeyPress, Behavior):
 
     def _smart_newline_multi_cursor(self) -> bool:
         """Insert smart newlines at all cursor positions"""
+        from ..multi_cursor_manager import MultiCursorManager
+
         # Get primary cursor before sorting
         primary = self.editor.multi_cursor_manager.get_primary_cursor()
         all_cursors = self.editor.multi_cursor_manager.get_all_cursors()
@@ -350,13 +368,13 @@ class SmartIndent(HasKeyPress, Behavior):
         qt_cursor = self.editor.textCursor()
         qt_cursor.beginEditBlock()
 
-        new_positions = []
         primary_index = None
         inserted_texts = []  # Track what was inserted at each position
+        original_cursors_list = []  # Track original cursors for position adjustment
 
         for cursor_state, _original_index in sorted_with_index:
             if cursor_state == primary:
-                primary_index = len(new_positions)
+                primary_index = len(inserted_texts)
             qt_cursor.setPosition(cursor_state.position)
             block = qt_cursor.block()
             line_text = block.text()
@@ -366,88 +384,20 @@ class SmartIndent(HasKeyPress, Behavior):
             line_num = block.blockNumber()
             col = qt_cursor.positionInBlock()
 
-            # Calculate indentation similar to single cursor
-            extra_indent = ""
-            dedent = False
-            text_to_insert = ""
-
-            if stripped == "":
-                # Empty line - just copy indent
-                text_to_insert = "\n" + indent
-            elif col == 0:
-                # At beginning of line
-                prev_block = block.previous()
-                if prev_block.isValid():
-                    prev_text = prev_block.text()
-                    prev_stripped = prev_text.lstrip()
-                    prev_indent = prev_text[: len(prev_text) - len(prev_stripped)]
-                    text_to_insert = "\n" + prev_indent
-                else:
-                    text_to_insert = "\n"
-            else:
-                # Normal case - check syntax
-                lookup_col = max(0, col - 1) if col > 0 else 0
-
-                saz = self.editor.syntax_analyzer
-                if saz.should_indent_after_position(line_num, lookup_col):
-                    if self.indent_using_tabs:
-                        extra_indent = "\t"
-                    else:
-                        extra_indent = " " * self.space_indent_width
-                elif saz.should_dedent_after_position(line_num, lookup_col, line_text):
-                    dedent = True
-
-                final_indent = indent
-                if dedent:
-                    final_indent = dedent_string(
-                        indent, self.indent_using_tabs, self.space_indent_width
-                    )
-
-                text_to_insert = "\n" + final_indent + extra_indent
+            # Use shared helper to calculate indentation
+            indent_str = self._calculate_newline_indent(line_num, col, line_text, indent)
+            text_to_insert = "\n" + indent_str
 
             qt_cursor.insertText(text_to_insert)
             inserted_texts.append(text_to_insert)
-
-            # Track new position (raw, will adjust later)
-            new_pos = qt_cursor.position()
-            new_positions.append((new_pos, new_pos))
+            original_cursors_list.append(cursor_state)
 
         qt_cursor.endEditBlock()
 
-        # Now adjust all positions to account for the length changes
-        # new_positions = [later_pos, earlier_pos, ...] (reverse doc order)
-        # We iterate backwards and accumulate offsets for earlier positions
-        adjusted_positions = []
-        cumulative_offset = 0
-
-        for i in range(len(new_positions) - 1, -1, -1):  # Iterate backwards
-            pos = new_positions[i]
-            # This position needs to be adjusted by all the edits that happened AFTER it (earlier in the loop)
-            adjusted_pos = (pos[0] + cumulative_offset, pos[1] + cumulative_offset)
-            adjusted_positions.insert(
-                0, adjusted_pos
-            )  # Insert at front to build in document order
-
-            # Calculate the length change that THIS edit caused
-            original_cursor = sorted_with_index[i][0]
-            selection_length = abs(original_cursor.position - original_cursor.anchor)
-            length_change = len(inserted_texts[i]) - selection_length
-            cumulative_offset += length_change
-
-        new_positions = adjusted_positions
-
-        # Adjust primary index after reversal
-        if primary_index is not None:
-            primary_index = len(new_positions) - 1 - primary_index
-
-        # Set primary cursor explicitly
-        if primary_index is not None and primary_index < len(new_positions):
-            # Move primary to front
-            primary_cursor = new_positions.pop(primary_index)
-            new_positions.insert(0, primary_cursor)
-
-        # Update cursor positions
-        cursor_states = [CursorState(anchor, pos) for anchor, pos in new_positions]
+        # Use shared utility to adjust positions after edits
+        cursor_states = MultiCursorManager._adjust_positions_after_edits(
+            original_cursors_list, inserted_texts, primary_index
+        )
         self.editor.multi_cursor_manager._set_all_cursors(cursor_states)
 
         return True

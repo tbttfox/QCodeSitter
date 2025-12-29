@@ -170,6 +170,69 @@ class MultiCursorManager(HasHotkeys):
 
         return merged
 
+    @staticmethod
+    def _adjust_positions_after_edits(
+        original_cursors: list[CursorState],
+        inserted_texts: list[str],
+        primary_index: int | None
+    ) -> list[CursorState]:
+        """Adjust cursor positions after multiple edits (back-to-front insertion).
+
+        When multiple edits are made in reverse order (back to front), we need to
+        recalculate all cursor positions because each edit shifts earlier positions.
+
+        Args:
+            original_cursors: The original cursor states (in reverse document order)
+            inserted_texts: The texts that were inserted at each cursor (in same order as original_cursors)
+            primary_index: Index of the primary cursor in the original list (or None)
+
+        Returns:
+            List of adjusted CursorState objects (in forward document order, with primary first)
+        """
+        # Track new raw positions after insertion
+        new_positions = []
+
+        # Edits were done back-to-front, so original_cursors is in reverse document order
+        # We need to adjust positions to account for cumulative length changes
+
+        # First, create positions without adjustments (these are wrong, but we'll fix them)
+        for i, (cursor, text) in enumerate(zip(original_cursors, inserted_texts)):
+            # After insertion, cursor is at the end of inserted text
+            # For now, just record position as if no other edits happened
+            selection_length = abs(cursor.position - cursor.anchor)
+            new_pos_value = cursor.selection_start + len(text)
+            new_positions.append((new_pos_value, new_pos_value))
+
+        # Now adjust all positions to account for the length changes
+        # new_positions are in reverse document order (same as original_cursors)
+        # Iterate backwards to accumulate offsets
+        adjusted_positions = []
+        cumulative_offset = 0
+
+        for i in range(len(new_positions) - 1, -1, -1):  # Iterate backwards
+            pos = new_positions[i]
+            # This position needs to be adjusted by all the edits that happened AFTER it
+            adjusted_pos = (pos[0] + cumulative_offset, pos[1] + cumulative_offset)
+            adjusted_positions.insert(0, adjusted_pos)  # Insert at front to build forward order
+
+            # Calculate the length change that THIS edit caused
+            original_cursor = original_cursors[i]
+            selection_length = abs(original_cursor.position - original_cursor.anchor)
+            length_change = len(inserted_texts[i]) - selection_length
+            cumulative_offset += length_change
+
+        # Convert to CursorState objects
+        cursor_states = [CursorState(anchor, pos) for anchor, pos in adjusted_positions]
+
+        # Adjust primary index and move primary to front
+        if primary_index is not None:
+            primary_index = len(cursor_states) - 1 - primary_index
+            if primary_index < len(cursor_states):
+                primary_cursor = cursor_states.pop(primary_index)
+                cursor_states.insert(0, primary_cursor)
+
+        return cursor_states
+
     def _update_visual(self):
         """Update visual rendering of secondary cursors"""
         if not self.is_active():
