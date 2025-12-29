@@ -244,7 +244,7 @@ class MultiCursorManager(HasHotkeys):
         self.active = False
         self.editor.selection_manager.clear_selections("multi_cursor")
 
-    def add_next_occurrence(self) -> bool:
+    def add_next_occurrence(self):
         """Add cursor at next occurrence of current selection
 
         Returns True if a cursor was added, False otherwise
@@ -255,12 +255,12 @@ class MultiCursorManager(HasHotkeys):
         if not primary.has_selection:
             # No selection - select word under cursor first
             if not self._select_word_under_cursor():
-                return False
+                return
             primary = self.get_primary_cursor()
 
         search_text = self._get_text(primary.selection_start, primary.selection_end)
         if not search_text:
-            return False
+            return
 
         # Find next occurrence after the last cursor
         all_cursors = self.get_all_cursors()
@@ -274,7 +274,7 @@ class MultiCursorManager(HasHotkeys):
             self.secondary_cursors.append(new_cursor)
             self.active = True
             self._update_visual()
-            return True
+            return
         else:
             # Wrap around to beginning
             next_pos = self._find_next(search_text, 0)
@@ -283,9 +283,7 @@ class MultiCursorManager(HasHotkeys):
                 self.secondary_cursors.append(new_cursor)
                 self.active = True
                 self._update_visual()
-                return True
-
-        return False
+                return
 
     def _select_word_under_cursor(self) -> bool:
         """Select the word under the primary cursor
@@ -1059,7 +1057,7 @@ class MultiCursorManager(HasHotkeys):
         cursor_states = [CursorState(anchor, pos) for anchor, pos in adjusted_positions]
         self._set_all_cursors(cursor_states)
 
-    def add_cursor_above(self) -> bool:
+    def add_cursor_above(self):
         """Add a new cursor on the line above the primary cursor (primary moves up, leaves cursor behind)"""
         # Get current cursor position - use primary cursor if already active
         if self.is_active():
@@ -1073,12 +1071,12 @@ class MultiCursorManager(HasHotkeys):
         doc = self.editor.document()
         block = doc.findBlock(current_position)
         if not block.isValid():
-            return False
+            return
 
         # Move to previous block
         previous_block = block.previous()
         if not previous_block.isValid():
-            return False
+            return
 
         # Calculate column position
         col = current_position - block.position()
@@ -1112,9 +1110,7 @@ class MultiCursorManager(HasHotkeys):
             self.set_primary_cursor(new_primary)
             self._render_cursors()
 
-        return True
-
-    def add_cursor_below(self) -> bool:
+    def add_cursor_below(self):
         """Add a new cursor on the line below the primary cursor (primary moves down, leaves cursor behind)"""
         # Get current cursor position - use primary cursor if already active
         if self.is_active():
@@ -1128,12 +1124,12 @@ class MultiCursorManager(HasHotkeys):
         doc = self.editor.document()
         block = doc.findBlock(current_position)
         if not block.isValid():
-            return False
+            return
 
         # Move to next block
         next_block = block.next()
         if not next_block.isValid():
-            return False
+            return
 
         # Calculate column position
         col = current_position - block.position()
@@ -1165,14 +1161,12 @@ class MultiCursorManager(HasHotkeys):
             self.set_primary_cursor(new_primary)
             self._render_cursors()
 
-        return True
-
-    def add_cursors_to_line_ends(self) -> bool:
+    def add_cursors_to_line_ends(self):
         """Add a cursor at the end of each line in the current selection"""
         cursor = self.editor.textCursor()
 
         if not cursor.hasSelection():
-            return False
+            return
 
         # Get the selection range
         start = min(cursor.anchor(), cursor.position())
@@ -1184,7 +1178,7 @@ class MultiCursorManager(HasHotkeys):
         end_block = doc.findBlock(end)
 
         if not start_block.isValid() or not end_block.isValid():
-            return False
+            return
 
         # Collect cursor positions at the end of each line
         cursors = []
@@ -1206,9 +1200,7 @@ class MultiCursorManager(HasHotkeys):
             # Update the visual Qt cursor to the primary position
             self.set_primary_cursor(new_primary)
             self._render_cursors()
-            return True
-
-        return False
+            return
 
     def add_cursor_at_position(self, position: int) -> bool:
         """Add a cursor at the specified position (for Alt+Click)"""
