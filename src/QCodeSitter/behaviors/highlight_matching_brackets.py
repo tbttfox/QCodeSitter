@@ -5,7 +5,7 @@ from Qt import QtGui, QtWidgets
 from tree_sitter import Point
 
 if TYPE_CHECKING:
-    from ..line_editor import CodeEditor
+    from ..code_editor import CodeEditor
 
 
 class HighlightMatchingBrackets(Behavior):

@@ -12,7 +12,7 @@ from QtShortcutManager import ShortcutSlot, ShortcutSlotGroup
 
 
 if TYPE_CHECKING:
-    from ..line_editor import CodeEditor
+    from ..code_editor import CodeEditor
 
 
 class FoldableRegion:

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from Qt import QtGui, QtCore, QtWidgets
 
 if TYPE_CHECKING:
-    from ..line_editor import CodeEditor
+    from ..code_editor import CodeEditor
 
 
 class LineNumberArea(QtWidgets.QWidget):

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Callable, Any
 from dataclasses import dataclass
 
 if TYPE_CHECKING:
-    from .line_editor import CodeEditor
+    from .code_editor import CodeEditor
     from Qt.QtGui import QTextCursor
 
 

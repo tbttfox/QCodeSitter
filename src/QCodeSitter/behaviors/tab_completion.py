@@ -22,7 +22,7 @@ from .providers import Provider
 
 
 if TYPE_CHECKING:
-    from ..line_editor import CodeEditor
+    from ..code_editor import CodeEditor
 
 COMPLETION_FORMAT = "{text} ({kind})"
 

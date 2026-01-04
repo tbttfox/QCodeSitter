@@ -4,7 +4,7 @@ from Qt.QtGui import QKeyEvent, QResizeEvent
 
 if TYPE_CHECKING:
     from QtShortcutManager import ShortcutSlotGroup
-    from ..line_editor import CodeEditor
+    from ..code_editor import CodeEditor
     from ..editor_options import EditorOptions
 
 

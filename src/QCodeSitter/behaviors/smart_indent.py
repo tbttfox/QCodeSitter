@@ -8,7 +8,7 @@ from Qt.QtGui import QFontMetrics, QTextCursor, QFont, QKeyEvent
 from Qt.QtCore import Qt
 
 if TYPE_CHECKING:
-    from ..line_editor import CodeEditor
+    from ..code_editor import CodeEditor
 
 
 class SmartIndent(HasKeyPress, Behavior):

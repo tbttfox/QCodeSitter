@@ -6,7 +6,7 @@ from . import Behavior, HasKeyPress
 from ..multi_cursor_manager import CursorState
 
 if TYPE_CHECKING:
-    from ..line_editor import CodeEditor
+    from ..code_editor import CodeEditor
 
 
 def _build_pair_from_str(pair_str):

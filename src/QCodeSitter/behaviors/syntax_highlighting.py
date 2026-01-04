@@ -8,7 +8,7 @@ from tree_sitter import Query, QueryCursor
 if TYPE_CHECKING:
     from .tree_manager import TreeManager
     from .line_tracker import TrackedDocument
-    from ..line_editor import CodeEditor
+    from ..code_editor import CodeEditor
 
 
 class TreeSitterHighlighter(QSyntaxHighlighter):

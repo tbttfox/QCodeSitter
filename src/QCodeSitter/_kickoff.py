@@ -5,7 +5,7 @@ from tree_sitter import Language
 from Qt.QtWidgets import QMainWindow, QApplication
 from Qt.QtGui import QFont
 
-from QCodeSitter.line_editor import CodeEditor
+from QCodeSitter.code_editor import CodeEditor
 # from QCodeSitter.behaviors.smart_indent import SmartIndent
 # from QCodeSitter.behaviors.line_numbers import LineNumber
 # from QCodeSitter.behaviors.highlight_matching_brackets import HighlightMatchingBrackets
