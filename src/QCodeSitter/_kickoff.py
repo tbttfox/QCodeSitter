@@ -6,15 +6,15 @@ from Qt.QtWidgets import QMainWindow, QApplication
 from Qt.QtGui import QFont
 
 from QCodeSitter.line_editor import CodeEditor
-from QCodeSitter.behaviors.smart_indent import SmartIndent
-from QCodeSitter.behaviors.line_numbers import LineNumber
-from QCodeSitter.behaviors.highlight_matching_brackets import HighlightMatchingBrackets
-from QCodeSitter.behaviors.highlight_matching_selection import HighlightMatchingSelection
-from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
-from QCodeSitter.behaviors.auto_bracket import AutoBracket
-from QCodeSitter.behaviors.tab_completion import TabCompletion
-from QCodeSitter.behaviors.providers.identifiers import IdentifierProvider
-from QCodeSitter.behaviors.code_folding import CodeFolding
+# from QCodeSitter.behaviors.smart_indent import SmartIndent
+# from QCodeSitter.behaviors.line_numbers import LineNumber
+# from QCodeSitter.behaviors.highlight_matching_brackets import HighlightMatchingBrackets
+# from QCodeSitter.behaviors.highlight_matching_selection import HighlightMatchingSelection
+# from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
+# from QCodeSitter.behaviors.auto_bracket import AutoBracket
+# from QCodeSitter.behaviors.tab_completion import TabCompletion
+# from QCodeSitter.behaviors.providers.identifiers import IdentifierProvider
+# from QCodeSitter.behaviors.code_folding import CodeFolding
 from QCodeSitter.editor_options import EditorOptions
 from QCodeSitter.hl_groups import FORMAT_SPECS, COLORS
 from QCodeSitter.highlight_query import HIGHLIGHT_QUERY
@@ -42,6 +42,7 @@ options = EditorOptions(
 
 edit = CodeEditor(options, parent=win)
 
+"""
 _old, cmp_bh = edit.addBehavior(TabCompletion)
 cmp_bh.addProvider(IdentifierProvider)
 
@@ -52,6 +53,7 @@ edit.addBehavior(HighlightMatchingSelection)
 edit.addBehavior(LineNumber)
 edit.addBehavior(AutoBracket)
 edit.addBehavior(CodeFolding)
+"""
 
 win.setCentralWidget(edit)
 win.show()
