@@ -8,6 +8,7 @@ from Qt import QtWidgets
 
 from tree_sitter import Language
 
+from .constants import MIME
 from .utils import len16
 from .behaviors import Behavior, HasKeyPress, HasResize, HasHotkeys
 from .line_tracker import TrackedDocument
@@ -777,7 +778,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         mimeData = QtCore.QMimeData()
 
         lens = ",".join(map(str, map(len, selected_texts)))
-        mimeData.setData("text/multi_copy_lengths", lens.encode())
+        mimeData.setData(MIME, lens.encode())
         mimeData.setText(clipboard_text)
         clipboard.setMimeData(mimeData)
 
@@ -800,10 +801,10 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         if not clipboard_text:
             return
 
-        if not mimeData.hasFormat("text/multi_copy_lengths"):
+        if not mimeData.hasFormat(MIME):
             self.insert_text(clipboard_text)
 
-        copylen_text = bytes(mimeData.data("text/multi_copy_lengths")).decode()
+        copylen_text = bytes(mimeData.data(MIME)).decode()
         lens = list(map(int, copylen_text.split(",")))
 
         # Get how long we expect the text to be based on the copy
