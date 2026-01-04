@@ -14,7 +14,6 @@ from .line_tracker import TrackedDocument
 from .tree_manager import TreeManager
 from .syntax_analyzer import SyntaxAnalyzer
 from .editor_options import EditorOptions
-from .cursor_interface import CursorInterface
 from .keymap_utils import hk
 
 from QtShortcutManager import ShortcutManager, ShortcutSlot, ShortcutSlotGroup
@@ -114,9 +113,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         # Keep track of my selections by source so I can (for instance) remove
         # selections from bracket matching separately from selection highlighting
         self._selections: dict[str, list[QtWidgets.QTextEdit.ExtraSelection]] = {}
-
-        # Unified cursor interface - single access point for cursor operations
-        self.cursor: CursorInterface = CursorInterface(self)
 
         self._behaviors: list[Behavior] = []
 
