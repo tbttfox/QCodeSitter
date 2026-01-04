@@ -35,37 +35,41 @@ class CursorState:
 
     def setPosition(self, val: int, moveMode=QtGui.QTextCursor.MoveMode.MoveAnchor):
         if moveMode == QtGui.QTextCursor.MoveMode.MoveAnchor:
-            self._anchor = val
-        self._position = val
+            self.anchor = val
+        self.position = val
 
     def hasSelection(self) -> bool:
         """Returns True if this cursor has a selection"""
-        return self._anchor != self._position
+        return self.anchor != self.position
 
     def selectionStart(self) -> int:
         """Returns the start position of the selection (or cursor position if no selection)"""
-        return min(self._anchor, self._position)
+        return min(self.anchor, self.position)
 
     def selectionEnd(self) -> int:
         """Returns the end position of the selection (or cursor position if no selection)"""
-        return max(self._anchor, self._position)
+        return max(self.anchor, self.position)
 
     def apply(self, cursor: QtGui.QTextCursor) -> QtGui.QTextCursor:
         """Apply this state to a QtGui.QTextCursor"""
-        cursor.setPosition(self._anchor)
-        cursor.setPosition(self._position, QtGui.QTextCursor.MoveMode.KeepAnchor)
+        cursor.setPosition(self.anchor)
+        cursor.setPosition(self.position, QtGui.QTextCursor.MoveMode.KeepAnchor)
         return cursor
+
+    def update(self, cursor: QtGui.QTextCursor):
+        self.anchor = cursor.anchor()
+        self.position = cursor.position()
 
     def offset(self, offset: int):
         """Offset this state by a given number of characters"""
-        self._anchor += offset
-        self._position += offset
+        self.anchor += offset
+        self.position += offset
 
     def build_cursor(self, document: QtGui.QTextDocument) -> QtGui.QTextCursor:
         """Build a cursor for a given document"""
         cursor = QtGui.QTextCursor(document)
-        cursor.setPosition(self._anchor)
-        cursor.setPosition(self._position, QtGui.QTextCursor.MoveMode.KeepAnchor)
+        cursor.setPosition(self.anchor)
+        cursor.setPosition(self.position, QtGui.QTextCursor.MoveMode.KeepAnchor)
         return cursor
 
     def __eq__(self, other) -> bool:
@@ -88,7 +92,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.setDocument(self._doc)
 
         self.options = options
-        self._ts_prediction: dict[int, QtGui.QTextBlock] = {}
 
         # Shortcut Manager (for user-configurable shortcuts)
         self.shortcut_manager = ShortcutManager()
@@ -210,6 +213,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.syntax_analyzer = SyntaxAnalyzer(self.tree_manager, self._doc)
         self._doc.byteContentsChange.connect(self.tree_manager.update)
         self._doc.fullUpdateRequest.connect(self.tree_manager.fullUpdate)
+        self.tree_manager.fullUpdate()
 
     def addBehavior(
         self, behaviorCls: Type[T_Behavior]
@@ -314,10 +318,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         return ShortcutSlotGroup("Multi-Cursor", slots=slots)
 
-    def is_active(self) -> bool:
-        """Returns True if multi-cursor mode is active with secondary cursors"""
-        return self.active and len(self.secondary_cursors) > 0
-
     def get_primary_cursor(self) -> CursorState:
         """Convert Qt's primary cursor to QtGui.QTextCursor"""
         return CursorState.fromQt(self.textCursor())
@@ -383,7 +383,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def _update_visual(self):
         """Update visual rendering of secondary cursors"""
-        if not self.is_active():
+        if not self.secondary_cursors:
             self.clear_selections("multi_cursor")
             return
 
@@ -448,6 +448,20 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.secondary_cursors.clear()
         self.active = False
         self.clear_selections("multi_cursor")
+
+    def undo(self):
+        """Override undo to exit multi-cursor mode first"""
+        # Qt's undo system doesn't track our CursorState positions, so we exit
+        # multi-cursor mode to avoid cursor position desync after undo
+        self.exit_multi_cursor_mode()
+        super().undo()
+
+    def redo(self):
+        """Override redo to exit multi-cursor mode first"""
+        # Qt's undo system doesn't track our CursorState positions, so we exit
+        # multi-cursor mode to avoid cursor position desync after redo
+        self.exit_multi_cursor_mode()
+        super().redo()
 
     def add_next_occurrence(self):
         """Add cursor at next occurrence of current selection
@@ -614,10 +628,12 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             qt_cursor.beginEditBlock()
 
         offset = [0]
-        for state in all_cursors:
+        for i, state in enumerate(all_cursors):
             state.offset(offset[0])
             state.apply(qt_cursor)
-            yield qt_cursor, offset
+            is_primary = i == primary_index
+            yield qt_cursor, offset, is_primary
+            state.update(qt_cursor)
 
         qt_cursor.endEditBlock()
 
@@ -626,14 +642,15 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self._set_all_cursors(all_cursors)
 
     def insert_text(self, text: str, join_edit: bool = False):
+        print("INSERTING", repr(text))
         tlen = len16(text)
-        for cursor, offset in self.iterate_cursors(join_edit=join_edit):
+        for cursor, offset, is_primary in self.iterate_cursors(join_edit=join_edit):
             cursor.insertText(text)
             offset[0] += tlen
 
     def _delete_movement(self, movement: QtGui.QTextCursor.MoveOperation):
         """Delete based on a move operation at cursor at all positions"""
-        for cursor, offset in self.iterate_cursors():
+        for cursor, offset, is_primary in self.iterate_cursors():
             if cursor.hasSelection():
                 offset[0] -= cursor.selectionEnd() - cursor.selectionStart()
                 cursor.removeSelectedText()
@@ -788,7 +805,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def cut(self):
         """Cut text from all cursors to clipboard"""
         self.copy()
-        for cursor, offset in self.iterate_cursors():
+        for cursor, offset, is_primary in self.iterate_cursors():
             if cursor.hasSelection():
                 offset[0] -= cursor.selectionEnd() - cursor.selectionStart()
                 cursor.removeSelectedText()
@@ -812,6 +829,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         expected_len = sum(lens) + len(lens) - 1
         if len(clipboard_text) != expected_len:
             self.insert_text(clipboard_text)
+            return
 
         lines = []
         ptr = 0
@@ -819,14 +837,11 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             lines.append(clipboard_text[ptr : ptr + el])
             ptr += el + 1  # skip the newlines
 
-        self._paste_multi(lines)
-
-    def _paste_multi(self, texts: list[str]):
-        """Paste different text at each cursor position"""
-        for i, (cursor, offset) in enumerate(self.iterate_cursors()):
-            line = texts[i]
+        for i, (cursor, offset, is_primary) in enumerate(self.iterate_cursors()):
+            line = lines[i]
             cursor.insertText(line)
-            offset[0] += len16(line)
+            tlen = len16(line)
+            offset[0] += tlen
 
     def add_cursor_above(self):
         """Add a new cursor on the line above the primary cursor (primary moves up, leaves cursor behind)"""
@@ -851,10 +866,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         # Position in previous line (this will be the new primary)
         new_primary_pos = previous_block.position() + col
 
-        if not self.is_active():
-            self.active = True
-            self.secondary_cursors = []
-
         self.secondary_cursors.append(CursorState(current_position, current_position))
         new_primary = CursorState(new_primary_pos, new_primary_pos)
         self.set_primary_cursor(new_primary)
@@ -863,12 +874,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def add_cursor_below(self):
         """Add a new cursor on the line below the primary cursor (primary moves down, leaves cursor behind)"""
         # Get current cursor position - use primary cursor if already active
-        if self.is_active():
-            primary = self.get_primary_cursor()
-            current_position = primary.position
-        else:
-            cursor = self.textCursor()
-            current_position = cursor.position()
+        primary = self.get_primary_cursor()
+        current_position = primary.position
 
         # Get current block and column
         doc = self.document()
@@ -886,10 +893,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         # Position in next line (this will be the new primary)
         new_primary_pos = next_block.position() + col
-
-        if not self.is_active():
-            self.active = True
-            self.secondary_cursors = []
 
         self.secondary_cursors.append(CursorState(current_position, current_position))
 

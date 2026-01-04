@@ -1,11 +1,6 @@
 from __future__ import annotations
 from .constants import ENC
 
-from typing import Union, Optional
-from Qt.QtCore import Qt
-from Qt.QtGui import QKeySequence
-from Qt import QtCompat
-
 
 def dedent_string(indent: str, indent_using_tabs: bool, space_indent_width: int) -> str:
     """Remove one level of indentation from the indent string"""

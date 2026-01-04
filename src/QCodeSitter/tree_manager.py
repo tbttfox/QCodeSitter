@@ -4,8 +4,7 @@ from typing import Optional, TYPE_CHECKING
 from .constants import ENC
 
 if TYPE_CHECKING:
-    from Qt.QtWidgets import QPlainTextEdit
-    from Qt.QtGui import QTextBlock
+    from Qt import QtWidgets, QtGui
 
 
 class TreeManager:
@@ -18,7 +17,7 @@ class TreeManager:
 
     def __init__(
         self,
-        editor: QPlainTextEdit,
+        editor: QtWidgets.QPlainTextEdit,
         language: Language,
     ):
         """Initialize the tree manager
@@ -33,6 +32,7 @@ class TreeManager:
         self.parser = Parser(language)
         self.tree: Optional[Tree] = None
         self._source_callback = self.treesitter_source_callback
+        self._ts_prediction: dict[int, QtGui.QTextBlock] = {}
 
     def treesitter_source_callback(self, _byte_offset: int, ts_point: Point) -> bytes:
         """Provide source bytes to tree-sitter parser
@@ -51,7 +51,7 @@ class TreeManager:
         if ts_point.row == 0:
             self._ts_prediction = {}
 
-        curblock: Optional[QTextBlock] = self._ts_prediction.get(ts_point.row)
+        curblock: Optional[QtGui.QTextBlock] = self._ts_prediction.get(ts_point.row)
         if curblock is None:
             try:
                 curblock = self.editor.document().findBlockByNumber(ts_point.row)
