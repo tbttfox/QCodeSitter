@@ -40,7 +40,7 @@ class AutoBracket(HasKeyPress, Behavior):
         if "auto_bracket_enabled" in keys:
             self.enabled = self.options.get("auto_bracket_enabled", True)
 
-    def keyPressEvent(self, event: QKeyEvent, hotkey: str) -> bool:
+    def keyPressEvent(self, event: QKeyEvent) -> bool:
         if not self.enabled:
             return False
 
@@ -352,7 +352,7 @@ class AutoBracket2(HasKeyPress, Behavior):
         if "auto_bracket_enabled" in keys:
             self.enabled = self.options.get("auto_bracket_enabled", True)
 
-    def keyPressEvent(self, event: QKeyEvent, hotkey: str) -> bool:
+    def keyPressEvent(self, event: QKeyEvent) -> bool:
         if not self.enabled:
             return False
 

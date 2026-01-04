@@ -14,7 +14,6 @@ from .line_tracker import TrackedDocument
 from .tree_manager import TreeManager
 from .syntax_analyzer import SyntaxAnalyzer
 from .editor_options import EditorOptions
-from .keymap_utils import hk
 
 from QtShortcutManager import ShortcutManager, ShortcutSlot, ShortcutSlotGroup
 
@@ -507,14 +506,10 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         return -1
 
     def keyPressEvent(self, e: QtGui.QKeyEvent):
-        key = e.key()
-        modifiers = e.modifiers()
-        hotkey = hk(key, modifiers)
-
         for behavior in self._behaviors:
             if not isinstance(behavior, HasKeyPress):
                 continue
-            if behavior.keyPressEvent(e, hotkey):
+            if behavior.keyPressEvent(e):
                 return
 
         if self._handle_key_event(e):

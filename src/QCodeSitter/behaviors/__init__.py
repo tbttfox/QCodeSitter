@@ -31,7 +31,7 @@ class Behavior:
 
 
 class HasKeyPress:
-    def keyPressEvent(self, event: QKeyEvent, hotkey: str) -> bool:
+    def keyPressEvent(self, event: QKeyEvent) -> bool:
         raise NotImplementedError("You must implement the keyPressEvent")
 
 

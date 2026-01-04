@@ -14,9 +14,8 @@ except ImportError:
 
 from dataclasses import dataclass
 from tree_sitter import Node, Point, Tree
-from typing import Optional, TYPE_CHECKING, Collection, Type, TypeVar, Callable
+from typing import Optional, TYPE_CHECKING, Collection, Type, TypeVar
 from . import Behavior, HasKeyPress
-from ..keymap_utils import hk
 
 from .providers import Provider
 
@@ -197,7 +196,9 @@ class CompletionPopup(QListWidget):
 
         # Check if popup fits below cursor, otherwise show above
         # Qt 6 compatible: use screen() instead of deprecated desktop()
-        screen = QGuiApplication.screenAt(self.editor.mapToGlobal(self.editor.rect().center()))
+        screen = QGuiApplication.screenAt(
+            self.editor.mapToGlobal(self.editor.rect().center())
+        )
         if screen is None:
             screen = QGuiApplication.primaryScreen()
         screen_geom = screen.availableGeometry()
@@ -249,7 +250,6 @@ class TabCompletion(HasKeyPress, Behavior):
         self.vim_completion_keys = True
         self.debounce_delay = 150
 
-        self.hotkeys = self.build_hotkeys()
         self.setListen({"vim_completion_keys", "debounce_delay"})
 
         self._providers: list[Provider] = []
@@ -468,24 +468,28 @@ class TabCompletion(HasKeyPress, Behavior):
         self.completion_popup.hide()
         return False
 
-    def build_hotkeys(self):
-        hotkeys = {}
-        hotkeys[hk(Qt.Key_Return)] = self.acceptItem
-        hotkeys[hk(Qt.Key_Tab)] = self.acceptItem
-        hotkeys[hk(Qt.Key_Up)] = self.offset_up
-        hotkeys[hk(Qt.Key_Down)] = self.offset_down
-        hotkeys[hk(Qt.Key_Escape)] = self.hide_and_accept
-        hotkeys[hk(Qt.Key_Backspace)] = self.hide_and_deny
+    def keyPressEvent(self, event: QKeyEvent) -> bool:
+        key = event.key()
+        if key == Qt.Key_Return:
+            return self.acceptItem()
+        elif key == Qt.Key_Tab:
+            return self.acceptItem()
+        elif key == Qt.Key_Up:
+            return self.offset_up()
+        elif key == Qt.Key_Down:
+            return self.offset_down()
+        elif key == Qt.Key_Escape:
+            return self.hide_and_accept()
+        elif key == Qt.Key_Backspace:
+            return self.hide_and_deny()
 
         if self.vim_completion_keys:
-            ctrl = Qt.KeyboardModifier.ControlModifier
-            hotkeys[hk(Qt.Key_Y, ctrl)] = self.acceptItem
-            hotkeys[hk(Qt.Key_P, ctrl)] = self.offset_up
-            hotkeys[hk(Qt.Key_N, ctrl)] = self.offset_down
-        return hotkeys
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                if key == Qt.Key_Y:
+                    return self.acceptItem()
+                elif key == Qt.Key_P:
+                    return self.offset_up()
+                elif key == Qt.Key_N:
+                    return self.offset_down()
 
-    def keyPressEvent(self, event: QKeyEvent, hotkey: str):
-        func = self.hotkeys.get(hotkey)
-        if func is not None:
-            return func()
         return False
