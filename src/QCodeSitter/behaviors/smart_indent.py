@@ -2,6 +2,7 @@ from __future__ import annotations
 from . import HasKeyPress, Behavior
 from ..utils import dedent_string
 from ..keymap_utils import hk
+from ..multi_cursor_manager import MultiCursorManager
 from typing import TYPE_CHECKING, Callable
 from Qt.QtGui import QFontMetrics, QTextCursor, QFont, QKeyEvent
 from Qt.QtCore import Qt
@@ -123,10 +124,10 @@ class SmartIndent(HasKeyPress, Behavior):
     def keyPressEvent(self, event: QKeyEvent, hotkey: str) -> bool:
         # Special handling for Return/Enter key using unified cursor interface
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            return self.editor.cursor.execute(
-                single_func=lambda c: self.smartNewline(),
-                multi_func=lambda: self._smart_newline_multi_cursor()
-            )
+            if not self.editor.cursor.is_multi_mode:
+                return self.smartNewline()
+            else:
+                return self._smart_newline_multi_cursor()
 
         # In multi-cursor mode, let other keys be handled by multi-cursor manager
         if self.editor.cursor.is_multi_mode:
@@ -144,11 +145,7 @@ class SmartIndent(HasKeyPress, Behavior):
                 return True
         return False
 
-    def smartNewline(self) -> bool:
-        """Insert a newline with smart indentation based on tree-sitter parse tree"""
-        if self.editor is None:
-            return False
-        cursor = self.editor.textCursor()
+    def _get_newline_indent(self, cursor: QTextCursor):
         # Get current line text and indentation
         block = cursor.block()
         line_text = block.text()
@@ -160,11 +157,55 @@ class SmartIndent(HasKeyPress, Behavior):
         col = cursor.positionInBlock()
 
         # Calculate the indentation to insert using shared helper
-        indent_str = self._calculate_newline_indent(line_num, col, line_text, indent)
+        return self._calculate_newline_indent(line_num, col, line_text, indent)
+
+    def smartNewline(self) -> bool:
+        """Insert a newline with smart indentation based on tree-sitter parse tree"""
+        cursor = self.editor.textCursor()
+        indent_str = self._get_newline_indent(cursor)
 
         # Insert newline and indentation
-        cursor.insertText("\n" + indent_str)
+        cursor.insertText(indent_str)
         self.editor.setTextCursor(cursor)
+        return True
+
+    def _smart_newline_multi_cursor(self) -> bool:
+        """Insert smart newlines at all cursor positions"""
+        # Get primary cursor before sorting
+        primary = self.editor.multi_cursor_manager.get_primary_cursor()
+        all_cursors, _primary_index = self.editor.multi_cursor_manager.get_all_cursors()
+
+        # Sort reverse for insertions (back to front) but track primary
+        sorted_with_index = [(c, i) for i, c in enumerate(all_cursors)]
+        sorted_with_index.sort(key=lambda x: x[0].selection_start, reverse=True)
+
+        qt_cursor = self.editor.textCursor()
+        qt_cursor.beginEditBlock()
+
+        primary_index = None
+        inserted_texts = []  # Track what was inserted at each position
+        original_cursors_list = []  # Track original cursors for position adjustment
+
+        for cursor_state, _original_index in sorted_with_index:
+            if cursor_state == primary:
+                primary_index = len(inserted_texts)
+            qt_cursor.setPosition(cursor_state.position)
+
+            indent_str = self._get_newline_indent(qt_cursor)
+            text_to_insert = "\n" + indent_str
+
+            qt_cursor.insertText(text_to_insert)
+            inserted_texts.append(text_to_insert)
+            original_cursors_list.append(cursor_state)
+
+        qt_cursor.endEditBlock()
+
+        # Use shared utility to adjust positions after edits
+        cursor_states = MultiCursorManager._adjust_positions_after_edits(
+            original_cursors_list, inserted_texts, primary_index
+        )
+        self.editor.multi_cursor_manager._set_all_cursors(cursor_states)
+
         return True
 
     def smartClosingBracket(self, bracket: str) -> bool:
@@ -351,53 +392,4 @@ class SmartIndent(HasKeyPress, Behavior):
         cursor.setPosition(start_pos)
         cursor.setPosition(end_pos - indent_removed, QTextCursor.KeepAnchor)
         self.editor.setTextCursor(cursor)
-        return True
-
-    def _smart_newline_multi_cursor(self) -> bool:
-        """Insert smart newlines at all cursor positions"""
-        from ..multi_cursor_manager import MultiCursorManager
-
-        # Get primary cursor before sorting
-        primary = self.editor.multi_cursor_manager.get_primary_cursor()
-        all_cursors = self.editor.multi_cursor_manager.get_all_cursors()
-
-        # Sort reverse for insertions (back to front) but track primary
-        sorted_with_index = [(c, i) for i, c in enumerate(all_cursors)]
-        sorted_with_index.sort(key=lambda x: x[0].selection_start, reverse=True)
-
-        qt_cursor = self.editor.textCursor()
-        qt_cursor.beginEditBlock()
-
-        primary_index = None
-        inserted_texts = []  # Track what was inserted at each position
-        original_cursors_list = []  # Track original cursors for position adjustment
-
-        for cursor_state, _original_index in sorted_with_index:
-            if cursor_state == primary:
-                primary_index = len(inserted_texts)
-            qt_cursor.setPosition(cursor_state.position)
-            block = qt_cursor.block()
-            line_text = block.text()
-            stripped = line_text.lstrip()
-            indent = line_text[: len(line_text) - len(stripped)]
-
-            line_num = block.blockNumber()
-            col = qt_cursor.positionInBlock()
-
-            # Use shared helper to calculate indentation
-            indent_str = self._calculate_newline_indent(line_num, col, line_text, indent)
-            text_to_insert = "\n" + indent_str
-
-            qt_cursor.insertText(text_to_insert)
-            inserted_texts.append(text_to_insert)
-            original_cursors_list.append(cursor_state)
-
-        qt_cursor.endEditBlock()
-
-        # Use shared utility to adjust positions after edits
-        cursor_states = MultiCursorManager._adjust_positions_after_edits(
-            original_cursors_list, inserted_texts, primary_index
-        )
-        self.editor.multi_cursor_manager._set_all_cursors(cursor_states)
-
         return True

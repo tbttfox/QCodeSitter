@@ -20,7 +20,7 @@ from .tree_manager import TreeManager
 from .syntax_analyzer import SyntaxAnalyzer
 from .editor_options import EditorOptions
 from .selection_manager import SelectionManager
-from .multi_cursor_manager import MultiCursorManager
+from .multi_cursor_manager_new import MultiCursorManager
 from .cursor_interface import CursorInterface
 from .keymap_utils import hk
 from QtShortcutManager import ShortcutManager
@@ -57,6 +57,7 @@ class CodeEditor(QPlainTextEdit):
         self.options.optionsUpdated.connect(self.updateOptions)
         self.updateOptions(list(self.options.keys()))
         self.update_shortcuts()
+        # TODO: Figure out how to scroll so the last line can be at the top of the window
 
     def update_shortcuts(self):
         """Update the shortcut manager with all user-configurable shortcuts.
@@ -175,18 +176,39 @@ class CodeEditor(QPlainTextEdit):
         # Check intrinsic keymaps in behaviors (Tab, Return, Backspace, etc.)
         # These are NOT user-configurable shortcuts - they're fundamental editing behaviors
         # Behaviors can use self.editor.cursor to access the unified cursor interface
-        accepted = False
         for behavior in self._behaviors:
             if not isinstance(behavior, HasKeyPress):
                 continue
-            accepted = behavior.keyPressEvent(e, hotkey)
-            if accepted:
+            if behavior.keyPressEvent(e, hotkey):
                 return
 
         # User-configurable shortcuts are handled automatically by Qt's QAction system
         # (see update_shortcuts method where we create QActions for each shortcut)
 
         super().keyPressEvent(e)
+
+    def keyPressEvent2(self, e: QKeyEvent):
+        key = e.key()
+        modifiers = e.modifiers()
+        hotkey = hk(key, modifiers)
+
+        all_cursors, primary_index = self.multi_cursor_manager.get_all_cursors()
+        primary = all_cursors[primary_index]
+
+        cursor = self.textCursor()
+        for state in all_cursors:
+            state.apply(cursor)
+            handled = False
+            for behavior in self._behaviors:
+                if not isinstance(behavior, HasKeyPress):
+                    continue
+                if behavior.keyPressEvent(e, hotkey, cursor):
+                    handled = True
+                    break
+            if not handled:
+                self.multi_cursor_manager.handle_key_event(e, cursor)
+        primary.apply(cursor)
+        self.setTextCursor(cursor)
 
     def mousePressEvent(self, e: QMouseEvent):
         """Handle mouse press events"""
