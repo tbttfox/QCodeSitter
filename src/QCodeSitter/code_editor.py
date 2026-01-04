@@ -593,25 +593,37 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                 self.insert_text(" " * self.space_indent_width)
             return True
 
-        # Handle Return
         # Key_Enter is the numpad
         if key == KEY.Key_Return:
             self.insert_text("\n")
             return True
 
-        # Handle Copy (Ctrl+C)
         if key == KEY.Key_C and modifiers & ctrl:
             self.copy()
             return True
 
-        # Handle Paste (Ctrl+V)
+        if key == KEY.Key_Insert and modifiers & ctrl:
+            self.copy()
+            return True
+
         if key == KEY.Key_V and modifiers & ctrl:
             self.paste()
             return True
 
-        # Handle Cut (Ctrl+X)
+        if key == KEY.Key_Insert and modifiers & shift:
+            self.paste()
+            return True
+
         if key == KEY.Key_X and modifiers & ctrl:
             self.cut()
+            return True
+
+        if key == KEY.Key_Z and modifiers & ctrl:
+            self.undo()
+            return True
+
+        if key == KEY.Key_Y and modifiers & ctrl:
+            self.redo()
             return True
 
         return False
@@ -642,7 +654,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self._set_all_cursors(all_cursors)
 
     def insert_text(self, text: str, join_edit: bool = False):
-        print("INSERTING", repr(text))
         tlen = len16(text)
         for cursor, offset, is_primary in self.iterate_cursors(join_edit=join_edit):
             cursor.insertText(text)
@@ -820,9 +831,15 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         if not mimeData.hasFormat(MIME):
             self.insert_text(clipboard_text)
+            return
 
         copylen_text = bytes(mimeData.data(MIME)).decode()
         lens = list(map(int, copylen_text.split(",")))
+
+        # Check that the number of cursors and the number of paste lines matches
+        if len(self.secondary_cursors) + 1 != len(lens):
+            self.insert_text(clipboard_text)
+            return
 
         # Get how long we expect the text to be based on the copy
         # This is the copy lengths, plus all the separating newlines
