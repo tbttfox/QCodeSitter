@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
 NAME = "LineNumberArea"
 
+
 class LineNumberArea(QtWidgets.QWidget):
     """Handle the painting of a Line Number column"""
 
@@ -88,7 +89,6 @@ class LineNumberArea(QtWidgets.QWidget):
 
 
 class LineNumber(HasResize, Behavior):
-
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
         self.setListen({"font", "colors"})

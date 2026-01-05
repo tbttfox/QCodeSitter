@@ -50,6 +50,7 @@ class HasHotkeys:
 
     Do NOT use this for intrinsic editing behaviors like Tab, Return, Backspace, etc.
     """
+
     def getHotkeys(self) -> ShortcutSlotGroup:
         raise NotImplementedError("You must implement getHotkeys")
 
@@ -62,5 +63,6 @@ class HasPaint:
 
     The painter is provided by the editor and is already active on the viewport.
     """
+
     def paintEvent(self, event: QPaintEvent, painter) -> bool:
         raise NotImplementedError("You must implement the paintEvent")
