@@ -8,6 +8,7 @@ from Qt.QtGui import QFont
 from QCodeSitter.code_editor import CodeEditor
 # from QCodeSitter.behaviors.smart_indent import SmartIndent
 from QCodeSitter.behaviors.line_numbers import LineNumber
+from QCodeSitter.behaviors.overscroll import Overscroll
 # from QCodeSitter.behaviors.highlight_matching_brackets import HighlightMatchingBrackets
 # from QCodeSitter.behaviors.highlight_matching_selection import HighlightMatchingSelection
 # from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
@@ -47,13 +48,14 @@ _old, cmp_bh = edit.addBehavior(TabCompletion)
 cmp_bh.addProvider(IdentifierProvider)
 """
 
-#edit.addBehavior(SyntaxHighlighting)
-#edit.addBehavior(SmartIndent)
-#edit.addBehavior(HighlightMatchingBrackets)
-#edit.addBehavior(HighlightMatchingSelection)
+# edit.addBehavior(SyntaxHighlighting)
+# edit.addBehavior(SmartIndent)
+# edit.addBehavior(HighlightMatchingBrackets)
+# edit.addBehavior(HighlightMatchingSelection)
 edit.addBehavior(LineNumber)
-#edit.addBehavior(AutoBracket)
-#edit.addBehavior(CodeFolding)
+edit.addBehavior(Overscroll)
+# edit.addBehavior(AutoBracket)
+# edit.addBehavior(CoeFolding)
 
 win.setCentralWidget(edit)
 win.show()

@@ -7,6 +7,8 @@ if TYPE_CHECKING:
     from ..code_editor import CodeEditor
 
 
+NAME = "LineNumberArea"
+
 class LineNumberArea(QtWidgets.QWidget):
     """Handle the painting of a Line Number column"""
 
@@ -36,24 +38,16 @@ class LineNumberArea(QtWidgets.QWidget):
         return 10 + self.fontMetrics().horizontalAdvance("9") * digits
 
     def update_line_number_area_width(self):
-        # Check if code folding behavior exists and account for its width
-        # TODO: Come up with a way to uniformly interact with thegutter
-        folding_width = 0
-
-        """
-        from .code_folding import CodeFolding
-        folding_behavior = self.editor.getBehavior(CodeFolding)
-        if folding_behavior is not None:
-            folding_width = folding_behavior.folding_area.width_hint()
-        """
-
-        self.editor.setViewportMargins(
-            self.line_number_area_width() + folding_width, 0, 0, 0
-        )
+        # Preserve existing margins (especially bottom margin from Overscroll)
+        self.editor.gutterWidths[NAME] = self.line_number_area_width()
+        self.editor.updateGutter()
 
     def clear_line_number_area_width(self):
-        self.editor.setViewportMargins(0, 0, 0, 0)
+        # Preserve other margins when removing line numbers
+        self.editor.gutterWidths[NAME] = 0
+        self.editor.updateGutter()
 
+    @QtCore.Slot(QtCore.QRect, int)
     def update_line_number_area(self, rect: QtCore.QRect, dy: int):
         if dy:
             self.scroll(0, dy)
@@ -94,9 +88,14 @@ class LineNumberArea(QtWidgets.QWidget):
 
 
 class LineNumber(HasResize, Behavior):
+
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
         self.setListen({"font", "colors"})
+
+        self.editor.gutterWidths[NAME] = 0
+        self.editor.gutterOrder.append(NAME)
+
         self.line_number_area: LineNumberArea = LineNumberArea(
             self.editor,
             QtGui.QColor(150, 150, 150),
@@ -123,12 +122,21 @@ class LineNumber(HasResize, Behavior):
     def resizeEvent(self, e: QtGui.QResizeEvent):
         self.setLineGeo()
 
+    def line_number_area_offset(self):
+        left = 0
+        for name in self.editor.gutterOrder:
+            if name == NAME:
+                break
+            left += self.editor.gutterWidths[name]
+        return left
+
     def setLineGeo(self):
         """Handle resize events to update line number area geometry"""
         cr = self.editor.contentsRect()
+        left_off = self.line_number_area_offset()
         self.line_number_area.setGeometry(
             QtCore.QRect(
-                cr.left(),
+                cr.left() + left_off,
                 cr.top(),
                 self.line_number_area.line_number_area_width(),
                 cr.height(),

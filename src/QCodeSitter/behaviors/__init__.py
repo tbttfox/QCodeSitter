@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Collection, TYPE_CHECKING
-from Qt.QtGui import QKeyEvent, QResizeEvent
+from Qt.QtGui import QKeyEvent, QResizeEvent, QPaintEvent
 
 if TYPE_CHECKING:
     from QtShortcutManager import ShortcutSlotGroup
@@ -52,3 +52,15 @@ class HasHotkeys:
     """
     def getHotkeys(self) -> ShortcutSlotGroup:
         raise NotImplementedError("You must implement getHotkeys")
+
+
+class HasPaint:
+    """Interface for behaviors that need to customize paint events.
+
+    Use this interface for behaviors that need to draw custom content
+    in the editor viewport (e.g., overlays, backgrounds, decorations).
+
+    The painter is provided by the editor and is already active on the viewport.
+    """
+    def paintEvent(self, event: QPaintEvent, painter) -> bool:
+        raise NotImplementedError("You must implement the paintEvent")

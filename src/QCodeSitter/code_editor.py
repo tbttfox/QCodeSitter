@@ -10,7 +10,7 @@ from tree_sitter import Language
 
 from .constants import MIME
 from .utils import len16
-from .behaviors import Behavior, HasKeyPress, HasResize, HasHotkeys
+from .behaviors import Behavior, HasKeyPress, HasResize, HasHotkeys, HasPaint
 from .line_tracker import TrackedDocument
 from .tree_manager import TreeManager
 from .syntax_analyzer import SyntaxAnalyzer
@@ -88,41 +88,47 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         parent=None,
     ):
         super().__init__(parent=parent)
+        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
         self._doc: TrackedDocument = TrackedDocument()
+        self._clipboard_cursor_counts: list[int] = []
+        self._selections: dict[str, list[QtWidgets.QTextEdit.ExtraSelection]] = {}
+        self._behaviors: list[Behavior] = []
+        self._updatingMargins = False
+
+        self.gutterWidths: dict[str, int] = {}
+        self.gutterOrder: list[str] = []
+
         self.setDocument(self._doc)
-
         self.options = options
+        self.secondary_cursors: list[CursorState] = []
 
-        # Shortcut Manager (for user-configurable shortcuts)
         self.shortcut_manager = ShortcutManager()
 
         self.tree_manager: TreeManager
         self.syntax_analyzer: SyntaxAnalyzer
-
-        self.secondary_cursors: list[CursorState] = []
-        self.active: bool = False  # Multi-cursor mode enabled?
-        self._clipboard_cursor_counts: list[int] = []
 
         # TODO: Get this data from options
         self.space_indent_width: int = 4
         self.indent_using_tabs: bool = False
 
         # Visual appearance
-        self.primary_cursor_color = QtGui.QColor(
-            255, 255, 255, 255
-        )  # White, fully opaque
-        self.secondary_cursor_color = QtGui.QColor(180, 180, 180, 200)  # Dimmed gray
+        self.primary_cursor_color = QtGui.QColor(255, 255, 255, 255)
+        self.secondary_cursor_color = QtGui.QColor(180, 180, 180, 200)
 
-        # Keep track of my selections by source so I can (for instance) remove
-        # selections from bracket matching separately from selection highlighting
-        self._selections: dict[str, list[QtWidgets.QTextEdit.ExtraSelection]] = {}
-
-        self._behaviors: list[Behavior] = []
-
-        self.options.optionsUpdated.connect(self.updateOptions)
         self.updateOptions(list(self.options.keys()))
-        self.update_shortcuts()
-        # TODO: Figure out how to scroll so the last line can be at the top of the window
+
+    def updateGutter(self):
+        current_margins = self.viewportMargins()
+        current_margins.setLeft(sum(self.gutterWidths.values()))
+        self.setViewportMargins(current_margins)
+
+    def resizeEvent(self, e: QtGui.QResizeEvent):
+        """Handle resize events to update line number area geometry"""
+        super().resizeEvent(e)
+
+        for behavior in self._behaviors:
+            if isinstance(behavior, HasResize):
+                behavior.resizeEvent(e)
 
     def set_selections(
         self, source: str, selections: list[QtWidgets.QTextEdit.ExtraSelection]
@@ -272,13 +278,18 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.exit_multi_cursor_mode()
         super().mousePressEvent(e)
 
-    def resizeEvent(self, e: QtGui.QResizeEvent):
-        """Handle resize events to update line number area geometry"""
-        super().resizeEvent(e)
+    def paintEvent(self, e: QtGui.QPaintEvent):
+        """Handle paint events to allow behaviors to customize rendering"""
+        super().paintEvent(e)
 
-        for behavior in self._behaviors:
-            if isinstance(behavior, HasResize):
-                behavior.resizeEvent(e)
+        # Create a painter on the viewport for behaviors to use
+        painter = QtGui.QPainter(self.viewport())
+        try:
+            for behavior in self._behaviors:
+                if isinstance(behavior, HasPaint):
+                    behavior.paintEvent(e, painter)
+        finally:
+            painter.end()
 
     def getHotkeys(self) -> ShortcutSlotGroup:
         """Return user-configurable shortcuts for multi-cursor operations"""
@@ -352,7 +363,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         # Rest are secondary
         self.secondary_cursors = merged[1:]
-        self.active = len(self.secondary_cursors) > 0
 
         self._update_visual()
 
@@ -446,7 +456,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def exit_multi_cursor_mode(self):
         """Exit multi-cursor mode, keep only primary cursor"""
         self.secondary_cursors.clear()
-        self.active = False
         self.clear_selections("multi_cursor")
 
     def undo(self):
@@ -493,7 +502,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             # Add new secondary cursor at match
             new_cursor = CursorState(next_pos, next_pos + len(search_text))
             self.secondary_cursors.append(new_cursor)
-            self.active = True
             self._update_visual()
             return
 
@@ -502,7 +510,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         if next_pos >= 0 and next_pos < all_cursors[0].selectionStart():
             new_cursor = CursorState(next_pos, next_pos + len(search_text))
             self.secondary_cursors.append(new_cursor)
-            self.active = True
             self._update_visual()
 
     def _find_next(self, search_text: str, start_pos: int) -> int:
@@ -862,7 +869,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def add_cursor_above(self):
         """Add a new cursor on the line above the primary cursor (primary moves up, leaves cursor behind)"""
-        # Get current cursor position - use primary cursor if already active
+        # Get current cursor position - use primary cursor
         primary = self.get_primary_cursor()
         current_position = primary.position
 
@@ -890,7 +897,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def add_cursor_below(self):
         """Add a new cursor on the line below the primary cursor (primary moves down, leaves cursor behind)"""
-        # Get current cursor position - use primary cursor if already active
+        # Get current cursor position - use primary cursor
         primary = self.get_primary_cursor()
         current_position = primary.position
 
@@ -953,7 +960,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         # Enter multi-cursor mode with these cursors
         new_primary = cursors[0]
         self.secondary_cursors = cursors[1:]
-        self.active = True
         # Update the visual Qt cursor to the primary position
         self.set_primary_cursor(new_primary)
         self._render_cursors()
