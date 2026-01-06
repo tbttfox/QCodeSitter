@@ -1,10 +1,21 @@
 from __future__ import annotations
 from . import HasResize, HasPaint, HasKeyPress, Behavior
 from typing import TYPE_CHECKING
-from Qt import QtGui, QtCore
+from Qt import QtGui, QtCore, QtWidgets
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor
+
+    def __init__(self, document, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.document: QtGui.QTextDocument = document
+
+    def sliderChange(self, change: QtWidgets.QAbstractSlider.SliderChange):
+        if change == QtWidgets.QAbstractSlider.SliderChange.SliderRangeChange:
+            print("RANGE CHANGE-PRE", self.minimum(), self.maximum())
+        super().sliderChange(change)
+        if change == QtWidgets.QAbstractSlider.SliderChange.SliderRangeChange:
+            print("RANGE CHANGE-PO", self.minimum(), self.maximum())
 
 
 class Overscroll(HasPaint, HasKeyPress, Behavior):
@@ -23,6 +34,7 @@ class Overscroll(HasPaint, HasKeyPress, Behavior):
         self._prev_scroll = 0
         self._action_scroll = 0
         self._saved_scroll_value = 0
+        self._wasClamped = False
 
         self.editor.verticalScrollBar().actionTriggered.connect(self.slider_action)
         self.editor.verticalScrollBar().valueChanged.connect(self.track_scroll)
@@ -40,14 +52,56 @@ class Overscroll(HasPaint, HasKeyPress, Behavior):
         self._action_scroll = self.editor.verticalScrollBar().value()
 
     def track_scroll(self, value):
-        self._prev_scroll = self._cur_scroll
-        self._cur_scroll = value
+        #self._prev_scroll = self._cur_scroll
+        #self._cur_scroll = value
+
+        sb = self.editor.verticalScrollBar()
+        if value == sb.maximum() and self._cur_scroll > sb.maximum():
+            self._wasClamped = True
+        else:
+            self._wasClamped = False
+            self._cur_scroll = value
 
     def keyPressEvent(self, event) -> bool:
         saved_value = self.editor.verticalScrollBar().value()
         self._prev_scroll = saved_value
         self._cur_scroll = saved_value
         return False
+
+    def update_extra_scroll(self):
+        sb = self.editor.verticalScrollBar()
+        newmax = self.editor.document().blockCount() - 1
+        if sb.maximum() != newmax:
+            sb.setMaximum(newmax)
+
+    def on_range_changed(self):
+        """Handle range updates"""
+        # This is annoying. I need to figure out which scroll
+        # updates come from user input, and which come from Qt
+        # resetting the scroll bar
+        # The best I was able to come up with was to keep track
+        # of the current scroll, the previous scroll, and the
+        # scroll from actionTriggered
+        # And if the previous scroll was an actionTriggered
+        # value, then use the current scroll instead. There's
+        # probably an edge case somewhere but it's better than
+        # anything else I've done
+
+        sb = self.editor.verticalScrollBar()
+        maxslide = sb.maximum()
+        curval = sb.value()
+        saved_value = self._prev_scroll
+        if self._action_scroll == saved_value:
+            saved_value = self._cur_scroll
+
+        self.update_extra_scroll()
+
+        if curval == maxslide:
+            # If so, we *could* have been clamped
+            # otherwise we weren't clamped at all
+            sb.setValue(saved_value)
+            self._prev_scroll = saved_value
+            self._cur_scroll = saved_value
 
     def _colors(self, val):
         """Update colors when color options change"""
@@ -62,31 +116,6 @@ class Overscroll(HasPaint, HasKeyPress, Behavior):
         self.editor.viewport().update()
 
     colors = property(None, _colors)
-
-    def update_extra_scroll(self):
-        sb = self.editor.verticalScrollBar()
-        newmax = self.editor.document().blockCount() - 1
-        if sb.maximum() != newmax:
-            sb.setMaximum(newmax)
-
-    def on_range_changed(self):
-        """Handle range updates"""
-        # This is annoying. I need to figure out which scroll updates come from
-        # user input, and which come from Qt resetting the scroll bar
-        # The best I was able to come up with was to keep track of the current
-        # scroll, the previous scroll, and the scroll from actionTriggered
-        # And if the previous scroll was an actionTriggered value, then use
-        # the current scroll instead. There's probably an edge case somewhere
-        # but it's better than anything else I've done
-        # It MAY be possible to do this via subclassing a scrollbar
-        saved_value = self._prev_scroll
-        if self._action_scroll == saved_value:
-            saved_value = self._cur_scroll
-
-        self.update_extra_scroll()
-        self.editor.verticalScrollBar().setValue(saved_value)
-        self._prev_scroll = saved_value
-        self._cur_scroll = saved_value
 
     def paintEvent(self, e: QtGui.QPaintEvent, painter: QtGui.QPainter):
         doc = self.editor.document()
