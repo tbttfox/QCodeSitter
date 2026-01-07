@@ -62,7 +62,7 @@ class Overscroll(HasPaint, Behavior):
         else:
             # Default to 50% darker than main background
             bg_color = QtGui.QColor(val["bg"])
-            self._brush.setColor(bg_color.darker(10))
+            self._brush.setColor(bg_color.darker(120))
 
         # Trigger repaint
         self.editor.viewport().update()
