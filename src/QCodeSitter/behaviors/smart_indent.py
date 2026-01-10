@@ -52,14 +52,12 @@ class SmartIndent(HasKeyPress, Behavior):
     font = property(None, _font)
 
     def keyPressEvent(self, event: QKeyEvent):
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+        if event.key() == Qt.Key.Key_Return:
             self.smartNewline()
         elif event.key() == Qt.Key.Key_Tab:
             self.insertIndent()
         elif event.key() == Qt.Key.Key_Backtab:
             self.unindent()
-        elif event.key() == Qt.Key.Key_Return:
-            self.smartNewline()
         elif event.key() == Qt.Key.Key_Backspace:
             self.smartBackspace()
         else:
@@ -134,7 +132,6 @@ class SmartIndent(HasKeyPress, Behavior):
 
         # Check if we should add indent (opening block)
         saz = self.editor.syntax_analyzer
-
         if saz.should_indent_after_position(line_num, lookup_col):
             if self.indent_using_tabs:
                 extra_indent = "\t"
@@ -157,11 +154,20 @@ class SmartIndent(HasKeyPress, Behavior):
     def smartNewline(self):
         """Insert a newline with smart indentation based on tree-sitter parse tree"""
         citer = self.editor.citer
-        for cursor, _is_primary in citer.iterate_cursors():
+        # This depends on syntax analysis, so I want to figure out
+        # what to do before I edit and possibly break syntax
+
+        istrs = []
+        for cursor, _is_primary in citer.iterate_cursors(no_position_update=True):
+            if cursor.hasSelection():
+                cursor.setPosition(cursor.selectionStart())
+            istrs.append(self._get_newline_indent(cursor))
+
+        for i, (cursor, _is_primary) in enumerate(citer.iterate_cursors()):
             if cursor.hasSelection():
                 citer.update_offset(cursor.selectionStart() - cursor.selectionEnd())
                 cursor.removeSelectedText()
-            indent_str = self._get_newline_indent(cursor)
+            indent_str = istrs[i]
             cursor.insertText("\n" + indent_str)
             citer.update_offset(len16(indent_str) + 1)
             citer.cursor_completed()

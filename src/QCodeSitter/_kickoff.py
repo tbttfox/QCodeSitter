@@ -6,7 +6,7 @@ from Qt.QtWidgets import QMainWindow, QApplication
 from Qt.QtGui import QFont
 
 from QCodeSitter.code_editor import CodeEditor
-# from QCodeSitter.behaviors.smart_indent import SmartIndent
+from QCodeSitter.behaviors.smart_indent import SmartIndent
 from QCodeSitter.behaviors.line_numbers import LineNumber
 from QCodeSitter.behaviors.overscroll import Overscroll
 from QCodeSitter.behaviors.highlight_matching_selection import HighlightMatchingSelection
@@ -49,7 +49,7 @@ cmp_bh.addProvider(IdentifierProvider)
 """
 
 edit.addBehavior(SyntaxHighlighting)
-# edit.addBehavior(SmartIndent)
+edit.addBehavior(SmartIndent)
 # edit.addBehavior(HighlightMatchingBrackets)
 edit.addBehavior(HighlightMatchingSelection)
 edit.addBehavior(LineNumber)

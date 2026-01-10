@@ -82,6 +82,14 @@ class CursorState:
 
 
 class CursorIterator:
+    """A class to manage the key press event for multiple cursors
+    Each cursor can be completed separately from the others.
+
+    You can iterate over an instance of this class multiple times,
+    and it will keep track of all the cursors, and updating the
+    position of cursors as previous cursors in the list edit text
+    """
+
     def __init__(self, editor: CodeEditor):
         self.editor = editor
         self._multicursor_offset = 0
@@ -108,7 +116,9 @@ class CursorIterator:
         """
         self._cursor_completed = True
 
-    def iterate_cursors(self, join_edit: bool = False):
+    def iterate_cursors(
+        self, join_edit: bool = False, no_position_update: bool = False
+    ):
         """Iterate over all non-completed cursor states for editing in a single edit block"""
         # TODO: Figure out how to combine single insertions
 
@@ -132,7 +142,8 @@ class CursorIterator:
             self._cursor_completed = False
             is_primary = i == self._cursor_primary_idx
             yield qt_cursor, is_primary
-            state.update(qt_cursor)
+            if not no_position_update:
+                state.update(qt_cursor)
             self._cursor_cmp_list[i] = self._cursor_completed
             self.handled = True
 
@@ -864,7 +875,9 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.copy()
         for cursor, is_primary in self.citer.iterate_cursors():
             if cursor.hasSelection():
-                self.citer.update_offset(cursor.selectionStart() - cursor.selectionEnd())
+                self.citer.update_offset(
+                    cursor.selectionStart() - cursor.selectionEnd()
+                )
                 cursor.removeSelectedText()
             self.citer.cursor_completed()
 
