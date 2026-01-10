@@ -9,9 +9,9 @@ from QCodeSitter.code_editor import CodeEditor
 # from QCodeSitter.behaviors.smart_indent import SmartIndent
 from QCodeSitter.behaviors.line_numbers import LineNumber
 from QCodeSitter.behaviors.overscroll import Overscroll
+from QCodeSitter.behaviors.highlight_matching_selection import HighlightMatchingSelection
 # from QCodeSitter.behaviors.highlight_matching_brackets import HighlightMatchingBrackets
-# from QCodeSitter.behaviors.highlight_matching_selection import HighlightMatchingSelection
-# from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
+from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
 # from QCodeSitter.behaviors.auto_bracket import AutoBracket
 # from QCodeSitter.behaviors.tab_completion import TabCompletion
 # from QCodeSitter.behaviors.providers.identifiers import IdentifierProvider
@@ -48,10 +48,10 @@ _old, cmp_bh = edit.addBehavior(TabCompletion)
 cmp_bh.addProvider(IdentifierProvider)
 """
 
-# edit.addBehavior(SyntaxHighlighting)
+edit.addBehavior(SyntaxHighlighting)
 # edit.addBehavior(SmartIndent)
 # edit.addBehavior(HighlightMatchingBrackets)
-# edit.addBehavior(HighlightMatchingSelection)
+edit.addBehavior(HighlightMatchingSelection)
 edit.addBehavior(LineNumber)
 edit.addBehavior(Overscroll)
 # edit.addBehavior(AutoBracket)

@@ -81,6 +81,69 @@ class CursorState:
         return hash((self.anchor, self.position))
 
 
+class CursorIterator:
+    def __init__(self, editor: CodeEditor):
+        self.editor = editor
+        self._multicursor_offset = 0
+        self._cursor_completed = False
+        self._cursor_cmp_list: list[bool] = []
+        self._cursor_srt_list: list[CursorState] = []
+        self._cursor_primary_idx: int = 0
+        self.handled = False
+
+        cursors, primary_index = self.editor.get_all_cursors()
+        self._cursor_srt_list = cursors
+        self._cursor_cmp_list = [False] * len(cursors)
+        self._cursor_primary_idx = primary_index
+
+    def update_offset(self, val):
+        """Keep track of the position delta for the current cursor
+        Only useful inside an iterate_cursors loop
+        """
+        self._multicursor_offset += val
+
+    def cursor_completed(self):
+        """Mark the current cursor as completed
+        Only useful inside an iterate_cursors loop
+        """
+        self._cursor_completed = True
+
+    def iterate_cursors(self, join_edit: bool = False):
+        """Iterate over all non-completed cursor states for editing in a single edit block"""
+        # TODO: Figure out how to combine single insertions
+
+        qt_cursor = self.editor.textCursor()
+        if join_edit:
+            qt_cursor.joinPreviousEditBlock()
+        else:
+            qt_cursor.beginEditBlock()
+
+        self._multicursor_offset = 0
+        self.handled = False
+        for i, state in enumerate(self._cursor_srt_list):
+            # Always offset the cursors because a previous
+            # one may have edited the text
+            state.offset(self._multicursor_offset)
+            if self._cursor_cmp_list[i]:
+                # cursor is already completed
+                continue
+
+            state.apply(qt_cursor)
+            self._cursor_completed = False
+            is_primary = i == self._cursor_primary_idx
+            yield qt_cursor, is_primary
+            state.update(qt_cursor)
+            self._cursor_cmp_list[i] = self._cursor_completed
+            self.handled = True
+
+        qt_cursor.endEditBlock()
+        if self.handled:
+            all_cursors = self._cursor_srt_list[:]
+            primary_cursor = all_cursors.pop(self._cursor_primary_idx)
+            all_cursors.insert(0, primary_cursor)
+            self.editor._set_all_cursors(all_cursors)
+
+
 class CodeEditor(QtWidgets.QPlainTextEdit):
     def __init__(
         self,
@@ -94,6 +157,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self._selections: dict[str, list[QtWidgets.QTextEdit.ExtraSelection]] = {}
         self._behaviors: list[Behavior] = []
         self._updatingMargins = False
+        self.citer: CursorIterator
 
         self.gutterWidths: dict[str, int] = {}
         self.gutterOrder: list[str] = []
@@ -528,11 +592,11 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         return -1
 
     def keyPressEvent(self, e: QtGui.QKeyEvent):
+        self.citer = CursorIterator(self)
         for behavior in self._behaviors:
-            if not isinstance(behavior, HasKeyPress):
-                continue
-            if behavior.keyPressEvent(e):
-                return
+            if isinstance(behavior, HasKeyPress):
+                if behavior.keyPressEvent(e):
+                    return
 
         if self._handle_key_event(e):
             return
@@ -635,47 +699,22 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         return False
 
-    def iterate_cursors(self, join_edit=False):
-        """Iterate over all cursor states for editing in a single edit block"""
-        # TODO: Figure out how to combine single insertions
-        all_cursors, primary_index = self.get_all_cursors()
-
-        qt_cursor = self.textCursor()
-        if join_edit:
-            qt_cursor.joinPreviousEditBlock()
-        else:
-            qt_cursor.beginEditBlock()
-
-        offset = [0]
-        for i, state in enumerate(all_cursors):
-            state.offset(offset[0])
-            state.apply(qt_cursor)
-            is_primary = i == primary_index
-            yield qt_cursor, offset, is_primary
-            state.update(qt_cursor)
-
-        qt_cursor.endEditBlock()
-
-        primary_cursor = all_cursors.pop(primary_index)
-        all_cursors.insert(0, primary_cursor)
-        self._set_all_cursors(all_cursors)
-
     def insert_text(self, text: str, join_edit: bool = False):
         tlen = len16(text)
-        for cursor, offset, is_primary in self.iterate_cursors(join_edit=join_edit):
+        for cursor, is_primary in self.citer.iterate_cursors(join_edit=join_edit):
             cursor.insertText(text)
-            offset[0] += tlen
+            self.citer.update_offset(tlen)
+            self.citer.cursor_completed()
 
     def _delete_movement(self, movement: QtGui.QTextCursor.MoveOperation):
         """Delete based on a move operation at cursor at all positions"""
-        for cursor, offset, is_primary in self.iterate_cursors():
-            if cursor.hasSelection():
-                offset[0] -= cursor.selectionEnd() - cursor.selectionStart()
-                cursor.removeSelectedText()
-            else:
+        for cursor, is_primary in self.citer.iterate_cursors():
+            if not cursor.hasSelection():
                 cursor.movePosition(movement, QtGui.QTextCursor.MoveMode.KeepAnchor)
-                offset[0] -= abs(cursor.position() - cursor.anchor())
-                cursor.removeSelectedText()
+            self.citer.update_offset(cursor.selectionStart() - cursor.selectionEnd())
+            cursor.removeSelectedText()
+
+            self.citer.cursor_completed()
 
     def backspace(self):
         self._delete_movement(QtGui.QTextCursor.MoveOperation.PreviousCharacter)
@@ -823,10 +862,11 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def cut(self):
         """Cut text from all cursors to clipboard"""
         self.copy()
-        for cursor, offset, is_primary in self.iterate_cursors():
+        for cursor, is_primary in self.citer.iterate_cursors():
             if cursor.hasSelection():
-                offset[0] -= cursor.selectionEnd() - cursor.selectionStart()
+                self.citer.update_offset(cursor.selectionStart() - cursor.selectionEnd())
                 cursor.removeSelectedText()
+            self.citer.cursor_completed()
 
     def paste(self):
         """Paste clipboard text at all cursor positions"""
@@ -861,11 +901,11 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             lines.append(clipboard_text[ptr : ptr + el])
             ptr += el + 1  # skip the newlines
 
-        for i, (cursor, offset, is_primary) in enumerate(self.iterate_cursors()):
+        for i, (cursor, is_primary) in enumerate(self.citer.iterate_cursors()):
             line = lines[i]
             cursor.insertText(line)
-            tlen = len16(line)
-            offset[0] += tlen
+            self.citer.update_offset(len16(line))
+            self.citer.cursor_completed()
 
     def add_cursor_above(self):
         """Add a new cursor on the line above the primary cursor (primary moves up, leaves cursor behind)"""
