@@ -643,6 +643,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         # Handle special keys
         if key == KEY.Key_Backspace:
             if modifiers & ctrl:
+                # FIXME: Bug in this when the cursor is at the end of the document
                 self.delete_word_backward()
             else:
                 self.backspace()

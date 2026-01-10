@@ -1,10 +1,11 @@
 from __future__ import annotations
-from . import HasKeyPress, Behavior
-from ..utils import dedent_string, len16
 from typing import TYPE_CHECKING
 from Qt.QtWidgets import QAction
 from Qt.QtGui import QFontMetrics, QTextCursor, QFont, QKeyEvent
 from Qt.QtCore import Qt
+
+from . import HasKeyPress, Behavior
+from ..utils import dedent_string, len16
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor
