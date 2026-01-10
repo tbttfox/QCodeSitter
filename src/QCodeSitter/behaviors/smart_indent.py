@@ -154,10 +154,10 @@ class SmartIndent(HasKeyPress, Behavior):
 
     def smartNewline(self):
         """Insert a newline with smart indentation based on tree-sitter parse tree"""
-        citer = self.editor.citer
         # This depends on syntax analysis, so I want to figure out
         # what to do before I edit and possibly break syntax
 
+        citer = self.editor.citer
         istrs = []
         for cursor, _is_primary in citer.iterate_cursors(no_position_update=True):
             if cursor.hasSelection():
