@@ -156,6 +156,8 @@ class CursorIterator:
 
 
 class CodeEditor(QtWidgets.QPlainTextEdit):
+    gutterResize = QtCore.Signal()
+
     def __init__(
         self,
         options: EditorOptions,
@@ -204,6 +206,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         for behavior in self._behaviors:
             if isinstance(behavior, HasResize):
                 behavior.resizeEvent(e)
+
+        self.gutterResize.emit()
 
     def set_selections(
         self, source: str, selections: list[QtWidgets.QTextEdit.ExtraSelection]

@@ -1,63 +1,32 @@
 from __future__ import annotations
-from . import HasResize, Behavior
+from . import Behavior
 from typing import TYPE_CHECKING
-from Qt import QtGui, QtCore, QtWidgets
+from Qt import QtGui, QtCore
+from ..gutter_widget import GutterWidget
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor
 
 
-NAME = "LineNumberArea"
-
-
-class LineNumberArea(QtWidgets.QWidget):
-    """Handle the painting of a Line Number column"""
-
-    # TODO: relative line numbers
+class LineNumberArea(GutterWidget):
     def __init__(self, editor: CodeEditor, fg: QtGui.QColor, bg: QtGui.QColor):
-        super().__init__(editor)
-        self.editor: CodeEditor = editor
+        super().__init__("LineNumberArea", editor)
         self.line_area_bg_color = bg
         self.line_area_fg_color = fg
 
-        self.editor.blockCountChanged.connect(self.update_line_number_area_width)
-        self.editor.updateRequest.connect(self.update_line_number_area)
-        self.update_line_number_area_width()
+        self.editor.blockCountChanged.connect(self.update_width)
+        self.editor.updateRequest.connect(self.update_gutter)
+        self.update_width()
 
     def setColors(self, fg: QtGui.QColor, bg: QtGui.QColor):
         self.line_area_fg_color = fg
         self.line_area_bg_color = bg
 
-    def sizeHint(self):
-        return QtCore.QSize(self.line_number_area_width(), 0)
-
-    def paintEvent(self, event: QtGui.QPaintEvent):
-        self.line_number_area_paint_event(event)
-
-    def line_number_area_width(self):
+    def width_hint(self):
         digits = len(str(max(1, self.editor.blockCount())))
         return 10 + self.fontMetrics().horizontalAdvance("9") * digits
 
-    def update_line_number_area_width(self):
-        # Preserve existing margins (especially bottom margin from Overscroll)
-        self.editor.gutterWidths[NAME] = self.line_number_area_width()
-        self.editor.updateGutter()
-
-    def clear_line_number_area_width(self):
-        # Preserve other margins when removing line numbers
-        self.editor.gutterWidths[NAME] = 0
-        self.editor.updateGutter()
-
-    @QtCore.Slot(QtCore.QRect, int)
-    def update_line_number_area(self, rect: QtCore.QRect, dy: int):
-        if dy:
-            self.scroll(0, dy)
-        else:
-            self.update(0, rect.y(), self.width(), rect.height())
-        if rect.contains(self.editor.viewport().rect()):
-            self.update_line_number_area_width()
-
-    def line_number_area_paint_event(self, event: QtGui.QPaintEvent):
+    def paintEvent(self, event: QtGui.QPaintEvent):
         painter = QtGui.QPainter(self)
         painter.fillRect(event.rect(), self.line_area_bg_color)
 
@@ -88,22 +57,20 @@ class LineNumberArea(QtWidgets.QWidget):
             block_number += 1
 
 
-class LineNumber(HasResize, Behavior):
+class LineNumber(Behavior):
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
         self.setListen({"font", "colors"})
-
-        self.editor.gutterWidths[NAME] = 0
-        self.editor.gutterOrder.append(NAME)
 
         self.line_number_area: LineNumberArea = LineNumberArea(
             self.editor,
             QtGui.QColor(150, 150, 150),
             QtGui.QColor(40, 40, 40),
         )
+
         if editor.isVisible() and not self.line_number_area.isVisible():
             self.line_number_area.setVisible(True)
-            self.setLineGeo()
+            self.line_number_area.set_gutter_geo()
 
         self.updateAll()
 
@@ -119,31 +86,7 @@ class LineNumber(HasResize, Behavior):
 
     colors = property(None, _colors)
 
-    def resizeEvent(self, e: QtGui.QResizeEvent):
-        self.setLineGeo()
-
-    def line_number_area_offset(self):
-        left = 0
-        for name in self.editor.gutterOrder:
-            if name == NAME:
-                break
-            left += self.editor.gutterWidths[name]
-        return left
-
-    def setLineGeo(self):
-        """Handle resize events to update line number area geometry"""
-        cr = self.editor.contentsRect()
-        left_off = self.line_number_area_offset()
-        self.line_number_area.setGeometry(
-            QtCore.QRect(
-                cr.left() + left_off,
-                cr.top(),
-                self.line_number_area.line_number_area_width(),
-                cr.height(),
-            )
-        )
-
     def remove(self):
-        self.line_number_area.clear_line_number_area_width()
+        self.line_number_area.clear_width()
         self.line_number_area.deleteLater()
         self.line_number_area = None  # type: ignore

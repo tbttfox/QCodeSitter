@@ -237,7 +237,6 @@ class AutoBracket(HasKeyPress, Behavior):
         for cursor, _is_primary in citer.iterate_cursors():
             cursor.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
             text = cursor.selectedText()
-            print(f"WhatsNext: {text}")
             if text == open_char:
                 cursor.setPosition(cursor.position())
                 citer.cursor_completed()
