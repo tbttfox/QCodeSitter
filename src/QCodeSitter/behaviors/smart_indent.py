@@ -10,12 +10,16 @@ from ..utils import dedent_string, len16
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor
 
+MOP = QTextCursor.MoveOperation
+MOM = QTextCursor.MoveMode
 
 class SmartIndent(HasKeyPress, Behavior):
     def __init__(self, editor: CodeEditor):
         self.space_indent_width: int = 4
         self._tab_indent_width: int = 4
         self.indent_using_tabs: bool = False
+        self.indent_bracket_pairs: list[str] = ["()", "{}", "[]"]
+
         super().__init__(
             editor,
         )
@@ -24,7 +28,13 @@ class SmartIndent(HasKeyPress, Behavior):
         self.uiRetabAction.triggered.connect(self.retab)
 
         self.setListen(
-            {"space_indent_width", "tab_indent_width", "indent_using_tabs", "font"}
+            {
+                "space_indent_width",
+                "tab_indent_width",
+                "indent_using_tabs",
+                "indent_bracket_pairs",
+                "font",
+            }
         )
         self.updateAll()
 
@@ -82,7 +92,12 @@ class SmartIndent(HasKeyPress, Behavior):
         cursor.setPosition(end, QTextCursor.KeepAnchor)
         cursor.movePosition(QTextCursor.EndOfLine, QTextCursor.KeepAnchor)
 
-    def _get_newline_indent(self, cursor: QTextCursor) -> str:
+    def _get_one_indent(self):
+        if self.indent_using_tabs:
+            return "\t"
+        return " " * self.space_indent_width
+
+    def _get_newline_indent(self, cursor: QTextCursor) -> tuple[str, int]:
         """Calculate the indentation string to insert after a newline.
 
         This is a pure calculation function with no side effects - it just determines
@@ -111,7 +126,7 @@ class SmartIndent(HasKeyPress, Behavior):
 
         # Special case: if the current line is empty/whitespace-only, just copy the indentation
         if stripped == "":
-            return indent
+            return indent, 0
 
         # Special case: if cursor is at the beginning of the line
         if col == 0:
@@ -120,37 +135,39 @@ class SmartIndent(HasKeyPress, Behavior):
             if prev_block.isValid():
                 prev_text = prev_block.text()
                 prev_stripped = prev_text.lstrip()
-                return prev_text[: len(prev_text) - len(prev_stripped)]
+                return prev_text[: len(prev_text) - len(prev_stripped)], 0
             else:
-                return ""
+                return "", 0
+
+        # Special case: If the cursor is between two brackets
+        # self.indent_bracket_pairs: str = "(){}[]"
+        tmp = QTextCursor(cursor)
+        tmp.movePosition(MOP.Left, MOM.MoveAnchor, 1)
+        tmp.movePosition(MOP.Right, MOM.KeepAnchor, 2)
+        wrap = tmp.selectedText()
+        if wrap in self.indent_bracket_pairs:
+            extra_indent = self._get_one_indent()
+            return indent + extra_indent + "\n" + indent, -(len(indent) + 1)
 
         # Look at the position just before the cursor to find the statement we just finished
         lookup_col = max(0, col - 1) if col > 0 else 0
 
         # Determine indent action based on syntax analysis
-        extra_indent = ""
-        dedent = False
+        saz = self.editor.syntax_analyzer
 
         # Check if we should add indent (opening block)
-        saz = self.editor.syntax_analyzer
+        extra_indent = ""
+        dedent = False
         if saz.should_indent_after_position(line_num, lookup_col):
-            if self.indent_using_tabs:
-                extra_indent = "\t"
-            else:
-                extra_indent = " " * self.space_indent_width
+            extra_indent = self._get_one_indent()
 
         # Check if we should dedent (closing block or return statement)
         elif saz.should_dedent_after_position(line_num, lookup_col, line_text):
-            dedent = True
-
-        # Apply dedent if needed
-        final_indent = indent
-        if dedent:
-            final_indent = dedent_string(
+            indent = dedent_string(
                 indent, self.indent_using_tabs, self.space_indent_width
             )
 
-        return final_indent + extra_indent
+        return indent + extra_indent, 0
 
     def smartNewline(self):
         """Insert a newline with smart indentation based on tree-sitter parse tree"""
@@ -168,8 +185,12 @@ class SmartIndent(HasKeyPress, Behavior):
             if cursor.hasSelection():
                 citer.update_offset(cursor.selectionStart() - cursor.selectionEnd())
                 cursor.removeSelectedText()
-            indent_str = istrs[i]
+            indent_str, move = istrs[i]
             cursor.insertText("\n" + indent_str)
+            if move < 0:
+                cursor.movePosition(MOP.Left, MOM.MoveAnchor, -move)
+            elif move > 0:
+                cursor.movePosition(MOP.Right, MOM.MoveAnchor, move)
             citer.update_offset(len16(indent_str) + 1)
             citer.cursor_completed()
 

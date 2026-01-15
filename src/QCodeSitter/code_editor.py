@@ -15,6 +15,7 @@ from .line_tracker import TrackedDocument
 from .tree_manager import TreeManager
 from .syntax_analyzer import SyntaxAnalyzer
 from .editor_options import EditorOptions
+from .tracked_cursor import TrackedCursor
 
 from QtShortcutManager import ShortcutManager, ShortcutSlot, ShortcutSlotGroup
 
@@ -193,6 +194,18 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.secondary_cursor_color = QtGui.QColor(180, 180, 180, 200)
 
         self.updateOptions(list(self.options.keys()))
+
+        self._tracked_cursor = TrackedCursor(self._doc, super().textCursor())
+        super().setTextCursor(self._tracked_cursor)
+
+    def textCursor(self) -> TrackedCursor:
+        return self._tracked_cursor
+
+    def setTextCursor(self, cursor: TrackedCursor):
+        if not isinstance(cursor, TrackedCursor):
+            raise ValueError("The cursor for a CodeEditor MUST be a TrackedCursor")
+        self._tracked_cursor = cursor
+        super().setTextCursor(cursor)
 
     def updateGutter(self):
         current_margins = self.viewportMargins()
@@ -607,17 +620,23 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         return -1
 
     def keyPressEvent(self, e: QtGui.QKeyEvent):
-        self.citer = CursorIterator(self)
-        for behavior in self._behaviors:
-            if isinstance(behavior, HasKeyPress):
-                if behavior.keyPressEvent(e):
-                    return
+        self.tree_manager.pause()
+        try:
+            self.citer = CursorIterator(self)
+            for behavior in self._behaviors:
+                if isinstance(behavior, HasKeyPress):
+                    if behavior.keyPressEvent(e):
+                        self.tree_manager.unpause()
+                        return
 
-        if self._handle_key_event(e):
-            return
+            if self._handle_key_event(e):
+                self.tree_manager.unpause()
+                return
 
-        # I think this is required to handle the rest of the hotkeys
-        super().keyPressEvent(e)
+            # I think this is required to handle the rest of the hotkeys
+            super().keyPressEvent(e)
+        finally:
+            self.tree_manager.unpause()
 
     def _handle_key_event(self, event: QtGui.QKeyEvent) -> bool:
         """Handle key events for multi-cursor mode

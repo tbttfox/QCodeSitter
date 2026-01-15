@@ -8,6 +8,7 @@ from Qt.QtGui import (
     QTextDocument,
 )
 from tree_sitter import Point
+from .constants import ENC
 
 
 class TrackedDocument(QTextDocument):
@@ -103,6 +104,7 @@ class TrackedDocument(QTextDocument):
             chars_removed: Number of UTF-16 code units removed
             chars_added: Number of UTF-16 code units added
         """
+        return
         # Note: Don't skip when document is empty after deletion - tree still needs update
         if self.isEmpty() and chars_added == 0:
             # Document is now empty and nothing was added, just signal empty tree
@@ -139,4 +141,49 @@ class TrackedDocument(QTextDocument):
             Point(start_line, (position - start_block.position()) * 2),
             Point(old_end_line + 1, 0),
             Point(start_line + 1, 0),
+        )
+
+    def manual_contents_change(
+        self, position: int, bytes_removed: bytes, bytes_added: bytes
+    ):
+        """Handle document content changes incrementally.
+
+        Emits a byteContentsChange Signal containing this data:
+            start byte index
+            old end byte index
+            new end byte index
+            start Point
+            old end Point
+            new end Point
+
+        Args:
+            position: UTF-16 code unit position where change occurred
+            bytes_removed: The bytestring removed from the document if any
+            bytes_added: The bytestring added to the document if any
+        """
+        start_block = self.findBlock(position)
+        start_line = start_block.blockNumber()
+        bytenewline = "\n".encode(ENC)
+
+        lines_removed = bytes_removed.count(bytenewline)
+        lines_added = bytes_added.count(bytenewline)
+
+        pos_in_block = position - start_block.position()
+        if lines_removed == 0:
+            old_end_pib = (pos_in_block * 2) + len(bytes_removed)
+        else:
+            old_end_pib = len(bytes_removed.rsplit(bytenewline)[-1])
+
+        if lines_added == 0:
+            new_end_pib = (pos_in_block * 2) + len(bytes_added)
+        else:
+            new_end_pib = len(bytes_added.rsplit(bytenewline)[-1])
+
+        self.byteContentsChange.emit(
+            position * 2,
+            position * 2 + len(bytes_removed),
+            position * 2 + len(bytes_added),
+            Point(start_line, pos_in_block * 2),
+            Point(start_line + lines_removed, old_end_pib),
+            Point(start_line + lines_added, new_end_pib),
         )

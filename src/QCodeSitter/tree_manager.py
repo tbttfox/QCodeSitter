@@ -33,6 +33,8 @@ class TreeManager:
         self.tree: Optional[Tree] = None
         self._source_callback = self.treesitter_source_callback
         self._ts_prediction: dict[int, QtGui.QTextBlock] = {}
+        self._paused = False
+        self._pause_edit = False
 
     def treesitter_source_callback(self, _byte_offset: int, ts_point: Point) -> bytes:
         """Provide source bytes to tree-sitter parser
@@ -78,6 +80,17 @@ class TreeManager:
     def fullUpdate(self):
         self.tree = self.parser.parse(self._source_callback, encoding="utf16")
 
+    def pause(self):
+        self._paused = True
+        self._pause_edit = False
+
+    def unpause(self):
+        if not self._paused:
+            return
+        self._paused = False
+        if self._pause_edit:
+            self.reparse()
+
     def update(
         self,
         start_byte: int,
@@ -97,7 +110,6 @@ class TreeManager:
             old_end_point: (row, column) where the change ended (before change)
             new_end_point: (row, column) where the change ends (after change)
         """
-        old_tree = self.tree
         if self.tree is not None:
             self.tree.edit(
                 start_byte=start_byte,
@@ -107,6 +119,15 @@ class TreeManager:
                 old_end_point=old_end_point,
                 new_end_point=new_end_point,
             )
+        return self.reparse()
+
+    def reparse(self) -> Optional[Tree]:
+        if self._paused:
+            self._pause_edit = True
+            return self.tree
+
+        old_tree = self.tree
+        if self.tree is not None:
             self.tree = self.parser.parse(
                 self._source_callback, self.tree, encoding="utf16"
             )
