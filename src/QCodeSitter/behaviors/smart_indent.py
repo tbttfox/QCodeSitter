@@ -176,12 +176,12 @@ class SmartIndent(HasKeyPress, Behavior):
 
         citer = self.editor.citer
         istrs = []
-        for cursor, _is_primary in citer.iterate_cursors(no_position_update=True):
+        for cursor in citer.iterate_cursors(no_position_update=True):
             if cursor.hasSelection():
                 cursor.setPosition(cursor.selectionStart())
             istrs.append(self._get_newline_indent(cursor))
 
-        for i, (cursor, _is_primary) in enumerate(citer.iterate_cursors()):
+        for i, cursor in enumerate(citer.iterate_cursors()):
             if cursor.hasSelection():
                 citer.update_offset(cursor.selectionStart() - cursor.selectionEnd())
                 cursor.removeSelectedText()
@@ -197,7 +197,7 @@ class SmartIndent(HasKeyPress, Behavior):
     def insertIndent(self):
         """Indent at the given cursor, either a single line or all the lines in a selection"""
         citer = self.editor.citer
-        for cursor, _is_primary in citer.iterate_cursors():
+        for cursor in citer.iterate_cursors():
             if not cursor.hasSelection():
                 if self.indent_using_tabs:
                     indent = "\t"
@@ -238,7 +238,7 @@ class SmartIndent(HasKeyPress, Behavior):
     def unindent(self):
         """Unindent the given cursor, either a single line or all the lines in a selection"""
         citer = self.editor.citer
-        for cursor, _is_primary in citer.iterate_cursors():
+        for cursor in citer.iterate_cursors():
             self.expandCursorToLines(cursor)
             start_pos = cursor.selectionStart()
             end_pos = cursor.selectionEnd()
@@ -270,7 +270,7 @@ class SmartIndent(HasKeyPress, Behavior):
         if self.indent_using_tabs:
             return
         citer = self.editor.citer
-        for cursor, _is_primary in citer.iterate_cursors():
+        for cursor in citer.iterate_cursors():
             if cursor.hasSelection():
                 continue
             col = cursor.positionInBlock()
@@ -303,7 +303,7 @@ class SmartIndent(HasKeyPress, Behavior):
             bracket: The closing bracket character (']', ')', or '}')
         """
         citer = self.editor.citer
-        for cursor, _is_primary in citer.iterate_cursors():
+        for cursor in citer.iterate_cursors():
             if cursor.hasSelection():
                 citer.update_offset(cursor.selectionStart() - cursor.selectionEnd())
                 cursor.removeSelectedText()

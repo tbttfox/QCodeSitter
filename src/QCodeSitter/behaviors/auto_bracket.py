@@ -64,7 +64,7 @@ class AutoBracket(HasKeyPress, Behavior):
 
     def delete_pair(self):
         citer = self.editor.citer
-        for cursor, _is_primary in citer.iterate_cursors():
+        for cursor in citer.iterate_cursors():
             if cursor.hasSelection():
                 continue
 
@@ -188,7 +188,7 @@ class AutoBracket(HasKeyPress, Behavior):
         """
         close_char = self.pairs[open_char]
         citer = self.editor.citer
-        for cursor, _is_primary in citer.iterate_cursors():
+        for cursor in citer.iterate_cursors():
             # Check if there's a selection - if so, wrap it
             if cursor.hasSelection():
                 selected_text = cursor.selectedText()
@@ -234,7 +234,7 @@ class AutoBracket(HasKeyPress, Behavior):
         """Skip over a closing character if it's already there"""
 
         citer = self.editor.citer
-        for cursor, _is_primary in citer.iterate_cursors():
+        for cursor in citer.iterate_cursors():
             cursor.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
             text = cursor.selectedText()
             if text == open_char:

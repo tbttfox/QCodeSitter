@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from Qt import QtGui
 from Qt import QtCore
 from Qt import QtWidgets
+from Qt import QtCompat
 
 from tree_sitter import Language
 
@@ -19,8 +20,12 @@ from .tracked_cursor import TrackedCursor
 
 from QtShortcutManager import ShortcutManager, ShortcutSlot, ShortcutSlotGroup
 
-
 T_Behavior = TypeVar("T_Behavior", bound=Behavior)
+
+MM = QtGui.QTextCursor.MoveMode
+MO = QtGui.QTextCursor.MoveOperation
+KEY = QtCore.Qt.Key
+MOD = QtCore.Qt.KeyboardModifier
 
 
 @dataclass
@@ -34,8 +39,8 @@ class CursorState:
     def fromQt(cls, cursor: QtGui.QTextCursor) -> CursorState:
         return cls(cursor.anchor(), cursor.position())
 
-    def setPosition(self, val: int, moveMode=QtGui.QTextCursor.MoveMode.MoveAnchor):
-        if moveMode == QtGui.QTextCursor.MoveMode.MoveAnchor:
+    def setPosition(self, val: int, moveMode=MM.MoveAnchor):
+        if moveMode == MM.MoveAnchor:
             self.anchor = val
         self.position = val
 
@@ -54,7 +59,7 @@ class CursorState:
     def apply(self, cursor: QtGui.QTextCursor) -> QtGui.QTextCursor:
         """Apply this state to a QtGui.QTextCursor"""
         cursor.setPosition(self.anchor)
-        cursor.setPosition(self.position, QtGui.QTextCursor.MoveMode.KeepAnchor)
+        cursor.setPosition(self.position, MM.KeepAnchor)
         return cursor
 
     def update(self, cursor: QtGui.QTextCursor):
@@ -70,7 +75,7 @@ class CursorState:
         """Build a cursor for a given document"""
         cursor = QtGui.QTextCursor(document)
         cursor.setPosition(self.anchor)
-        cursor.setPosition(self.position, QtGui.QTextCursor.MoveMode.KeepAnchor)
+        cursor.setPosition(self.position, MM.KeepAnchor)
         return cursor
 
     def __eq__(self, other) -> bool:
@@ -141,8 +146,7 @@ class CursorIterator:
 
             state.apply(qt_cursor)
             self._cursor_completed = False
-            is_primary = i == self._cursor_primary_idx
-            yield qt_cursor, is_primary
+            yield qt_cursor
             if not no_position_update:
                 state.update(qt_cursor)
             self._cursor_cmp_list[i] = self._cursor_completed
@@ -195,17 +199,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         self.updateOptions(list(self.options.keys()))
 
-        self._tracked_cursor = TrackedCursor(self._doc, super().textCursor())
-        super().setTextCursor(self._tracked_cursor)
-
     def textCursor(self) -> TrackedCursor:
-        return self._tracked_cursor
-
-    def setTextCursor(self, cursor: TrackedCursor):
-        if not isinstance(cursor, TrackedCursor):
-            raise ValueError("The cursor for a CodeEditor MUST be a TrackedCursor")
-        self._tracked_cursor = cursor
-        super().setTextCursor(cursor)
+        return TrackedCursor(self._doc, super().textCursor())
 
     def updateGutter(self):
         current_margins = self.viewportMargins()
@@ -523,15 +518,13 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                 if selstate.position < max_pos - 1:
                     # Select next character
                     selstate.setPosition(selstate.position)
-                    selstate.setPosition(
-                        selstate.position + 1, QtGui.QTextCursor.MoveMode.KeepAnchor
-                    )
+                    selstate.setPosition(selstate.position + 1, MM.KeepAnchor)
                 elif selstate.position > 0 and selstate.position <= max_pos:
                     # At end - select previous character
                     selstate.setPosition(selstate.position - 1)
                     selstate.setPosition(
                         min(selstate.position, max_pos),
-                        QtGui.QTextCursor.MoveMode.KeepAnchor,
+                        MM.KeepAnchor,
                     )
 
                 selection.cursor = selstate.build_cursor(doc)
@@ -643,7 +636,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         Returns True if the event was handled, False otherwise
         """
-        KEY = QtCore.Qt.Key
         nomod = QtCore.Qt.KeyboardModifier.NoModifier
         shift = QtCore.Qt.KeyboardModifier.ShiftModifier
         ctrl = QtCore.Qt.KeyboardModifier.ControlModifier
@@ -662,6 +654,10 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         if text and text.isprintable() and modifiers in (nomod, shift):
             self.insert_text(text)
             return True
+
+        if key == KEY.Key_A and modifiers == ctrl:
+            self.exit_multi_cursor_mode()
+            return False
 
         # Handle special keys
         if key == KEY.Key_Backspace:
@@ -736,19 +732,18 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def insert_text(self, text: str, join_edit: bool = False):
         tlen = len16(text)
-        for cursor, is_primary in self.citer.iterate_cursors(join_edit=join_edit):
+        for cursor in self.citer.iterate_cursors(join_edit=join_edit):
             cursor.insertText(text)
             self.citer.update_offset(tlen)
             self.citer.cursor_completed()
 
     def _delete_movement(self, movement: QtGui.QTextCursor.MoveOperation):
         """Delete based on a move operation at cursor at all positions"""
-        for cursor, is_primary in self.citer.iterate_cursors():
+        for cursor in self.citer.iterate_cursors():
             if not cursor.hasSelection():
-                cursor.movePosition(movement, QtGui.QTextCursor.MoveMode.KeepAnchor)
+                cursor.movePosition(movement, MM.KeepAnchor)
             self.citer.update_offset(cursor.selectionStart() - cursor.selectionEnd())
             cursor.removeSelectedText()
-
             self.citer.cursor_completed()
 
     def backspace(self):
@@ -766,12 +761,9 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def _smart_home(
         self, qt_cursor: QtGui.QTextCursor, state: CursorState, select: bool
     ) -> CursorState:
-        MOVE = QtGui.QTextCursor.MoveOperation
-        MODE = QtGui.QTextCursor.MoveMode
-
-        qt_cursor.movePosition(MOVE.StartOfBlock, MODE.MoveAnchor)
+        qt_cursor.movePosition(MO.StartOfBlock, MM.MoveAnchor)
         line_start_pos = qt_cursor.position()
-        qt_cursor.movePosition(MOVE.EndOfBlock, MODE.KeepAnchor)
+        qt_cursor.movePosition(MO.EndOfBlock, MM.KeepAnchor)
         line_text = qt_cursor.selectedText()
 
         # Find first non-whitespace character
@@ -781,7 +773,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         # Reset cursor to original position
         qt_cursor.setPosition(state.anchor)
         if select or state.hasSelection():
-            qt_cursor.setPosition(state.position, MODE.KeepAnchor)
+            qt_cursor.setPosition(state.position, MM.KeepAnchor)
         else:
             qt_cursor.setPosition(state.position)
 
@@ -795,7 +787,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             target_pos = first_non_ws_pos
 
         # Move to target
-        mode = MODE.KeepAnchor if select else MODE.MoveAnchor
+        mode = MM.KeepAnchor if select else MM.MoveAnchor
         qt_cursor.setPosition(target_pos, mode)
         return CursorState(qt_cursor.anchor(), qt_cursor.position())
 
@@ -812,10 +804,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             select: If True, extend selection (Shift+arrow)
             word_mode: If True, move by word (Ctrl+arrow) or document start/end for home/end
         """
-        MOVE = QtGui.QTextCursor.MoveOperation
-        MODE = QtGui.QTextCursor.MoveMode
-        KEY = QtCore.Qt.Key
-
         if direction not in [
             KEY.Key_Left,
             KEY.Key_Right,
@@ -826,7 +814,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         ]:
             return False
 
-        mode = MODE.KeepAnchor if select else MODE.MoveAnchor
+        mode = MM.KeepAnchor if select else MM.MoveAnchor
 
         cursors, _primary_index = self.get_all_cursors()
 
@@ -834,16 +822,16 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         for state in cursors:
             # Determine move operation
             if direction == KEY.Key_Left:
-                move_op = MOVE.WordLeft if word_mode else MOVE.Left
+                move_op = MO.WordLeft if word_mode else MO.Left
             elif direction == KEY.Key_Right:
-                move_op = MOVE.WordRight if word_mode else MOVE.Right
+                move_op = MO.WordRight if word_mode else MO.Right
             elif direction == KEY.Key_Up:
-                move_op = MOVE.Up
+                move_op = MO.Up
             elif direction == KEY.Key_Down:
-                move_op = MOVE.Down
+                move_op = MO.Down
             elif direction == KEY.Key_Home:
                 if word_mode:
-                    move_op = MOVE.Start
+                    move_op = MO.Start
                 else:
                     # Smart Home: toggle between first non-whitespace and column 0
                     qt_cursor = QtGui.QTextCursor(self.document())
@@ -851,7 +839,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                     new_cursors.append(self._smart_home(qt_cursor, state, select))
                     continue
             elif direction == KEY.Key_End:
-                move_op = MOVE.End if word_mode else MOVE.EndOfLine
+                move_op = MO.End if word_mode else MO.EndOfLine
 
             qt_cursor = QtGui.QTextCursor(self.document())
             state.apply(qt_cursor)
@@ -872,9 +860,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         for cursor_state in all_cursors:
             qt_cursor.setPosition(cursor_state.anchor)
-            qt_cursor.setPosition(
-                cursor_state.position, QtGui.QTextCursor.MoveMode.KeepAnchor
-            )
+            qt_cursor.setPosition(cursor_state.position, MM.KeepAnchor)
             selected_text = qt_cursor.selectedText()
             selected_texts.append(selected_text)
 
@@ -897,7 +883,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def cut(self):
         """Cut text from all cursors to clipboard"""
         self.copy()
-        for cursor, is_primary in self.citer.iterate_cursors():
+        for cursor in self.citer.iterate_cursors():
             if cursor.hasSelection():
                 self.citer.update_offset(
                     cursor.selectionStart() - cursor.selectionEnd()
@@ -938,7 +924,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             lines.append(clipboard_text[ptr : ptr + el])
             ptr += el + 1  # skip the newlines
 
-        for i, (cursor, is_primary) in enumerate(self.citer.iterate_cursors()):
+        for i, cursor in enumerate(self.citer.iterate_cursors()):
             line = lines[i]
             cursor.insertText(line)
             self.citer.update_offset(len16(line))
