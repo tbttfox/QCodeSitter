@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from . import Behavior
 from typing import TYPE_CHECKING, Optional, Any
+from Qt import QtCore
 from Qt.QtGui import QSyntaxHighlighter, QTextCharFormat, QColor, QFont
 from tree_sitter import Query, QueryCursor
 
@@ -65,7 +66,6 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
     # ------------------------------------------------------------------
     # QSyntaxHighlighter entry point
     # ------------------------------------------------------------------
-
     def highlightBlock(self, text: str):
         if self.tree_manager.tree is None:
             return
@@ -75,6 +75,7 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
             return
 
         block_num = block.blockNumber()
+
         block_start_char = block.position()
         block_start_byte = self._doc.line_to_byte(block_num)
 
@@ -136,7 +137,12 @@ class SyntaxHighlighting(Behavior):
         self.setListen({"highlights"})
         self._highlights = None
         self.highlighter: Optional[TreeSitterHighlighter] = None
+        self.editor.undoRequested.connect(self._rehighlight_next)
         self.updateAll()
+
+    def _rehighlight_next(self):
+        if self.highlighter is not None:
+            QtCore.QTimer.singleShot(0, self.highlighter.rehighlight)
 
     @property
     def highlights(self):

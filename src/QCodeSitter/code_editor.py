@@ -162,6 +162,7 @@ class CursorIterator:
 
 class CodeEditor(QtWidgets.QPlainTextEdit):
     gutterResize = QtCore.Signal()
+    undoRequested = QtCore.Signal()
 
     def __init__(
         self,
@@ -185,6 +186,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.secondary_cursors: list[CursorState] = []
 
         self.shortcut_manager = ShortcutManager()
+        self._can_join = False
 
         self.tree_manager: TreeManager
         self.syntax_analyzer: SyntaxAnalyzer
@@ -652,17 +654,28 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         # Handle printable characters (normal typing)
         if text and text.isprintable() and modifiers in (nomod, shift):
-            self.insert_text(text)
-            return True
+            do_join = False
+            next_join = text.isalnum() or text == "_"
+            do_join = self._can_join and next_join
+            self._can_join = next_join
 
-        if key == KEY.Key_A and modifiers == ctrl:
-            self.exit_multi_cursor_mode()
-            return False
+            print("JOIN", do_join)
+            self.insert_text(text, join_edit=do_join)
+            return True
+        self._can_join = False
+
+        if modifiers == ctrl:
+            if key == KEY.Key_A:
+                self.exit_multi_cursor_mode()
+                return False
+            elif key == KEY.Key_Z:
+                QtCore.QTimer.singleShot(0, self.tree_manager.fullUpdate)
+                self.undoRequested.emit()
+                return False
 
         # Handle special keys
         if key == KEY.Key_Backspace:
             if modifiers & ctrl:
-                # FIXME: Bug in this when the cursor is at the end of the document
                 self.delete_word_backward()
             else:
                 self.backspace()
