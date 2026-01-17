@@ -11,7 +11,14 @@ from tree_sitter import Language
 
 from .constants import MIME
 from .utils import len16
-from .behaviors import Behavior, HasKeyPress, HasResize, HasHotkeys, HasPaint
+from .behaviors import (
+    Behavior,
+    HasKeyPress,
+    HasResize,
+    HasHotkeys,
+    HasPaint,
+    HasUndoRedo,
+)
 from .line_tracker import TrackedDocument
 from .tree_manager import TreeManager
 from .syntax_analyzer import SyntaxAnalyzer
@@ -162,7 +169,6 @@ class CursorIterator:
 
 class CodeEditor(QtWidgets.QPlainTextEdit):
     gutterResize = QtCore.Signal()
-    undoRequested = QtCore.Signal()
 
     def __init__(
         self,
@@ -550,14 +556,40 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         # Qt's undo system doesn't track our CursorState positions, so we exit
         # multi-cursor mode to avoid cursor position desync after undo
         self.exit_multi_cursor_mode()
+
+        # Notify behaviors that implement HasUndoRedo
+        for behavior in self._behaviors:
+            if isinstance(behavior, HasUndoRedo):
+                behavior.prepareUndo()
+
         super().undo()
+
+        # After undo, notify behaviors to update
+        # Use QTimer to let the undo complete and Qt's event loop process
+        QtCore.QTimer.singleShot(0, self._after_undo_redo)
 
     def redo(self):
         """Override redo to exit multi-cursor mode first"""
         # Qt's undo system doesn't track our CursorState positions, so we exit
         # multi-cursor mode to avoid cursor position desync after redo
         self.exit_multi_cursor_mode()
+
+        # Notify behaviors that implement HasUndoRedo
+        for behavior in self._behaviors:
+            if isinstance(behavior, HasUndoRedo):
+                behavior.prepareRedo()
+
         super().redo()
+
+        # After redo, notify behaviors to update
+        # Use QTimer to let the redo complete and Qt's event loop process
+        QtCore.QTimer.singleShot(0, self._after_undo_redo)
+
+    def _after_undo_redo(self):
+        """Notify behaviors after undo/redo completes"""
+        for behavior in self._behaviors:
+            if isinstance(behavior, HasUndoRedo):
+                behavior.afterUndoRedo()
 
     def add_next_occurrence(self):
         """Add cursor at next occurrence of current selection
@@ -659,7 +691,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             do_join = self._can_join and next_join
             self._can_join = next_join
 
-            print("JOIN", do_join)
             self.insert_text(text, join_edit=do_join)
             return True
         self._can_join = False
@@ -667,10 +698,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         if modifiers == ctrl:
             if key == KEY.Key_A:
                 self.exit_multi_cursor_mode()
-                return False
-            elif key == KEY.Key_Z:
-                QtCore.QTimer.singleShot(0, self.tree_manager.fullUpdate)
-                self.undoRequested.emit()
                 return False
 
         # Handle special keys

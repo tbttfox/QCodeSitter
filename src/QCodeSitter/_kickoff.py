@@ -55,11 +55,11 @@ cmp_bh.addProvider(IdentifierProvider)
 # TODO: Group normal text editing into undo groups by word
 
 edit.addBehavior(SyntaxHighlighting)
-#edit.addBehavior(SmartIndent)
-#edit.addBehavior(HighlightMatchingBrackets)
-#edit.addBehavior(HighlightMatchingSelection)
-#edit.addBehavior(LineNumber)
-#edit.addBehavior(Overscroll)
+edit.addBehavior(SmartIndent)
+edit.addBehavior(HighlightMatchingBrackets)
+edit.addBehavior(HighlightMatchingSelection)
+edit.addBehavior(LineNumber)
+edit.addBehavior(Overscroll)
 
 #edit.addBehavior(AutoBracket)
 #edit.addBehavior(CodeFolding)

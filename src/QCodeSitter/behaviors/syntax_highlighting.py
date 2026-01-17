@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from . import Behavior
+from . import Behavior, HasUndoRedo
 from typing import TYPE_CHECKING, Optional, Any
-from Qt import QtCore
 from Qt.QtGui import QSyntaxHighlighter, QTextCharFormat, QColor, QFont
 from tree_sitter import Query, QueryCursor
 
@@ -28,6 +27,7 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
         super().__init__(document)
         self.tree_manager = tree_manager
         self._doc: TrackedDocument = document
+        self._enabled = True  # Flag to temporarily disable highlighting
 
         lang = self.tree_manager.parser.language
         if lang is None:
@@ -67,6 +67,10 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
     # QSyntaxHighlighter entry point
     # ------------------------------------------------------------------
     def highlightBlock(self, text: str):
+        # Quick exit if highlighting is disabled
+        if not self._enabled:
+            return
+
         if self.tree_manager.tree is None:
             return
 
@@ -76,24 +80,40 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
 
         block_num = block.blockNumber()
 
-        block_start_char = block.position()
-        block_start_byte = self._doc.line_to_byte(block_num)
+        # Get document bounds safely
+        try:
+            block_start_char = block.position()
+            block_start_byte = self._doc.line_to_byte(block_num)
 
-        # Calculate end UTF-16 offset including newline if not last line
-        if block.next().isValid():
-            block_end_byte = self._doc.line_to_byte(block_num + 1)
-        else:
-            # In UTF-16, len(text) gives us the code unit count directly
-            block_end_byte = block_start_byte + len(text) * 2
+            # Calculate end UTF-16 offset including newline if not last line
+            if block.next().isValid():
+                block_end_byte = self._doc.line_to_byte(block_num + 1)
+            else:
+                # In UTF-16, len(text) gives us the code unit count directly
+                block_end_byte = block_start_byte + len(text) * 2
+        except (IndexError, RuntimeError):
+            # Block number is out of range - document changed during highlighting
+            return
 
         # Skip highlighting for empty blocks (can happen during undo to empty document)
         if block_start_byte >= block_end_byte:
             return
 
+        # Validate that tree is still valid for this document state
+        # If the tree's byte range doesn't cover our block, skip highlighting
+        root = self.tree_manager.tree.root_node
+        if root is None or block_end_byte > root.end_byte:
+            # Tree is stale, skip highlighting until tree updates
+            return
+
         # Create a fresh QueryCursor for each block to avoid stale state issues
-        cursor = QueryCursor(self.query)
-        cursor.set_byte_range(block_start_byte, block_end_byte)
-        captures = cursor.captures(self.tree_manager.tree.root_node)
+        try:
+            cursor = QueryCursor(self.query)
+            cursor.set_byte_range(block_start_byte, block_end_byte)
+            captures = cursor.captures(root)
+        except (ValueError, RuntimeError):
+            # Query failed - tree might be in inconsistent state
+            return
         for capture_name, nodes in captures.items():
             fmt = self.formats.get(capture_name)
             if fmt is None:
@@ -131,18 +151,32 @@ class DummyHighlighter(QSyntaxHighlighter):
         return
 
 
-class SyntaxHighlighting(Behavior):
+class SyntaxHighlighting(Behavior, HasUndoRedo):
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
         self.setListen({"highlights"})
         self._highlights = None
         self.highlighter: Optional[TreeSitterHighlighter] = None
-        self.editor.undoRequested.connect(self._rehighlight_next)
         self.updateAll()
 
-    def _rehighlight_next(self):
-        if self.highlighter is not None:
-            QtCore.QTimer.singleShot(0, self.highlighter.rehighlight)
+    def prepareUndo(self):
+        """Disable highlighting before undo to prevent stale tree issues"""
+        if self.highlighter:
+            self.highlighter._enabled = False
+
+    def prepareRedo(self):
+        """Disable highlighting before redo to prevent stale tree issues"""
+        if self.highlighter:
+            self.highlighter._enabled = False
+
+    def afterUndoRedo(self):
+        """Update tree and rehighlight after undo/redo completes"""
+        if self.highlighter:
+            # Update the tree first
+            self.editor.tree_manager.fullUpdate()
+            # Re-enable highlighting and rehighlight
+            self.highlighter._enabled = True
+            self.highlighter.rehighlight()
 
     @property
     def highlights(self):

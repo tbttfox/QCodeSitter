@@ -2,12 +2,13 @@ from __future__ import annotations
 from tree_sitter import Language, Parser, Tree, Point, Node
 from typing import Optional, TYPE_CHECKING
 from .constants import ENC
+from Qt import QtCore
 
 if TYPE_CHECKING:
     from Qt import QtWidgets, QtGui
 
 
-class TreeManager:
+class TreeManager(QtCore.QObject):
     """Manages the tree-sitter parse tree with incremental updates
 
     This class owns the parse tree and provides a shared resource for both
@@ -28,6 +29,7 @@ class TreeManager:
                 Signature: (byte_offset: int, point: Point) -> bytes
                 Note: bytes should be UTF-16LE encoded
         """
+        super().__init__()
         self.editor = editor
         self.parser = Parser(language)
         self.tree: Optional[Tree] = None

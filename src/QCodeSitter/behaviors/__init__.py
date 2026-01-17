@@ -66,3 +66,24 @@ class HasPaint:
 
     def paintEvent(self, event: QPaintEvent, painter) -> bool:
         raise NotImplementedError("You must implement the paintEvent")
+
+
+class HasUndoRedo:
+    """Interface for behaviors that need to be notified about undo/redo operations.
+
+    Use this interface for behaviors that need to prepare before undo/redo
+    or update after undo/redo completes (e.g., syntax highlighting that needs
+    to sync with document state).
+    """
+
+    def prepareUndo(self):
+        """Called before undo operation - prepare for document change"""
+        pass
+
+    def prepareRedo(self):
+        """Called before redo operation - prepare for document change"""
+        pass
+
+    def afterUndoRedo(self):
+        """Called after undo/redo completes - update to match new document state"""
+        pass
