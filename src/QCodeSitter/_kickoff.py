@@ -16,6 +16,7 @@ from QCodeSitter.behaviors.auto_bracket import AutoBracket
 # from QCodeSitter.behaviors.tab_completion import TabCompletion
 # from QCodeSitter.behaviors.providers.identifiers import IdentifierProvider
 from QCodeSitter.behaviors.code_folding import CodeFolding
+from QCodeSitter.behaviors.multi_cursor_paint import MultiCursorPaint
 from QCodeSitter.editor_options import EditorOptions
 from QCodeSitter.hl_groups import FORMAT_SPECS, COLORS
 from QCodeSitter.highlight_query import HIGHLIGHT_QUERY
@@ -60,6 +61,7 @@ edit.addBehavior(HighlightMatchingBrackets)
 edit.addBehavior(HighlightMatchingSelection)
 edit.addBehavior(LineNumber)
 edit.addBehavior(Overscroll)
+edit.addBehavior(MultiCursorPaint)
 
 #edit.addBehavior(AutoBracket)
 #edit.addBehavior(CodeFolding)

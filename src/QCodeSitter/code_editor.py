@@ -201,10 +201,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.space_indent_width: int = 4
         self.indent_using_tabs: bool = False
 
-        # Visual appearance
-        self.primary_cursor_color = QtGui.QColor(255, 255, 255, 255)
-        self.secondary_cursor_color = QtGui.QColor(180, 180, 180, 200)
-
         self.updateOptions(list(self.options.keys()))
 
     def textCursor(self) -> TrackedCursor:
@@ -488,68 +484,19 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def _update_visual(self):
         """Update visual rendering of secondary cursors"""
-        if not self.secondary_cursors:
-            self.clear_selections("multi_cursor")
-            return
+        from .behaviors.multi_cursor_paint import MultiCursorPaint
 
-        self._render_cursors()
-
-    def _render_cursors(self):
-        """Render secondary cursors as ExtraSelections"""
-        doc = self.document()
-        max_pos = doc.characterCount()
-
-        selections = []
-        for state in self.secondary_cursors:
-            # Validate state position is within document bounds
-            if state.position < 0 or state.position > max_pos:
-                continue  # Skip invalid state
-            if state.anchor < 0 or state.anchor > max_pos:
-                continue  # Skip invalid state
-
-            # Create ExtraSelection
-            selection = QtWidgets.QTextEdit.ExtraSelection()
-
-            # Format for the cursor/selection
-            fmt = QtGui.QTextCharFormat()
-
-            if state.hasSelection():
-                # Selection background
-                fmt.setBackground(self.secondary_cursor_color.lighter(150))
-                selection.cursor = state.build_cursor(doc)
+        behavior = self.getBehavior(MultiCursorPaint)
+        if behavior:
+            if not self.secondary_cursors:
+                behavior.clear_visual()
             else:
-                # For cursor positions (no selection), we need to select one character
-                # to make it visible. If at end of line, select the newline.
-                # If at end of document, select backwards one char.
-
-                selstate = CursorState(state.anchor, state.position)
-                if selstate.position < max_pos - 1:
-                    # Select next character
-                    selstate.setPosition(selstate.position)
-                    selstate.setPosition(selstate.position + 1, MM.KeepAnchor)
-                elif selstate.position > 0 and selstate.position <= max_pos:
-                    # At end - select previous character
-                    selstate.setPosition(selstate.position - 1)
-                    selstate.setPosition(
-                        min(selstate.position, max_pos),
-                        MM.KeepAnchor,
-                    )
-
-                selection.cursor = selstate.build_cursor(doc)
-                fmt.setBackground(self.secondary_cursor_color)
-                fmt.setForeground(
-                    QtGui.QColor(0, 0, 0)
-                )  # Black text on gray background
-
-            selection.format = fmt
-            selections.append(selection)
-
-        self.set_selections("multi_cursor", selections)
+                behavior.update_visual()
 
     def exit_multi_cursor_mode(self):
         """Exit multi-cursor mode, keep only primary cursor"""
         self.secondary_cursors.clear()
-        self.clear_selections("multi_cursor")
+        self._update_visual()
 
     def undo(self):
         """Override undo to exit multi-cursor mode first"""
@@ -996,7 +943,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.secondary_cursors.append(CursorState(current_position, current_position))
         new_primary = CursorState(new_primary_pos, new_primary_pos)
         self.set_primary_cursor(new_primary)
-        self._render_cursors()
+        self._update_visual()
 
     def add_cursor_below(self):
         """Add a new cursor on the line below the primary cursor (primary moves down, leaves cursor behind)"""
@@ -1025,7 +972,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         new_primary = CursorState(new_primary_pos, new_primary_pos)
         self.set_primary_cursor(new_primary)
-        self._render_cursors()
+        self._update_visual()
 
     def add_cursors_to_line_ends(self):
         """Add a cursor at the end of each line in the current selection"""
@@ -1065,7 +1012,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.secondary_cursors = cursors[1:]
         # Update the visual Qt cursor to the primary position
         self.set_primary_cursor(new_primary)
-        self._render_cursors()
+        self._update_visual()
 
     def add_cursor_at_position(self, position: int) -> bool:
         """Add a cursor at the specified position (for Alt+Click)"""
