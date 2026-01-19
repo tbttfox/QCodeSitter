@@ -4,6 +4,9 @@
 # The rest are used for the FORMAT_SPECS which defines a color scheme
 # This colorscheme is pulled from the nvim Dracula scheme
 
+# Note that any hex colors with alpha values should be given
+# in ARGB format (Which is how QColor reads them by default)
+
 # fmt: off
 COLORS = {
     "bg":             "#282A36",
@@ -13,6 +16,9 @@ COLORS = {
     "hl_dim":         "#4C4C5C",
     "gutter":         "#282828",
     "gutter_fg":      "#4B5263",
+
+    "match_hl":       "#50FFFF00",
+    "pair_hl":        "#50FFFF00",
 
     "selection":      "#44475A",
     "comment":        "#6272A4",
@@ -35,6 +41,10 @@ COLORS = {
     "nontext":        "#3B4048",
     "white":          "#ABB2BF",
     "black":          "#191A21",
+
+    "primary_cursor_color":   "#FFFFFF",
+    "secondary_cursor_color": "#B4B4B4",
+    "selection_color":        "#B4B4B4",
 }
 
 

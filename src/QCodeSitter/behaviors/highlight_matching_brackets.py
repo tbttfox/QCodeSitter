@@ -11,18 +11,25 @@ if TYPE_CHECKING:
 class HighlightMatchingBrackets(Behavior):
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
-        self._ltGray = QtGui.QColor(200, 200, 200, 80)
+        self.setListen(
+            set(["colors", "highlight_bracket_pairs", "highlight_quote_pairs"])
+        )
 
-        self.quote_chars: str = "'\""
+        self._pair_hl: QtGui.QColor
+        self.highlight_quote_chars: str = "`'\""
         self.ordered_pairs: tuple[str, ...]
         self.opening_brackets: str
         self.bracket_chars: str
         self.bracket_pairs: dict[str, str]
-        self.all_match_chars: str
-        self.update_pairs(("()", "[]", "{}"))
 
         self.editor.cursorPositionChanged.connect(self.highlight_matching_brackets)
         self.updateAll()
+
+    def _colors(self, val):
+        """Update colors when color options change"""
+        self._pair_hl = QtGui.QColor(val.get("pair_hl", "#C8C8C8"))
+
+    colors = property(None, _colors)
 
     def update_pairs(self, ordered_pairs: Collection[str]):
         self.ordered_pairs = tuple(ordered_pairs)
@@ -30,7 +37,8 @@ class HighlightMatchingBrackets(Behavior):
         self.opening_brackets = "".join(p[0] for p in self.ordered_pairs)
         self.bracket_pairs = {p[0]: p[1] for p in self.ordered_pairs}
         self.bracket_pairs.update({p[1]: p[0] for p in self.ordered_pairs})
-        self.all_match_chars = self.quote_chars + self.bracket_chars
+
+    highlight_bracket_pairs = property(None, update_pairs)
 
     def highlight_matching_brackets(self):
         """Highlight matching brackets/parens/braces using tree-sitter"""
@@ -55,7 +63,7 @@ class HighlightMatchingBrackets(Behavior):
             return
 
         # Handle quotes vs brackets differently
-        if match_char in self.quote_chars:
+        if match_char in self.highlight_quote_chars:
             extra_selections = self._highlight_matching_quotes(node, match_pos)
         else:
             extra_selections = self._highlight_matching_brackets_pair(node, match_char)
@@ -76,10 +84,11 @@ class HighlightMatchingBrackets(Behavior):
         text = block.text()
 
         # Check character before cursor (preferred)
-        if col > 0 and text[col - 1] in self.all_match_chars:
+        allmatch = self.highlight_quote_chars + self.bracket_chars
+        if col > 0 and text[col - 1] in allmatch:
             return text[col - 1], pos - 1
         # Check character after cursor
-        elif col < len(text) and text[col] in self.all_match_chars:
+        elif col < len(text) and text[col] in allmatch:
             return text[col], pos
 
         return None
@@ -166,7 +175,7 @@ class HighlightMatchingBrackets(Behavior):
 
         # Create selections
         quote_format = QtGui.QTextCharFormat()
-        quote_format.setBackground(self._ltGray)
+        quote_format.setBackground(self._pair_hl)
 
         extra_selections.append(
             self._create_selection(
@@ -212,7 +221,7 @@ class HighlightMatchingBrackets(Behavior):
 
         # Create selections
         bracket_format = QtGui.QTextCharFormat()
-        bracket_format.setBackground(self._ltGray)
+        bracket_format.setBackground(self._pair_hl)
 
         extra_selections.append(
             self._create_selection(node_start_char, node_end_char, bracket_format)

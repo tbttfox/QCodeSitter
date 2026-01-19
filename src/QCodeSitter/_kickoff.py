@@ -39,6 +39,8 @@ options = EditorOptions(
         "auto_bracket_enabled": True,
         "auto_bracket_pairs": "()[]{}\"\"''``",
         "indent_bracket_pairs": ["()", "[]", "{}"],
+        "highlight_bracket_pairs": ["()", "[]", "{}"],
+        "highlight_quote_pairs": "\"'`"
     }
 )
 
