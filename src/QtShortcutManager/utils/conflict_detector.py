@@ -25,11 +25,32 @@ class ConflictDetector:
             manager: The ShortcutManager to analyze
         """
         self._reverse_map.clear()
+        self._build_from_groups(manager.shortcut_groups, "")
 
-        for group in manager.shortcut_groups:
+    def _build_from_groups(self, groups: list, parent_path: str):
+        """Recursively build reverse mapping from groups
+
+        Args:
+            groups: List of ShortcutSlotGroups to process
+            parent_path: The path of the parent group (empty string for root)
+        """
+        from ..shortcut_manager import ShortcutSlotGroup
+
+        for group in groups:
+            # Build the full path for this group
+            if parent_path:
+                group_path = f"{parent_path}.{group.name}"
+            else:
+                group_path = group.name
+
+            # Process slots in this group
             for slot in group.slots:
                 for keyseq in slot.assigned:
-                    self.add_assignment(keyseq, group.name, slot.name)
+                    self.add_assignment(keyseq, group_path, slot.name)
+
+            # Recursively process nested groups
+            if hasattr(group, "groups") and group.groups:
+                self._build_from_groups(group.groups, group_path)
 
     def check_conflict(
         self, keyseq: QKeySequence, current_group: str, current_slot: str

@@ -181,7 +181,7 @@ class ShortcutManagerDialog(QDialog):
     def _deep_copy_manager(self, manager: ShortcutManager) -> ShortcutManager:
         """Create a deep copy of ShortcutManager for editing.
 
-        Preserves targetFunc references but copies all other data.
+        Copies all shortcut data for editing.
 
         Args:
             manager: The ShortcutManager to copy
@@ -190,14 +190,27 @@ class ShortcutManagerDialog(QDialog):
             A deep copy of the manager
         """
         new_manager = ShortcutManager(manager.shortcut_file)
+        new_manager.shortcut_groups = self._deep_copy_groups(manager.shortcut_groups)
+        return new_manager
 
-        for group in manager.shortcut_groups:
+    def _deep_copy_groups(
+        self, groups: list[ShortcutSlotGroup]
+    ) -> list[ShortcutSlotGroup]:
+        """Recursively deep copy a list of ShortcutSlotGroups
+
+        Args:
+            groups: List of groups to copy
+
+        Returns:
+            Deep copied list of groups
+        """
+        new_groups = []
+        for group in groups:
             new_slots = []
             for slot in group.slots:
                 # Create new slot with copied data
                 new_slot = ShortcutSlot(
                     name=slot.name,
-                    targetFunc=slot.targetFunc,  # Keep reference
                     defaults=slot.defaults[:],  # Shallow copy list
                     desc=slot.desc,
                     assigned=[self._copy_keysequence(seq) for seq in slot.assigned],
@@ -205,10 +218,15 @@ class ShortcutManagerDialog(QDialog):
                 )
                 new_slots.append(new_slot)
 
-            new_group = ShortcutSlotGroup(group.name, new_slots)
-            new_manager.shortcut_groups.append(new_group)
+            # Recursively copy nested groups
+            new_nested_groups = []
+            if hasattr(group, "groups") and group.groups:
+                new_nested_groups = self._deep_copy_groups(group.groups)
 
-        return new_manager
+            new_group = ShortcutSlotGroup(group.name, new_slots, new_nested_groups)
+            new_groups.append(new_group)
+
+        return new_groups
 
     def _on_selection_changed(self):
         """Handle tree view selection changes."""
@@ -368,11 +386,13 @@ class ShortcutManagerDialog(QDialog):
 
     def _apply_changes_to_original(self):
         """Copy working manager data back to original manager."""
-        # Create lookup dictionaries
-        orig_groups = {g.name: g for g in self._original_manager.shortcut_groups}
+        # Build path maps for both managers
+        orig_groups_by_path = self._original_manager._build_group_path_map()
+        work_groups_by_path = self._working_manager._build_group_path_map()
 
-        for work_group in self._working_manager.shortcut_groups:
-            orig_group = orig_groups.get(work_group.name)
+        # Copy changes from working to original
+        for group_path, work_group in work_groups_by_path.items():
+            orig_group = orig_groups_by_path.get(group_path)
             if not orig_group:
                 continue
 

@@ -38,28 +38,58 @@ class ShortcutTreeModel(QStandardItemModel):
         """
         self.clear()
         self.setHorizontalHeaderLabels(["Command", "Shortcut", "Description"])
+        self._populate_groups_recursive(manager.shortcut_groups, None, "")
 
-        for group in manager.shortcut_groups:
-            group_items = self._create_group_items(group.name)
+    def _populate_groups_recursive(
+        self, groups: list, parent_item: QStandardItem | None, parent_path: str
+    ):
+        """Recursively populate groups and their slots
 
+        Args:
+            groups: List of ShortcutSlotGroups to populate
+            parent_item: The parent QStandardItem (None for root level)
+            parent_path: The path of the parent group (empty string for root)
+        """
+        for group in groups:
+            # Build the full path for this group
+            if parent_path:
+                group_path = f"{parent_path}.{group.name}"
+            else:
+                group_path = group.name
+
+            # Create group items
+            group_items = self._create_group_items(group.name, group_path)
+
+            # Add slots to this group
             for slot in group.slots:
-                slot_items = self._create_slot_items(slot, group.name)
+                slot_items = self._create_slot_items(slot, group_path)
                 group_items[0].appendRow(slot_items)
 
-            self.appendRow(group_items)
+            # Recursively add nested groups
+            if hasattr(group, "groups") and group.groups:
+                self._populate_groups_recursive(group.groups, group_items[0], group_path)
 
-    def _create_group_items(self, group_name: str) -> list[QStandardItem]:
+            # Add group to parent or root
+            if parent_item is None:
+                self.appendRow(group_items)
+            else:
+                parent_item.appendRow(group_items)
+
+    def _create_group_items(
+        self, group_name: str, group_path: str
+    ) -> list[QStandardItem]:
         """Create row items for a group.
 
         Args:
-            group_name: The name of the group
+            group_name: The display name of the group
+            group_path: The full path of the group (e.g., "parent.child")
 
         Returns:
             List of [name_item, shortcut_item, description_item] for the group row
         """
         name_item = QStandardItem(group_name)
         name_item.setData("group", self.ROLE_ITEM_TYPE)
-        name_item.setData(group_name, self.ROLE_GROUP_NAME)
+        name_item.setData(group_path, self.ROLE_GROUP_NAME)
         name_item.setEditable(False)
 
         # Make group text bold
@@ -125,14 +155,14 @@ class ShortcutTreeModel(QStandardItemModel):
         # Use semicolon separator to differentiate from comma (used within multi-key sequences)
         return " ; ".join(seq.toString(QKeySequence.NativeText) for seq in sequences)
 
-    def update_slot_shortcuts(self, group_name: str, slot: ShortcutSlot):
+    def update_slot_shortcuts(self, group_path: str, slot: ShortcutSlot):
         """Update the shortcut display for a specific slot.
 
         Args:
-            group_name: The name of the group containing the slot
+            group_path: The full path of the group containing the slot
             slot: The ShortcutSlot to update
         """
-        slot_item = self._find_slot_item(group_name, slot)
+        slot_item = self._find_slot_item(group_path, slot)
         if slot_item:
             # Update shortcut column (column 1)
             shortcut_text = self._format_shortcuts(slot.assigned)
@@ -142,27 +172,56 @@ class ShortcutTreeModel(QStandardItemModel):
             shortcut_col_item.setText(shortcut_text)
 
     def _find_slot_item(
-        self, group_name: str, slot: ShortcutSlot
+        self, group_path: str, slot: ShortcutSlot
     ) -> QStandardItem | None:
         """Find the tree item for a specific slot.
 
         Args:
-            group_name: The name of the group containing the slot
+            group_path: The full path of the group containing the slot
             slot: The ShortcutSlot to find
 
         Returns:
             The QStandardItem for the slot, or None if not found
         """
-        for group_row in range(self.rowCount()):
-            group_item = self.item(group_row, 0)
-            if group_item.data(self.ROLE_GROUP_NAME) != group_name:
+        return self._find_slot_item_recursive(self.invisibleRootItem(), group_path, slot)
+
+    def _find_slot_item_recursive(
+        self, parent_item: QStandardItem, group_path: str, slot: ShortcutSlot
+    ) -> QStandardItem | None:
+        """Recursively search for a slot item in the tree.
+
+        Args:
+            parent_item: The parent item to search within
+            group_path: The full path of the group containing the slot
+            slot: The ShortcutSlot to find
+
+        Returns:
+            The QStandardItem for the slot, or None if not found
+        """
+        for row in range(parent_item.rowCount()):
+            item = parent_item.child(row, 0)
+            if item is None:
                 continue
 
-            # Search children for matching slot
-            for slot_row in range(group_item.rowCount()):
-                slot_item = group_item.child(slot_row, 0)
-                if slot_item.data(self.ROLE_SLOT_DATA) is slot:
-                    return slot_item
+            item_type = item.data(self.ROLE_ITEM_TYPE)
+
+            if item_type == "group":
+                # Check if this is the group we're looking for
+                if item.data(self.ROLE_GROUP_NAME) == group_path:
+                    # Search children for matching slot
+                    for slot_row in range(item.rowCount()):
+                        slot_item = item.child(slot_row, 0)
+                        if (
+                            slot_item
+                            and slot_item.data(self.ROLE_ITEM_TYPE) == "slot"
+                            and slot_item.data(self.ROLE_SLOT_DATA) is slot
+                        ):
+                            return slot_item
+
+                # Recursively search nested groups
+                result = self._find_slot_item_recursive(item, group_path, slot)
+                if result:
+                    return result
 
         return None
 

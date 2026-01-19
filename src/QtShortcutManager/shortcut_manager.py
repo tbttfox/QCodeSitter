@@ -1,63 +1,55 @@
 from __future__ import annotations
-from typing import Callable, Optional, TYPE_CHECKING
-from inspect import getdoc
+from typing import Optional, TYPE_CHECKING
 from pathlib import Path
 import json
 
 from Qt.QtGui import QKeySequence
-from Qt.QtWidgets import QAction
 
 if TYPE_CHECKING:
-    from Qt.QtWidgets import QWidget
+    pass
 
 
 class ShortcutSlot:
-    """A class defining possible shortcut slots as part of the ShortcutManager"""
+    """A class defining possible shortcut slots as part of the ShortcutManager
+
+    ShortcutSlots are designed to be defined as class properties on objects that
+    will use them. This allows inspection and editing of shortcuts without
+    instantiating the class. The actual QAction creation and signal connection
+    is the responsibility of the class using these slots.
+    """
 
     def __init__(
         self,
         name: str,
-        targetFunc: Callable[[], None],
         defaults: list[QKeySequence],
-        desc: Optional[str] = None,
+        desc: str = "<No Description>",
         assigned: Optional[list[QKeySequence]] = None,
         enabled: bool = True,
     ):
         self.name: str = name
-        self.desc: str = desc or getdoc(targetFunc) or "<No Description>"
-        self.targetFunc: Callable[[], None] = targetFunc
+        self.desc: str = desc
         self.defaults = defaults
-        self.action: Optional[QAction] = None
         self.enabled = enabled
         # Store assignments regardless of enabled state
         self.assigned: list[QKeySequence] = assigned or self.defaults[:]
 
-    def unload(self):
-        self.action = None
-        self.targetFunc = lambda: None
-
-    def load(self, assignedData: list[str], parent: Optional[QWidget] = None):
-        from Qt.QtCore import Qt
-        self.action = QAction(parent)
-        seqs = [QKeySequence(key, QKeySequence.PortableText) for key in assignedData]
-        self.action.setShortcuts(seqs)
-        self.action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        self.action.triggered.connect(self.targetFunc)
-        # Add the action to the parent widget so shortcuts are active
-        if parent is not None:
-            parent.addAction(self.action)
-
 
 class ShortcutSlotGroup:
-    """A group of related shortcut slots"""
+    """A group of related shortcut slots and/or nested groups
 
-    def __init__(self, name, slots: Optional[list[ShortcutSlot]] = None):
+    ShortcutSlotGroups can contain both ShortcutSlots and other ShortcutSlotGroups,
+    allowing for arbitrary nesting of shortcut organization.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        slots: Optional[list[ShortcutSlot]] = None,
+        groups: Optional[list[ShortcutSlotGroup]] = None,
+    ):
         self.name = name
         self.slots: list[ShortcutSlot] = slots or []
-
-    def unload(self):
-        for slot in self.slots:
-            slot.unload()
+        self.groups: list[ShortcutSlotGroup] = groups or []
 
 
 class ShortcutManager:
@@ -81,7 +73,7 @@ class ShortcutManager:
 
         self.load_user_shortcut(prefs)
 
-    def load_user_shortcut(self, prefs: dict[str, dict[str, list[str]]]):
+    def load_user_shortcut(self, prefs: dict):
         """Load the user-defined shortcut from the given prefs dict
         The prefs dict is formatted like:
             {
@@ -89,14 +81,19 @@ class ShortcutManager:
                     "slotName": ['keySeq1', 'keySeq2', ...],
                     ...
                 },
+                "groupName.nestedGroupName": {
+                    "slotName": ['keySeq1', 'keySeq2', ...],
+                    ...
+                },
                 ...
             }
+        Nested groups use dot notation in their keys (e.g., "parent.child.grandchild")
         """
-        groups_by_name: dict[str, ShortcutSlotGroup] = {
-            g.name: g for g in self.shortcut_groups
-        }
-        for group_name, slot_datas in prefs.items():
-            group = groups_by_name.get(group_name)
+        # Build a flat map of all groups by their full path
+        groups_by_path = self._build_group_path_map()
+
+        for group_path, slot_datas in prefs.items():
+            group = groups_by_path.get(group_path)
             if group is None:
                 continue
             slots_by_name = {s.name: s for s in group.slots}
@@ -108,8 +105,6 @@ class ShortcutManager:
                 slot.assigned = [
                     QKeySequence(key, QKeySequence.PortableText) for key in assigned
                 ]
-                # Load the shortcuts (assigned list already contains the converted sequences)
-                slot.load(assigned)
 
     def save_user_shortcut_to_file(self):
         """Save current shortcuts to the configured JSON file"""
@@ -130,14 +125,80 @@ class ShortcutManager:
                     "slotName": ['keySeq1', 'keySeq2', ...],
                     ...
                 },
+                "groupName.nestedGroupName": {
+                    "slotName": ['keySeq1', 'keySeq2', ...],
+                    ...
+                },
                 ...
             }
+        Nested groups use dot notation in their keys.
         """
         prefs: dict[str, dict[str, list[str]]] = {}
-        for group in self.shortcut_groups:
-            prefs[group.name] = {}
-            for slot in group.slots:
-                prefs[group.name][slot.name] = [
-                    seq.toString(QKeySequence.PortableText) for seq in slot.assigned
-                ]
+        self._export_group_recursive(self.shortcut_groups, "", prefs)
         return prefs
+
+    def _export_group_recursive(
+        self,
+        groups: list[ShortcutSlotGroup],
+        parent_path: str,
+        prefs: dict[str, dict[str, list[str]]],
+    ):
+        """Recursively export groups and their slots to prefs dict
+
+        Args:
+            groups: List of groups to export
+            parent_path: The path of the parent group (empty string for root)
+            prefs: Dictionary to populate with exported data
+        """
+        for group in groups:
+            # Build the full path for this group
+            if parent_path:
+                group_path = f"{parent_path}.{group.name}"
+            else:
+                group_path = group.name
+
+            # Export slots for this group
+            if group.slots:
+                prefs[group_path] = {}
+                for slot in group.slots:
+                    prefs[group_path][slot.name] = [
+                        seq.toString(QKeySequence.PortableText)
+                        for seq in slot.assigned
+                    ]
+
+            # Recursively export nested groups
+            if group.groups:
+                self._export_group_recursive(group.groups, group_path, prefs)
+
+    def _build_group_path_map(
+        self, groups: Optional[list[ShortcutSlotGroup]] = None, parent_path: str = ""
+    ) -> dict[str, ShortcutSlotGroup]:
+        """Build a flat map of all groups by their full path
+
+        Args:
+            groups: List of groups to process (defaults to root groups)
+            parent_path: The path of the parent group (empty string for root)
+
+        Returns:
+            Dictionary mapping group paths to ShortcutSlotGroup objects
+        """
+        if groups is None:
+            groups = self.shortcut_groups
+
+        result: dict[str, ShortcutSlotGroup] = {}
+
+        for group in groups:
+            # Build the full path for this group
+            if parent_path:
+                group_path = f"{parent_path}.{group.name}"
+            else:
+                group_path = group.name
+
+            result[group_path] = group
+
+            # Recursively process nested groups
+            if group.groups:
+                nested_map = self._build_group_path_map(group.groups, group_path)
+                result.update(nested_map)
+
+        return result
