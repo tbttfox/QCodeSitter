@@ -1,13 +1,14 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from Qt.QtGui import QKeyEvent, QTextCursor
-from Qt.QtCore import Qt
+from Qt import QtGui, QtCore
 
 from . import Behavior, HasKeyPress
-from ..utils import len16
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor
+
+MM = QtGui.QTextCursor.MoveMode
+MO = QtGui.QTextCursor.MoveOperation
 
 
 def _build_pair_from_str(pair_str):
@@ -41,11 +42,11 @@ class AutoBracket(HasKeyPress, Behavior):
         if "auto_bracket_enabled" in keys:
             self.enabled = self.options.get("auto_bracket_enabled", True)
 
-    def keyPressEvent(self, event: QKeyEvent):
+    def keyPressEvent(self, event: QtGui.QKeyEvent):
         if not self.enabled:
             return
 
-        if event.key() == Qt.Key_Backspace:
+        if event.key() == QtCore.Qt.Key_Backspace:
             self.delete_pair()
             return
 
@@ -81,10 +82,7 @@ class AutoBracket(HasKeyPress, Behavior):
                 if before_triple in trips and before_triple == after_triple:
                     pos = cursor.position()
                     cursor.setPosition(pos - 3)
-                    cursor.setPosition(
-                        pos + 3,
-                        QTextCursor.KeepAnchor,
-                    )
+                    cursor.setPosition(pos + 3, MM.KeepAnchor)
                     cursor.removeSelectedText()
                     citer.update_offset(-6)
                     citer.cursor_completed()
@@ -98,7 +96,7 @@ class AutoBracket(HasKeyPress, Behavior):
                 if before in self.pairs and self.pairs[before] == after:
                     pos = cursor.position()
                     cursor.setPosition(pos - 1)
-                    cursor.setPosition(pos + 1, QTextCursor.KeepAnchor)
+                    cursor.setPosition(pos + 1, MM.KeepAnchor)
                     cursor.removeSelectedText()
                     citer.update_offset(-2)
                     citer.cursor_completed()
@@ -125,7 +123,7 @@ class AutoBracket(HasKeyPress, Behavior):
         return False
 
     def _handle_triple_quote(
-        self, cursor: QTextCursor, quote: str, line: str, col: int
+        self, cursor: QtGui.QTextCursor, quote: str, line: str, col: int
     ) -> tuple[bool, int]:
         """Handle triple-quote insertion and skipping for Python docstrings
 
@@ -136,7 +134,7 @@ class AutoBracket(HasKeyPress, Behavior):
         # Check if we're about to skip over triple-quotes
         if col + 2 < len(line) and line[col : col + 3] == quote * 3:
             # Next three characters are the same quote - skip all three
-            cursor.movePosition(QTextCursor.Right, QTextCursor.MoveAnchor, 3)
+            cursor.movePosition(MO.Right, MM.MoveAnchor, 3)
             return True, 0
 
         # Check if we already have two quotes before cursor
@@ -156,7 +154,7 @@ class AutoBracket(HasKeyPress, Behavior):
             # Insert the opening third quote and three closing quotes
             cursor.beginEditBlock()
             cursor.insertText(quote + quote * 3)
-            cursor.movePosition(QTextCursor.Left, QTextCursor.MoveAnchor, 3)
+            cursor.movePosition(MO.Left, MM.MoveAnchor, 3)
             cursor.endEditBlock()
             return True, 4
 
@@ -172,7 +170,7 @@ class AutoBracket(HasKeyPress, Behavior):
                 cursor.insertText(
                     quote + quote * 3
                 )  # Add opening third + closing three
-                cursor.movePosition(QTextCursor.Left, QTextCursor.MoveAnchor, 3)
+                cursor.movePosition(MO.Left, MM.MoveAnchor, 3)
                 cursor.endEditBlock()
                 return True, 4
 
@@ -197,9 +195,7 @@ class AutoBracket(HasKeyPress, Behavior):
 
                 # Move cursor to after the opening character and keep the selection
                 cursor.setPosition(cursor.position() - len(selected_text) - 1)
-                cursor.movePosition(
-                    QTextCursor.Right, QTextCursor.KeepAnchor, len(selected_text)
-                )
+                cursor.movePosition(MO.Right, MM.KeepAnchor, len(selected_text))
                 citer.update_offset(2)
                 citer.cursor_completed()
                 continue
@@ -209,11 +205,11 @@ class AutoBracket(HasKeyPress, Behavior):
                 col = cursor.positionInBlock()
 
                 if self._should_skip_triple_quote(open_char, line, col):
-                    cursor.movePosition(QTextCursor.Right, QTextCursor.MoveAnchor, 3)
+                    cursor.movePosition(MO.Right, MM.MoveAnchor, 3)
                     continue
 
                 if self._should_skip_quote(open_char, line, col):
-                    cursor.movePosition(QTextCursor.Right, QTextCursor.MoveAnchor, 1)
+                    cursor.movePosition(MO.Right, MM.MoveAnchor, 1)
                     continue
 
                 tc_handle, delta = self._handle_triple_quote(
@@ -226,7 +222,7 @@ class AutoBracket(HasKeyPress, Behavior):
 
             # Insert the pair
             cursor.insertText(open_char + close_char)
-            cursor.movePosition(QTextCursor.Left, QTextCursor.MoveAnchor, 1)
+            cursor.movePosition(MO.Left, MM.MoveAnchor, 1)
             citer.update_offset(2)
             citer.cursor_completed()
 
@@ -235,10 +231,10 @@ class AutoBracket(HasKeyPress, Behavior):
 
         citer = self.editor.citer
         for cursor in citer.iterate_cursors():
-            cursor.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
+            cursor.movePosition(MO.Right, MM.KeepAnchor, 1)
             text = cursor.selectedText()
             if text == open_char:
                 cursor.setPosition(cursor.position())
                 citer.cursor_completed()
             else:
-                cursor.movePosition(QTextCursor.Left, QTextCursor.MoveAnchor, 1)
+                cursor.movePosition(MO.Left, MM.MoveAnchor, 1)

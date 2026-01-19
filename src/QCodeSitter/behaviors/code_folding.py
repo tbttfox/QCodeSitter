@@ -2,13 +2,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 import functools
 
-from Qt import QtGui, QtCore, QtWidgets
-from Qt.QtCore import QObject, QEvent
-from Qt.QtGui import QKeySequence
+from Qt import QtGui, QtCore
 from tree_sitter import Node
 
 from ..gutter_widget import GutterWidget
-from . import HasResize, Behavior, HasHotkeys
+from . import Behavior, HasHotkeys
 from QtShortcutManager import ShortcutSlot, ShortcutSlotGroup
 
 
@@ -210,7 +208,7 @@ class FoldingGutterArea(GutterWidget):
                 return True
         return False
 
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+    def eventFilter(self, watched: QtCore.QObject, event: QtCore.QEvent) -> bool:
         """Event filter to draw ellipsis on folded lines"""
         try:
             if (
@@ -576,7 +574,7 @@ class CodeFolding(HasHotkeys, Behavior):
             ShortcutSlot(
                 name="Fold All",
                 targetFunc=self.fold_all,
-                defaults=[QKeySequence("Ctrl+Shift+[")],
+                defaults=[QtGui.QKeySequence("Ctrl+Shift+[")],
             )
         )
 
@@ -585,7 +583,7 @@ class CodeFolding(HasHotkeys, Behavior):
             ShortcutSlot(
                 name="Unfold All",
                 targetFunc=self.unfold_all,
-                defaults=[QKeySequence("Ctrl+Shift+]")],
+                defaults=[QtGui.QKeySequence("Ctrl+Shift+]")],
             )
         )
 
@@ -594,7 +592,7 @@ class CodeFolding(HasHotkeys, Behavior):
             ShortcutSlot(
                 name="Create Manual Fold",
                 targetFunc=self.create_manual_fold,
-                defaults=[QKeySequence("Ctrl+Shift+.")],
+                defaults=[QtGui.QKeySequence("Ctrl+Shift+.")],
             )
         )
 
@@ -604,7 +602,7 @@ class CodeFolding(HasHotkeys, Behavior):
                 ShortcutSlot(
                     name=f"Fold to Level {i}",
                     targetFunc=functools.partial(self.fold_to_level, i),
-                    defaults=[QKeySequence(f"Ctrl+{i}")],
+                    defaults=[QtGui.QKeySequence(f"Ctrl+{i}")],
                 )
             )
 

@@ -1,17 +1,11 @@
 from __future__ import annotations
-from typing import Generator
 
-from Qt.QtWidgets import QPlainTextDocumentLayout
-from Qt.QtCore import Signal, Slot
-from Qt.QtGui import (
-    QTextBlock,
-    QTextDocument,
-)
+from Qt import QtWidgets, QtCore, QtGui
 from tree_sitter import Point
 from .constants import ENC
 
 
-class TrackedDocument(QTextDocument):
+class TrackedDocument(QtGui.QTextDocument):
     """A subclass of QTextDocument that tracks UTF-16 code unit position changes
     Connect to the `byteContentsChange` signal to get those updates
 
@@ -20,12 +14,12 @@ class TrackedDocument(QTextDocument):
     integration with tree-sitter's UTF-16 mode seamless.
     """
 
-    byteContentsChange = Signal(int, int, int, Point, Point, Point)
-    fullUpdateRequest = Signal()
+    byteContentsChange = QtCore.Signal(int, int, int, Point, Point, Point)
+    fullUpdateRequest = QtCore.Signal()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.lay = QPlainTextDocumentLayout(self)
+        self.lay = QtWidgets.QPlainTextDocumentLayout(self)
         self.setDocumentLayout(self.lay)
         self._prev_line_count = 0
         self._prev_char_count = 0

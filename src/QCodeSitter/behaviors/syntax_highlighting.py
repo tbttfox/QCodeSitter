@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from . import Behavior, HasUndoRedo
 from typing import TYPE_CHECKING, Optional, Any
-from Qt.QtGui import QSyntaxHighlighter, QTextCharFormat, QColor, QFont
+from Qt import QtGui
 from tree_sitter import Query, QueryCursor
 
 if TYPE_CHECKING:
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ..code_editor import CodeEditor
 
 
-class TreeSitterHighlighter(QSyntaxHighlighter):
+class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
     """
     Tree-sitter based syntax highlighter using incremental rehighlighting
     restricted to changed byte ranges.
@@ -47,16 +47,16 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
 
     def _compile_formats(
         self, format_specs: dict[str, dict[str, Any]]
-    ) -> dict[str, QTextCharFormat]:
-        """Convert user style specs -> QTextCharFormat instances."""
+    ) -> dict[str, QtGui.QTextCharFormat]:
+        """Convert user style specs -> QtGui.QTextCharFormat instances."""
         out = {}
 
         for name, spec in format_specs.items():
-            fmt = QTextCharFormat()
+            fmt = QtGui.QTextCharFormat()
             if "color" in spec:
-                fmt.setForeground(QColor(spec["color"]))
+                fmt.setForeground(QtGui.QColor(spec["color"]))
             if spec.get("bold"):
-                fmt.setFontWeight(QFont.Bold)
+                fmt.setFontWeight(QtGui.QFont.Bold)
             if spec.get("italic"):
                 fmt.setFontItalic(True)
             out[name] = fmt
@@ -64,7 +64,7 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
         return out
 
     # ------------------------------------------------------------------
-    # QSyntaxHighlighter entry point
+    # QtGui.QSyntaxHighlighter entry point
     # ------------------------------------------------------------------
     def highlightBlock(self, text: str):
         # Quick exit if highlighting is disabled
@@ -146,7 +146,7 @@ class TreeSitterHighlighter(QSyntaxHighlighter):
                     self.setFormat(local_start, local_len, fmt)
 
 
-class DummyHighlighter(QSyntaxHighlighter):
+class DummyHighlighter(QtGui.QSyntaxHighlighter):
     def highlightBlock(self, text):
         return
 

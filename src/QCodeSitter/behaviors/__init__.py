@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Collection, TYPE_CHECKING
-from Qt.QtGui import QKeyEvent, QResizeEvent, QPaintEvent
+from Qt import QtGui
 
 if TYPE_CHECKING:
     from QtShortcutManager import ShortcutSlotGroup
@@ -31,12 +31,12 @@ class Behavior:
 
 
 class HasKeyPress:
-    def keyPressEvent(self, event: QKeyEvent) -> bool:
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> bool:
         raise NotImplementedError("You must implement the keyPressEvent")
 
 
 class HasResize:
-    def resizeEvent(self, event: QResizeEvent) -> bool:
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> bool:
         raise NotImplementedError("You must implement the resizeEvent")
 
 
@@ -64,7 +64,7 @@ class HasPaint:
     The painter is provided by the editor and is already active on the viewport.
     """
 
-    def paintEvent(self, event: QPaintEvent, painter) -> bool:
+    def paintEvent(self, event: QtGui.QPaintEvent, painter) -> bool:
         raise NotImplementedError("You must implement the paintEvent")
 
 

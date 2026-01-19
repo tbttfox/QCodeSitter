@@ -1,10 +1,10 @@
 from __future__ import annotations
-from Qt.QtCore import QObject, Signal
+from Qt import QtCore
 from typing import Optional, Any
 
 
-class EditorOptions(QObject):
-    optionsUpdated = Signal(list)  # list of str
+class EditorOptions(QtCore.QObject):
+    optionsUpdated = QtCore.Signal(list)  # list of str
 
     def __init__(self, opts: Optional[dict[str, Any]] = None):
         super().__init__()

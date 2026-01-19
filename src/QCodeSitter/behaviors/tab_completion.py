@@ -1,7 +1,6 @@
 from __future__ import annotations
-from Qt.QtCore import QTimer, Qt
-from Qt.QtGui import QKeyEvent, QPalette, QColor
-from Qt.QtWidgets import QListWidget, QListWidgetItem, QAbstractItemView
+
+from Qt import QtCore, QtGui, QtWidgets
 
 # QGuiApplication is not re-exported by Qt.py, so import directly
 try:
@@ -63,7 +62,7 @@ class CompletionContext:
     node: Optional[Node]  # Tree-sitter node at cursor
 
 
-class CompletionPopup(QListWidget):
+class CompletionPopup(QtWidgets.QListWidget):
     """Popup widget showing completion suggestions"""
 
     def __init__(self, parent: CodeEditor):
@@ -74,17 +73,29 @@ class CompletionPopup(QListWidget):
 
         # Window flags for popup behavior
         # Use Qt.Tool instead of Qt.Popup to allow editor to continue receiving events
-        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(
+            QtCore.Qt.Tool
+            | QtCore.Qt.FramelessWindowHint
+            | QtCore.Qt.WindowStaysOnTopHint
+        )
 
         # Set attribute to hide from taskbar
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(QtCore.Qt.WA_ShowWithoutActivating)
 
         palette = self.palette()
-        palette.setColor(QPalette.ColorRole.Base, QColor("#2b2b2b"))  # Background
-        palette.setColor(QPalette.Text, QColor("#dcdcdc"))  # Text color
-        palette.setColor(QPalette.Highlight, QColor("#094771"))  # Selection background
-        palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))  # Selection text
-        palette.setColor(QPalette.Window, QColor("#2b2b2b"))  # Window background
+        palette.setColor(
+            QtGui.QPalette.ColorRole.Base, QtGui.QColor("#2b2b2b")
+        )  # Background
+        palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#dcdcdc"))  # Text color
+        palette.setColor(
+            QtGui.QPalette.Highlight, QtGui.QColor("#094771")
+        )  # Selection background
+        palette.setColor(
+            QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff")
+        )  # Selection text
+        palette.setColor(
+            QtGui.QPalette.Window, QtGui.QColor("#2b2b2b")
+        )  # Window background
         self.setPalette(palette)
         self.setAutoFillBackground(True)
 
@@ -94,8 +105,8 @@ class CompletionPopup(QListWidget):
         self.setMaximumHeight(300)
 
         # Scrolling
-        self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollMode(QtWidgets.QAbstractItemView.ScrollPerPixel)
+        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
 
         self._min_width = 200
         self._max_width = 500
@@ -132,7 +143,7 @@ class CompletionPopup(QListWidget):
             self._position_at_cursor()
             self.show()
             # Don't steal focus from editor
-            self.setFocusPolicy(Qt.NoFocus)
+            self.setFocusPolicy(QtCore.Qt.NoFocus)
         else:
             self.hide()
 
@@ -145,7 +156,7 @@ class CompletionPopup(QListWidget):
             visible_count = 0
             for i in range(self.count()):
                 item = self.item(i)
-                comp: Completion = item.data(Qt.UserRole)
+                comp: Completion = item.data(QtCore.Qt.UserRole)
                 should_show = (
                     comp.text.lower().startswith(prefix_lower)
                     and comp.text != self.current_prefix
@@ -165,8 +176,8 @@ class CompletionPopup(QListWidget):
                 comp.text.lower().startswith(prefix_lower)
                 and comp.text != self.current_prefix
             ):
-                item = QListWidgetItem(comp.display())
-                item.setData(Qt.UserRole, comp)
+                item = QtWidgets.QListWidgetItem(comp.display())
+                item.setData(QtCore.Qt.UserRole, comp)
                 self.addItem(item)
 
     def _position_at_cursor(self):
@@ -217,7 +228,7 @@ class CompletionPopup(QListWidget):
             self.hide()
             return
 
-        comp: Completion = item.data(Qt.UserRole)
+        comp: Completion = item.data(QtCore.Qt.UserRole)
         cursor = self.editor.textCursor()
 
         # Calculate how many characters to remove (the prefix length)
@@ -262,7 +273,7 @@ class TabCompletion(HasKeyPress, Behavior):
         self.editor.textChanged.connect(self.on_text_changed)
 
         # Debounce timer to avoid triggering on every keystroke
-        self.debounce_timer = QTimer()
+        self.debounce_timer = QtCore.QTimer()
         self.debounce_timer.setSingleShot(True)
         self.debounce_timer.timeout.connect(self.do_completion)
 
@@ -468,28 +479,29 @@ class TabCompletion(HasKeyPress, Behavior):
         self.completion_popup.hide()
         return False
 
-    def keyPressEvent(self, event: QKeyEvent) -> bool:
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> bool:
+        KEY = QtCore.Qt.Key
         key = event.key()
-        if key == Qt.Key_Return:
+        if key == KEY.Key_Return:
             return self.acceptItem()
-        elif key == Qt.Key_Tab:
+        elif key == KEY.Key_Tab:
             return self.acceptItem()
-        elif key == Qt.Key_Up:
+        elif key == KEY.Key_Up:
             return self.offset_up()
-        elif key == Qt.Key_Down:
+        elif key == KEY.Key_Down:
             return self.offset_down()
-        elif key == Qt.Key_Escape:
+        elif key == KEY.Key_Escape:
             return self.hide_and_accept()
-        elif key == Qt.Key_Backspace:
+        elif key == KEY.Key_Backspace:
             return self.hide_and_deny()
 
         if self.vim_completion_keys:
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                if key == Qt.Key_Y:
+            if event.modifiers() & QtCore.Qt.KeyboardModifier.ControlModifier:
+                if key == KEY.Key_Y:
                     return self.acceptItem()
-                elif key == Qt.Key_P:
+                elif key == KEY.Key_P:
                     return self.offset_up()
-                elif key == Qt.Key_N:
+                elif key == KEY.Key_N:
                     return self.offset_down()
 
         return False

@@ -2,8 +2,7 @@
 import sys
 import tree_sitter_python as tspython
 from tree_sitter import Language
-from Qt.QtWidgets import QMainWindow, QApplication
-from Qt.QtGui import QFont
+from Qt import QtWidgets, QtGui
 
 from QCodeSitter.code_editor import CodeEditor
 from QCodeSitter.behaviors.smart_indent import SmartIndent
@@ -23,8 +22,8 @@ from QCodeSitter.highlight_query import HIGHLIGHT_QUERY
 # fmt: on
 
 
-app = QApplication(sys.argv)
-win = QMainWindow()
+app = QtWidgets.QApplication(sys.argv)
+win = QtWidgets.QMainWindow()
 
 options = EditorOptions(
     {
@@ -34,7 +33,7 @@ options = EditorOptions(
         "language": Language(tspython.language()),
         "highlights": (HIGHLIGHT_QUERY, FORMAT_SPECS),
         "colors": COLORS,
-        "font": QFont("MS Shell Dlg 2", pointSize=11),
+        "font": QtGui.QFont("MS Shell Dlg 2", pointSize=11),
         "vim_completion_keys": True,  # c-n c-p for next/prev  c-y for accept
         "debounce_delay": 150,  # in milliseconds
         "auto_bracket_enabled": True,
@@ -63,8 +62,8 @@ edit.addBehavior(LineNumber)
 edit.addBehavior(Overscroll)
 edit.addBehavior(MultiCursorPaint)
 
-#edit.addBehavior(AutoBracket)
-#edit.addBehavior(CodeFolding)
+# edit.addBehavior(AutoBracket)
+# edit.addBehavior(CodeFolding)
 
 win.setCentralWidget(edit)
 win.show()
