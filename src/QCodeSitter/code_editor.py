@@ -258,14 +258,12 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         and loads them into the ShortcutManager. These are user-configurable shortcuts
         with modifier keys (Ctrl, Alt, Shift), not intrinsic editing behaviors.
         """
-        # Unload old shortcuts first to avoid duplicates
-        for group in self.shortcut_manager.shortcut_groups:
-            for slot in group.slots:
-                if slot.action is not None:
-                    # Remove action from widget before unloading
-                    self.removeAction(slot.action)
-                slot.unload()
+        # Remove all existing shortcut actions from the widget
+        for action in self.actions():
+            if action.property("is_shortcut_slot"):
+                self.removeAction(action)
 
+        # Collect all shortcut groups from self and behaviors
         groups = []
         groups.append(self.getHotkeys())
         for item in self._behaviors:
@@ -274,13 +272,98 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         self.shortcut_manager.shortcut_groups = groups
 
-        # Load shortcuts and connect them to actions
-        # This creates QAction objects for each shortcut and connects them to their target functions
+        # Create QActions for each slot and connect them
+        # This maps slot names to their corresponding methods
+        slot_method_map = self._build_slot_method_map()
+
         for group in groups:
-            for slot in group.slots:
-                # Convert assigned QtGui.QKeySequence objects to strings for loading
-                assigned_strings = [seq.toString() for seq in slot.assigned]
-                slot.load(assigned_strings, parent=self)
+            self._create_actions_for_group(group, slot_method_map, "")
+
+    def _build_slot_method_map(self) -> dict:
+        """Build a mapping of slot names to their corresponding methods.
+
+        Returns:
+            Dictionary mapping "group_path.slot_name" to the callable method
+        """
+        method_map = {}
+
+        # Map editor's own shortcuts
+        method_map["Multi-Cursor.Add Next Occurrence"] = self.add_next_occurrence
+        method_map["Multi-Cursor.Add Cursor Above"] = self.add_cursor_above
+        method_map["Multi-Cursor.Add Cursor Below"] = self.add_cursor_below
+        method_map["Multi-Cursor.Add Cursors to Line Ends"] = self.add_cursors_to_line_ends
+
+        # Map behavior shortcuts
+        for behavior in self._behaviors:
+            if isinstance(behavior, HasHotkeys):
+                group = behavior.getHotkeys()
+                self._map_group_methods(group, method_map, behavior, "")
+
+        return method_map
+
+    def _map_group_methods(
+        self, group: ShortcutSlotGroup, method_map: dict, behavior, parent_path: str
+    ):
+        """Recursively map group methods to their full paths.
+
+        Args:
+            group: The ShortcutSlotGroup to process
+            method_map: Dictionary to populate
+            behavior: The behavior instance owning these shortcuts
+            parent_path: The parent group path (empty for root)
+        """
+        group_path = f"{parent_path}.{group.name}" if parent_path else group.name
+
+        # Map slots in this group
+        for slot in group.slots:
+            full_path = f"{group_path}.{slot.name}"
+            # Try to find the method on the behavior
+            method_name = slot.name.lower().replace(" ", "_")
+            if hasattr(behavior, method_name):
+                method_map[full_path] = getattr(behavior, method_name)
+
+        # Recursively map nested groups
+        if hasattr(group, "groups"):
+            for nested_group in group.groups:
+                self._map_group_methods(nested_group, method_map, behavior, group_path)
+
+    def _create_actions_for_group(
+        self, group: ShortcutSlotGroup, method_map: dict, parent_path: str
+    ):
+        """Recursively create QActions for a group and its slots.
+
+        Args:
+            group: The ShortcutSlotGroup to process
+            method_map: Dictionary mapping slot paths to methods
+            parent_path: The parent group path (empty for root)
+        """
+        group_path = f"{parent_path}.{group.name}" if parent_path else group.name
+
+        # Create actions for slots in this group
+        for slot in group.slots:
+            if not slot.enabled:
+                continue
+
+            full_path = f"{group_path}.{slot.name}"
+            method = method_map.get(full_path)
+            if method is None:
+                continue
+
+            # Create QAction for this slot
+            action = QtWidgets.QAction(self)
+            action.setShortcuts(slot.assigned)
+            action.setShortcutContext(QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            action.triggered.connect(method)
+            action.setProperty("is_shortcut_slot", True)
+            action.setProperty("slot_path", full_path)
+
+            # Add action to the widget
+            self.addAction(action)
+
+        # Recursively create actions for nested groups
+        if hasattr(group, "groups"):
+            for nested_group in group.groups:
+                self._create_actions_for_group(nested_group, method_map, group_path)
 
     def updateOptions(self, keylist: Collection[str]):
         keys = set(keylist)
@@ -389,32 +472,32 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         slots.append(
             ShortcutSlot(
                 name="Add Next Occurrence",
-                targetFunc=self.add_next_occurrence,
                 defaults=[QtGui.QKeySequence("Ctrl+D")],
+                desc="Add cursor at next occurrence of current selection",
             )
         )
 
         slots.append(
             ShortcutSlot(
                 name="Add Cursor Above",
-                targetFunc=self.add_cursor_above,
                 defaults=[QtGui.QKeySequence("Ctrl+Alt+Up")],
+                desc="Add a cursor on the line above",
             )
         )
 
         slots.append(
             ShortcutSlot(
                 name="Add Cursor Below",
-                targetFunc=self.add_cursor_below,
                 defaults=[QtGui.QKeySequence("Ctrl+Alt+Down")],
+                desc="Add a cursor on the line below",
             )
         )
 
         slots.append(
             ShortcutSlot(
                 name="Add Cursors to Line Ends",
-                targetFunc=self.add_cursors_to_line_ends,
                 defaults=[QtGui.QKeySequence("Ctrl+Shift+L")],
+                desc="Add cursors at the end of each line in selection",
             )
         )
 

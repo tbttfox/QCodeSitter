@@ -61,9 +61,8 @@ edit.addBehavior(HighlightMatchingSelection)
 edit.addBehavior(LineNumber)
 edit.addBehavior(Overscroll)
 edit.addBehavior(MultiCursorPaint)
-
-# edit.addBehavior(AutoBracket)
-# edit.addBehavior(CodeFolding)
+edit.addBehavior(AutoBracket)
+edit.addBehavior(CodeFolding)
 
 win.setCentralWidget(edit)
 win.show()

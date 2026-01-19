@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-import functools
 
 from Qt import QtGui, QtCore
 from tree_sitter import Node
@@ -559,22 +558,56 @@ class CodeFolding(HasHotkeys, Behavior):
         self.create_manual_fold()
         return False
 
-    def fold_to_level_hotkey(self, level: int) -> bool:
-        self.fold_to_level(level)
-        return True
+    def fold_to_level_0(self):
+        """Fold all regions at depth 0 or deeper"""
+        self.fold_to_level(0)
+
+    def fold_to_level_1(self):
+        """Fold all regions at depth 1 or deeper"""
+        self.fold_to_level(1)
+
+    def fold_to_level_2(self):
+        """Fold all regions at depth 2 or deeper"""
+        self.fold_to_level(2)
+
+    def fold_to_level_3(self):
+        """Fold all regions at depth 3 or deeper"""
+        self.fold_to_level(3)
+
+    def fold_to_level_4(self):
+        """Fold all regions at depth 4 or deeper"""
+        self.fold_to_level(4)
+
+    def fold_to_level_5(self):
+        """Fold all regions at depth 5 or deeper"""
+        self.fold_to_level(5)
+
+    def fold_to_level_6(self):
+        """Fold all regions at depth 6 or deeper"""
+        self.fold_to_level(6)
+
+    def fold_to_level_7(self):
+        """Fold all regions at depth 7 or deeper"""
+        self.fold_to_level(7)
+
+    def fold_to_level_8(self):
+        """Fold all regions at depth 8 or deeper"""
+        self.fold_to_level(8)
+
+    def fold_to_level_9(self):
+        """Fold all regions at depth 9 or deeper"""
+        self.fold_to_level(9)
 
     def getHotkeys(self) -> ShortcutSlotGroup:
         """Return user-configurable shortcuts for code folding operations"""
         slots = []
 
-        xxtargetFunc = self.fold_all_hotkey
-
         # Fold All - Ctrl+Shift+[
         slots.append(
             ShortcutSlot(
                 name="Fold All",
-                targetFunc=self.fold_all,
                 defaults=[QtGui.QKeySequence("Ctrl+Shift+[")],
+                desc="Fold all foldable regions",
             )
         )
 
@@ -582,8 +615,8 @@ class CodeFolding(HasHotkeys, Behavior):
         slots.append(
             ShortcutSlot(
                 name="Unfold All",
-                targetFunc=self.unfold_all,
                 defaults=[QtGui.QKeySequence("Ctrl+Shift+]")],
+                desc="Unfold all foldable regions",
             )
         )
 
@@ -591,8 +624,8 @@ class CodeFolding(HasHotkeys, Behavior):
         slots.append(
             ShortcutSlot(
                 name="Create Manual Fold",
-                targetFunc=self.create_manual_fold,
                 defaults=[QtGui.QKeySequence("Ctrl+Shift+.")],
+                desc="Create a manual fold from the current selection",
             )
         )
 
@@ -601,8 +634,8 @@ class CodeFolding(HasHotkeys, Behavior):
             slots.append(
                 ShortcutSlot(
                     name=f"Fold to Level {i}",
-                    targetFunc=functools.partial(self.fold_to_level, i),
                     defaults=[QtGui.QKeySequence(f"Ctrl+{i}")],
+                    desc=f"Fold all regions at depth {i} or deeper",
                 )
             )
 
