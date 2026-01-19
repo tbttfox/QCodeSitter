@@ -3,13 +3,7 @@ from __future__ import annotations
 from Qt import QtCore, QtGui, QtWidgets
 
 # QGuiApplication is not re-exported by Qt.py, so import directly
-try:
-    from PySide6.QtGui import QGuiApplication
-except ImportError:
-    try:
-        from PySide2.QtGui import QGuiApplication
-    except ImportError:
-        from PyQt5.QtGui import QGuiApplication
+from ..qt_missing import QGuiApplication
 
 from dataclasses import dataclass
 from tree_sitter import Node, Point, Tree

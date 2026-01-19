@@ -8,41 +8,44 @@ if TYPE_CHECKING:
 
 
 class MultiCursorPaint(HasPaint, Behavior):
-    """Behavior that renders multi-cursors with custom painting
+    """Behavior that renders cursors with custom painting
 
     This behavior handles rendering of both the primary cursor and secondary
-    cursors when in multi-cursor mode. It uses:
+    cursors (when in multi-cursor mode). It uses:
     - Custom thin cursor lines for cursor positions (rendered via painting)
     - ExtraSelections for text selections (rendered via Qt's selection mechanism)
+
+    The primary cursor is always drawn using this behavior, replacing the
+    built-in Qt cursor which is hidden via setCursorWidth(0).
     """
 
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
-        self.setListen(set())
+        self.setListen({"colors"})
 
         # Cursor appearance
         self.cursor_width = 2
-        self.primary_cursor_color = QtGui.QColor(255, 255, 255, 255)  # White
-        self.secondary_cursor_color = QtGui.QColor(180, 180, 180, 200)  # Gray
-        self.selection_color = QtGui.QColor(180, 180, 180, 200)  # Gray for selections
+        self.primary_cursor_color: QtGui.QColor
+        self.secondary_cursor_color: QtGui.QColor
+        self.selection_color: QtGui.QColor
+        self.updateAll()
 
-        # Blinking state for cursors
-        self._blink_visible = True
-        self._blink_timer = QtCore.QTimer()
-        self._blink_timer.timeout.connect(self._toggle_blink)
-        self._blink_timer.start(500)  # Blink every 500ms
+    def _colors(self, val):
+        """Update colors when color options change"""
+        self.primary_cursor_color = val.get(
+            "primary_cursor_color", QtGui.QColor(255, 255, 255, 255)
+        )
+        self.secondary_cursor_color = val.get(
+            "secondary_cursor_color", QtGui.QColor(180, 180, 180, 200)
+        )
+        self.selection_color = val.get(
+            "selection_color", QtGui.QColor(180, 180, 180, 200)
+        )
 
-    def _toggle_blink(self):
-        """Toggle cursor blink state"""
-        self._blink_visible = not self._blink_visible
-        self.editor.viewport().update()
+    colors = property(None, _colors)
 
     def update_visual(self):
         """Public method called by CodeEditor when cursors change"""
-        # Reset blink to visible when cursors change
-        self._blink_visible = True
-        self._blink_timer.start()
-
         # Update selections for cursors with text selected
         self._update_selections()
 
@@ -78,31 +81,23 @@ class MultiCursorPaint(HasPaint, Behavior):
 
     def clear_visual(self):
         """Public method called by CodeEditor when exiting multi-cursor mode"""
-        self._blink_timer.stop()
         self.editor.clear_selections("multi_cursor")
         self.editor.viewport().update()
 
     def paintEvent(self, e: QtGui.QPaintEvent, painter: QtGui.QPainter):
         """Paint thin cursor lines for all cursors without selections"""
-        # Only paint cursors if we're in multi-cursor mode or if we should show primary
-        if not self.editor.secondary_cursors:
-            return
-
-        # Only draw cursors if blink is visible
-        if not self._blink_visible:
-            return
-
         painter.save()
         try:
             cursor = QtGui.QTextCursor(self.editor.document())
-            # Draw secondary cursors
+
+            # Draw secondary cursors (if in multi-cursor mode)
             for state in self.editor.secondary_cursors:
                 if not state.hasSelection():
                     self._draw_cursor_at_position(
                         painter, cursor, state.position, self.secondary_cursor_color
                     )
 
-            # Draw primary cursor in multi-cursor mode
+            # Always draw primary cursor
             primary = self.editor.get_primary_cursor()
             if not primary.hasSelection():
                 self._draw_cursor_at_position(
@@ -149,5 +144,4 @@ class MultiCursorPaint(HasPaint, Behavior):
 
     def remove(self):
         """Clean up when behavior is removed"""
-        self._blink_timer.stop()
         self.editor.clear_selections("multi_cursor")

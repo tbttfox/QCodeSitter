@@ -12,8 +12,8 @@ from QCodeSitter.behaviors.highlight_matching_selection import HighlightMatching
 from QCodeSitter.behaviors.highlight_matching_brackets import HighlightMatchingBrackets
 from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
 from QCodeSitter.behaviors.auto_bracket import AutoBracket
-# from QCodeSitter.behaviors.tab_completion import TabCompletion
-# from QCodeSitter.behaviors.providers.identifiers import IdentifierProvider
+from QCodeSitter.behaviors.tab_completion import TabCompletion
+from QCodeSitter.behaviors.providers.identifiers import IdentifierProvider
 from QCodeSitter.behaviors.code_folding import CodeFolding
 from QCodeSitter.behaviors.multi_cursor_paint import MultiCursorPaint
 from QCodeSitter.editor_options import EditorOptions
@@ -44,10 +44,8 @@ options = EditorOptions(
 
 edit = CodeEditor(options, parent=win)
 
-"""
 _old, cmp_bh = edit.addBehavior(TabCompletion)
 cmp_bh.addProvider(IdentifierProvider)
-"""
 
 # TODO: There's an error when undoing multiple multi-edit inputs with syntax highlighting turned on
 # I'm guessing it has to do with the undo_requested syntax re-highlighting

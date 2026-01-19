@@ -201,6 +201,9 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.space_indent_width: int = 4
         self.indent_using_tabs: bool = False
 
+        # Hide the built-in cursor so we can draw it ourselves
+        self.setCursorWidth(0)
+
         self.updateOptions(list(self.options.keys()))
 
     def textCursor(self) -> TrackedCursor:
@@ -291,7 +294,9 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         method_map["Multi-Cursor.Add Next Occurrence"] = self.add_next_occurrence
         method_map["Multi-Cursor.Add Cursor Above"] = self.add_cursor_above
         method_map["Multi-Cursor.Add Cursor Below"] = self.add_cursor_below
-        method_map["Multi-Cursor.Add Cursors to Line Ends"] = self.add_cursors_to_line_ends
+        method_map["Multi-Cursor.Add Cursors to Line Ends"] = (
+            self.add_cursors_to_line_ends
+        )
 
         # Map behavior shortcuts
         for behavior in self._behaviors:
@@ -352,7 +357,9 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             # Create QAction for this slot
             action = QtWidgets.QAction(self)
             action.setShortcuts(slot.assigned)
-            action.setShortcutContext(QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            action.setShortcutContext(
+                QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut
+            )
             action.triggered.connect(method)
             action.setProperty("is_shortcut_slot", True)
             action.setProperty("slot_path", full_path)
