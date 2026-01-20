@@ -228,11 +228,14 @@ class CompletionPopup(QtWidgets.QListWidget):
         # Calculate how many characters to remove (the prefix length)
         prefix_len = len(self.current_prefix)
 
-        # Remove the prefix
-        for _ in range(prefix_len):
-            cursor.deletePreviousChar()
-
-        # Insert the completion text
+        # Select the prefix and replace it with the completion text in one operation
+        # Using a single operation prevents multiple tree-sitter edit notifications
+        # which can cause the tree to get into an inconsistent state
+        cursor.movePosition(
+            cursor.MoveOperation.PreviousCharacter,
+            cursor.MoveMode.KeepAnchor,
+            prefix_len,
+        )
         cursor.insertText(comp.text)
 
         self.editor.setTextCursor(cursor)
