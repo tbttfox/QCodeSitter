@@ -9,7 +9,6 @@ description = "Dynamic sequence with efficient cumulative sums"
 requires-python = ">=3.8"
 dependencies = [
     "Qt.py",
-    "numpy<2.0",  # <2.0 because of shiboken/sip
     "stransi",
     "tree-sitter",
     "tree-sitter-python",
