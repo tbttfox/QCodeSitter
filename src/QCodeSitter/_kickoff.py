@@ -49,11 +49,6 @@ edit = CodeEditor(options, parent=win)
 _old, cmp_bh = edit.addBehavior(TabCompletion)
 cmp_bh.addProvider(IdentifierProvider)
 
-# TODO: There's an error when undoing multiple multi-edit inputs with syntax highlighting turned on
-# I'm guessing it has to do with the undo_requested syntax re-highlighting
-# TODO: Fix Bug in delete_word_backward when the cursor is at the end of the document
-# TODO: Group normal text editing into undo groups by word
-
 edit.addBehavior(SyntaxHighlighting)
 edit.addBehavior(SmartIndent)
 edit.addBehavior(HighlightMatchingBrackets)

@@ -18,6 +18,7 @@ dependencies = [
 test = [
     "pytest>=7.0",
     "pytest-cov",
+    "pytest-qt>=4.0",
 ]
 dev = [
     "tox>=4.0",
