@@ -7,24 +7,15 @@ name = "QCodeSitter"
 version = "0.1.0"
 description = "Dynamic sequence with efficient cumulative sums"
 requires-python = ">=3.8"
-dependencies = [
-    "Qt.py",
-    "stransi",
-    "tree-sitter",
-    "tree-sitter-python",
-]
+dependencies = ["Qt.py", "stransi", "tree-sitter", "tree-sitter-python"]
 
 [project.optional-dependencies]
-test = [
-    "pytest>=7.0",
-    "pytest-cov",
-    "pytest-qt>=4.0",
-]
-dev = [
-    "tox>=4.0",
-    "mypy",
-    "ruff",
-]
+test = ["pytest>=7.0", "pytest-cov", "pytest-qt>=4.0"]
+dev = ["tox>=4.0", "mypy", "ruff"]
+
+[project.entry-points."preditor.plug.editors"]
+qcodesitter = "QCodeSitter.entry_points.preditor_interface:CodeSitterTextEdit"
+
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -22,13 +22,13 @@ from ..hl_groups import FORMAT_SPECS, COLORS
 from ..highlight_query import HIGHLIGHT_QUERY
 
 
-from preditor.workbox_mixin import WorkboxMixin
-
+from preditor.gui.workbox_mixin import WorkboxMixin
+from preditor.gui.codehighlighter import CodeHighlighter
 
 logger = logging.getLogger(__name__)
 
 
-class WorkboxTextEdit(WorkboxMixin, CodeEditor):
+class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
     """A very simple multi-line text editor without any bells and whistles.
 
     It's better than nothing, but not by much.
@@ -46,13 +46,37 @@ class WorkboxTextEdit(WorkboxMixin, CodeEditor):
         delayable_engine="default",
         parent=None,
         options=None,
+        **kwargs,
     ):
         if options is None:
-            options = EditorOptions()
-
-        WorkboxMixin.__init__(self, parent=parent, core_name=core_name)
-        CodeEditor.__init__(self, options, parent=parent)
-
+            options = EditorOptions(
+                {
+                    "space_indent_width": 4,
+                    "tab_indent_width": 8,
+                    "indent_using_tabs": False,
+                    "copy_indents_as_spaces": True,
+                    "language": Language(tspython.language()),
+                    "highlights": (HIGHLIGHT_QUERY, FORMAT_SPECS),
+                    "colors": COLORS,
+                    "font": QtGui.QFont("MS Shell Dlg 2", pointSize=11),
+                    "vim_completion_keys": True,  # c-n c-p for next/prev  c-y for accept
+                    "debounce_delay": 150,  # in milliseconds
+                    "auto_bracket_enabled": True,
+                    "auto_bracket_pairs": "()[]{}\"\"''``",
+                    "indent_bracket_pairs": ["()", "[]", "{}"],
+                    "highlight_bracket_pairs": ["()", "[]", "{}"],
+                    "highlight_quote_pairs": "\"'`",
+                }
+            )
+        super().__init__(
+            parent=parent,
+            console=console,
+            core_name=core_name,
+            delayable_engine=delayable_engine,
+            options=options,
+            **kwargs,
+        )
+        self._encoding = None
         self.__set_console__(console)
 
         _old, cmp_bh = self.addBehavior(TabCompletion)
@@ -172,4 +196,4 @@ class WorkboxTextEdit(WorkboxMixin, CodeEditor):
         if self.process_shortcut(event):
             return
         else:
-            super(WorkboxTextEdit, self).keyPressEvent(event)
+            super(CodeSitterTextEdit, self).keyPressEvent(event)

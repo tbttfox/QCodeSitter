@@ -21,7 +21,7 @@ class TreeManager(QtCore.QObject):
     def __init__(
         self,
         editor: QtWidgets.QPlainTextEdit,
-        language: Language,
+        language: Optional[Language],
     ):
         """Initialize the tree manager
 
@@ -33,7 +33,10 @@ class TreeManager(QtCore.QObject):
         """
         super().__init__()
         self.editor = editor
-        self.parser = Parser(language)
+        self.parser: Optional[Parser] = None
+        if language is not None:
+            self.parser = Parser(language)
+
         self.tree: Optional[Tree] = None
         self._source_callback = self.treesitter_source_callback
         self._ts_prediction: dict[int, QtGui.QTextBlock] = {}
@@ -82,7 +85,8 @@ class TreeManager(QtCore.QObject):
         return linetext.encode(ENC)[ts_point.column :]
 
     def fullUpdate(self):
-        self.tree = self.parser.parse(self._source_callback, encoding="utf16")
+        if self.parser is not None:
+            self.tree = self.parser.parse(self._source_callback, encoding="utf16")
 
     def pause(self):
         self._paused = True
@@ -131,14 +135,15 @@ class TreeManager(QtCore.QObject):
             return self.tree
 
         old_tree = self.tree
-        if self.tree is not None:
-            self.tree = self.parser.parse(
-                self._source_callback, self.tree, encoding="utf16"
-            )
-        else:
-            # First parse - no old tree to pass
-            self.tree = self.parser.parse(self._source_callback, encoding="utf16")
-        self.reparsed.emit()
+        if self.parser is not None:
+            if self.tree is not None:
+                self.tree = self.parser.parse(
+                    self._source_callback, self.tree, encoding="utf16"
+                )
+            else:
+                # First parse - no old tree to pass
+                self.tree = self.parser.parse(self._source_callback, encoding="utf16")
+            self.reparsed.emit()
         return old_tree
 
     def get_node_at_point(self, byte_offset: int) -> Optional[Node]:

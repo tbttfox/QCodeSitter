@@ -176,6 +176,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self,
         options: EditorOptions,
         parent=None,
+        *args,
+        **kwargs,
     ):
         super().__init__(parent=parent)
         self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
@@ -196,8 +198,10 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.shortcut_manager = ShortcutManager()
         self._can_join = False
 
-        self.tree_manager: TreeManager
-        self.syntax_analyzer: SyntaxAnalyzer
+        self.tree_manager: TreeManager = TreeManager(self, None)
+        self.syntax_analyzer: SyntaxAnalyzer = SyntaxAnalyzer(
+            self.tree_manager, self._doc
+        )
 
         # TODO: Get this data from options
         self.space_indent_width: int = 4
