@@ -16,6 +16,8 @@ class TreeManager(QtCore.QObject):
     to efficiently re-parse only the changed portions of the document.
     """
 
+    reparsed = QtCore.Signal()
+
     def __init__(
         self,
         editor: QtWidgets.QPlainTextEdit,
@@ -136,6 +138,7 @@ class TreeManager(QtCore.QObject):
         else:
             # First parse - no old tree to pass
             self.tree = self.parser.parse(self._source_callback, encoding="utf16")
+        self.reparsed.emit()
         return old_tree
 
     def get_node_at_point(self, byte_offset: int) -> Optional[Node]:

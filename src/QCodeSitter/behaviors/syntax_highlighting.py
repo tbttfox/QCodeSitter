@@ -191,6 +191,11 @@ class SyntaxHighlighting(Behavior, HasUndoRedo):
         self.highlighter = TreeSitterHighlighter(
             self.editor._doc, self.editor.tree_manager, hlquery, fmts
         )
+        self.editor.tree_manager.reparsed.connect(self._on_reparsed)
+
+    def _on_reparsed(self):
+        if self.highlighter:
+            self.highlighter.rehighlight()
 
     def remove(self):
         self.highlighter = None
