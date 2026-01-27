@@ -5,6 +5,8 @@ from Qt import QtGui, QtCore
 
 from . import Behavior, HasHotkeys
 from ..utils import len16
+from ..code_editor import CursorIterator
+
 from QtShortcutManager import ShortcutSlot, ShortcutSlotGroup
 
 if TYPE_CHECKING:
@@ -42,8 +44,6 @@ class CommentToggle(HasHotkeys, Behavior):
         return ShortcutSlotGroup("Comment", slots=slots)
 
     def toggle_comment(self):
-        from ..code_editor import CursorIterator
-
         self.editor.tree_manager.pause()
         try:
             self.editor.citer = CursorIterator(self.editor)
@@ -76,9 +76,7 @@ class CommentToggle(HasHotkeys, Behavior):
 
         # Determine direction: uncomment if ALL non-empty lines are commented
         should_uncomment = all(
-            self._line_is_commented(line, prefix)
-            for line in lines
-            if line.strip()
+            self._line_is_commented(line, prefix) for line in lines if line.strip()
         )
 
         if should_uncomment:
@@ -126,9 +124,9 @@ class CommentToggle(HasHotkeys, Behavior):
         indent = len(line) - len(line.lstrip())
         rest = line[indent:]
         if rest.startswith(prefix):
-            return line[:indent] + rest[len(prefix):]
+            return line[:indent] + rest[len(prefix) :]
         # Handle prefix without trailing space (e.g. "#foo")
         stripped_prefix = prefix.rstrip()
         if rest.startswith(stripped_prefix):
-            return line[:indent] + rest[len(stripped_prefix):]
+            return line[:indent] + rest[len(stripped_prefix) :]
         return line
