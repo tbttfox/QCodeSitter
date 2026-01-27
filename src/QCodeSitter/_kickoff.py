@@ -15,6 +15,7 @@ from QCodeSitter.behaviors.auto_bracket import AutoBracket
 from QCodeSitter.behaviors.tab_completion import TabCompletion
 from QCodeSitter.behaviors.providers.identifiers import IdentifierProvider
 from QCodeSitter.behaviors.code_folding import CodeFolding
+from QCodeSitter.behaviors.comment_toggle import CommentToggle
 from QCodeSitter.behaviors.multi_cursor_paint import MultiCursorPaint
 from QCodeSitter.editor_options import EditorOptions
 from QCodeSitter.hl_groups import FORMAT_SPECS, COLORS
@@ -59,6 +60,7 @@ edit.addBehavior(Overscroll)
 edit.addBehavior(MultiCursorPaint)
 edit.addBehavior(AutoBracket)
 edit.addBehavior(CodeFolding)
+edit.addBehavior(CommentToggle)
 
 win.setCentralWidget(edit)
 win.show()
