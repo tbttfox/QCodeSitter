@@ -30,6 +30,7 @@ from QCodeSitter.behaviors.tab_completion import TabCompletion
 from QCodeSitter.behaviors.providers.identifiers import IdentifierProvider
 from QCodeSitter.behaviors.code_folding import CodeFolding
 from QCodeSitter.behaviors.multi_cursor_paint import MultiCursorPaint
+from QCodeSitter.behaviors.comment_toggle import CommentToggle
 
 
 @pytest.fixture(scope="session")
@@ -91,6 +92,7 @@ def editor(qtbot, default_options):
     editor.addBehavior(MultiCursorPaint)
     editor.addBehavior(AutoBracket)
     editor.addBehavior(CodeFolding)
+    editor.addBehavior(CommentToggle)
 
     editor.show()
     qtbot.waitExposed(editor)
