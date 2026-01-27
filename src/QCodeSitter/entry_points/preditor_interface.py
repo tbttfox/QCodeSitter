@@ -10,6 +10,7 @@ from ..behaviors.line_numbers import LineNumber
 from ..behaviors.overscroll import Overscroll
 from ..behaviors.highlight_matching_selection import HighlightMatchingSelection
 from ..behaviors.highlight_matching_brackets import HighlightMatchingBrackets
+from ..behaviors.comment_toggle import CommentToggle
 from ..behaviors.syntax_highlighting import SyntaxHighlighting
 from ..behaviors.auto_bracket import AutoBracket
 from ..behaviors.tab_completion import TabCompletion
@@ -66,12 +67,11 @@ class WorkboxTextEdit(WorkboxMixin, CodeEditor):
         self.addBehavior(MultiCursorPaint)
         self.addBehavior(AutoBracket)
         self.addBehavior(CodeFolding)
+        self.addBehavior(CommentToggle)
 
     def __auto_complete_enabled__(self):
-        for bh in enumerate(self._behaviors):
-            if type(bh) is TabCompletion:
-                return True
-        return False
+        bh = self.getBehavior(TabCompletion)
+        return bh is not None
 
     def __set_auto_complete_enabled__(self, state: bool):
         if state == self.__auto_complete_enabled__():
@@ -164,8 +164,9 @@ class WorkboxTextEdit(WorkboxMixin, CodeEditor):
         return self.textCursor().selection().toPlainText(), line
 
     def __comment_toggle__(self):
-        pass
-        # self.comment_toggle()
+        bh = self.getBehavior(CommentToggle)
+        if bh is not None:
+            bh.toggle_comment()
 
     def keyPressEvent(self, event):
         if self.process_shortcut(event):
