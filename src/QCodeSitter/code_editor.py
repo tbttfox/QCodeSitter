@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Union, Optional, Collection, Type, TypeVar
+import re
 
 from dataclasses import dataclass
 from Qt import QtGui
@@ -24,6 +25,7 @@ from .tree_manager import TreeManager
 from .syntax_analyzer import SyntaxAnalyzer
 from .editor_options import EditorOptions
 from .tracked_cursor import TrackedCursor
+from .behaviors.multi_cursor_paint import MultiCursorPaint
 
 from QtShortcutManager import ShortcutManager, ShortcutSlot, ShortcutSlotGroup
 
@@ -200,6 +202,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         # TODO: Get this data from options
         self.space_indent_width: int = 4
         self.indent_using_tabs: bool = False
+        self.copy_indents_as_spaces: bool = True
 
         # Hide the built-in cursor so we can draw it ourselves
         self.setCursorWidth(0)
@@ -574,7 +577,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def _update_visual(self):
         """Update visual rendering of secondary cursors"""
-        from .behaviors.multi_cursor_paint import MultiCursorPaint
 
         behavior = self.getBehavior(MultiCursorPaint)
         if behavior:
@@ -927,7 +929,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self._set_all_cursors(new_cursors)
         return True
 
-    def copy(self):
+    def selected_texts(self) -> list[str]:
         """Copy text from all cursors to clipboard (joined with newlines)"""
         all_cursors, _primary_index = self.get_all_cursors()
 
@@ -940,9 +942,22 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             qt_cursor.setPosition(cursor_state.position, MM.KeepAnchor)
             selected_text = qt_cursor.selectedText()
             selected_texts.append(selected_text)
+        return selected_texts
 
-        # Join all selections with a special separator
-        # We use a marker that's unlikely to appear in normal text
+    def copy(self):
+        """Copy text from all cursors to clipboard (joined with newlines)"""
+        selected_texts = self.selected_texts()
+        if self.copy_indents_as_spaces:
+            nst = []
+            for st in selected_texts:
+                st = re.sub(
+                    r"(?m)^\t+",
+                    lambda m: " " * self.space_indent_width * len(m.group()),
+                    st,
+                )
+                nst.append(st)
+            selected_texts = nst
+
         clipboard_text = "\n".join(selected_texts)
 
         # Store both the joined text and the count of selections

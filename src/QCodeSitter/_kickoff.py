@@ -30,6 +30,7 @@ options = EditorOptions(
         "space_indent_width": 4,
         "tab_indent_width": 8,
         "indent_using_tabs": False,
+        "copy_indents_as_spaces": True,
         "language": Language(tspython.language()),
         "highlights": (HIGHLIGHT_QUERY, FORMAT_SPECS),
         "colors": COLORS,
