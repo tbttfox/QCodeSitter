@@ -35,11 +35,6 @@ class HasKeyPress:
         raise NotImplementedError("You must implement the keyPressEvent")
 
 
-class HasResize:
-    def resizeEvent(self, event: QtGui.QResizeEvent) -> bool:
-        raise NotImplementedError("You must implement the resizeEvent")
-
-
 class HasHotkeys:
     """Interface for behaviors that provide user-configurable shortcuts.
 

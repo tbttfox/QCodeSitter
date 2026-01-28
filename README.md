@@ -79,7 +79,6 @@ Behaviors declare their capabilities by mixing in one or more interfaces:
 | `HasKeyPress` | `keyPressEvent(event) -> bool` | Handle keyboard input (Tab, Enter, Backspace, etc.) |
 | `HasHotkeys` | `getHotkeys() -> ShortcutSlotGroup` | Declare user-configurable shortcuts (Ctrl+/, Ctrl+D, etc.) |
 | `HasPaint` | `paintEvent(event, painter) -> bool` | Custom rendering in the editor viewport |
-| `HasResize` | `resizeEvent(event) -> bool` | React to editor resize |
 | `HasUndoRedo` | `prepareUndo()`, `prepareRedo()`, `afterUndoRedo()` | Hook into undo/redo lifecycle |
 
 For example, a behavior that handles both keyboard input and custom painting:

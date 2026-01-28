@@ -15,7 +15,6 @@ from .utils import len16
 from .behaviors import (
     Behavior,
     HasKeyPress,
-    HasResize,
     HasHotkeys,
     HasPaint,
     HasUndoRedo,
@@ -222,13 +221,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.setViewportMargins(current_margins)
 
     def resizeEvent(self, e: QtGui.QResizeEvent):
-        """Handle resize events to update line number area geometry"""
         super().resizeEvent(e)
-
-        for behavior in self._behaviors:
-            if isinstance(behavior, HasResize):
-                behavior.resizeEvent(e)
-
         self.gutterResize.emit()
 
     def set_selections(

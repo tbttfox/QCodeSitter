@@ -23,7 +23,6 @@ from ..highlight_query import HIGHLIGHT_QUERY
 
 
 from preditor.gui.workbox_mixin import WorkboxMixin
-from preditor.gui.codehighlighter import CodeHighlighter
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +48,7 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         **kwargs,
     ):
         if options is None:
-            options = EditorOptions(
+            self.options = EditorOptions(
                 {
                     "space_indent_width": 4,
                     "tab_indent_width": 8,
@@ -68,36 +67,40 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
                     "highlight_quote_pairs": "\"'`",
                 }
             )
+        else:
+            self.options = options
         super().__init__(
             parent=parent,
             console=console,
             core_name=core_name,
             delayable_engine=delayable_engine,
-            options=options,
+            options=self.options,
             **kwargs,
         )
         self._encoding = None
         self.__set_console__(console)
 
-        _old, cmp_bh = self.addBehavior(TabCompletion)
-        cmp_bh.addProvider(IdentifierProvider)
+        #_old, cmp_bh = self.addBehavior(TabCompletion)
+        #cmp_bh.addProvider(IdentifierProvider)
 
-        self.addBehavior(SyntaxHighlighting)
-        self.addBehavior(SmartIndent)
-        self.addBehavior(HighlightMatchingBrackets)
-        self.addBehavior(HighlightMatchingSelection)
-        self.addBehavior(LineNumber)
-        self.addBehavior(Overscroll)
-        self.addBehavior(MultiCursorPaint)
-        self.addBehavior(AutoBracket)
-        self.addBehavior(CodeFolding)
-        self.addBehavior(CommentToggle)
+        #self.addBehavior(SyntaxHighlighting)
+        #self.addBehavior(SmartIndent)
+        #self.addBehavior(HighlightMatchingBrackets)
+        #self.addBehavior(HighlightMatchingSelection)
+        #self.addBehavior(LineNumber)
+        #self.addBehavior(Overscroll)
+        #self.addBehavior(MultiCursorPaint)
+        #self.addBehavior(AutoBracket)
+        #self.addBehavior(CodeFolding)
+        #self.addBehavior(CommentToggle)
 
     def __auto_complete_enabled__(self):
+        return False
         bh = self.getBehavior(TabCompletion)
         return bh is not None
 
     def __set_auto_complete_enabled__(self, state: bool):
+        return
         if state == self.__auto_complete_enabled__():
             return
         if state:

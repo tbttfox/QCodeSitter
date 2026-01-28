@@ -14,8 +14,8 @@ COLORS = {
     "fg_dim":         "#787878",
     "bg_dim":         "#3C3C4C",
     "hl_dim":         "#4C4C5C",
-    "gutter":         "#282828",
-    "gutter_fg":      "#4B5263",
+    "gutter":         "#101010",
+    "gutter_fg":      "#8E9CBC",
 
     "match_hl":       "#50FFFF00",
     "pair_hl":        "#50FFFF00",
