@@ -29,9 +29,12 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
         self._doc: TrackedDocument = document
         self._enabled = True  # Flag to temporarily disable highlighting
 
-        lang = self.tree_manager.parser.language
-        if lang is None:
+        parser = self.tree_manager.parser
+        if parser is None:
             raise RuntimeError("The tree parser must be properly set")
+        lang = parser.language
+        if lang is None:
+            raise RuntimeError("The tree language must be properly set")
 
         # highlights_query_source = tspython.HIGHLIGHTS_QUERY,
         self.query = Query(lang, highlights_query_source)

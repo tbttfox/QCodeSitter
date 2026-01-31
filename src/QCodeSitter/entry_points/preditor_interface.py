@@ -98,6 +98,7 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         """The WorkboxMixin assumes a QTextEdit, not a QPlainTextEdit
         So I have to reroute setText to setPlainText"""
         self.setPlainText(text)
+        self.tree_manager.fullUpdate()
 
     def __auto_complete_enabled__(self):
         bh = self.getBehavior(TabCompletion)

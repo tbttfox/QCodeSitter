@@ -87,6 +87,7 @@ class TreeManager(QtCore.QObject):
     def fullUpdate(self):
         if self.parser is not None:
             self.tree = self.parser.parse(self._source_callback, encoding="utf16")
+            self.reparsed.emit()
 
     def pause(self):
         self._paused = True
