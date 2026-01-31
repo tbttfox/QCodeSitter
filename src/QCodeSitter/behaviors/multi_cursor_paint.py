@@ -28,6 +28,11 @@ class MultiCursorPaint(HasPaint, Behavior):
         self.primary_cursor_color: QtGui.QColor
         self.secondary_cursor_color: QtGui.QColor
         self.selection_color: QtGui.QColor
+        self.bg_color: QtGui.QColor
+        self._blink_state = True
+        self.blink_timer = QtCore.QTimer(self.editor)
+        self.blink_timer.timeout.connect(self._update_blink)
+        self.blink_timer.start(QtWidgets.QApplication.instance().cursorFlashTime() // 2)
         self.updateAll()
 
     def _colors(self, val):
@@ -84,6 +89,8 @@ class MultiCursorPaint(HasPaint, Behavior):
 
     def paintEvent(self, e: QtGui.QPaintEvent, painter: QtGui.QPainter):
         """Paint thin cursor lines for all cursors without selections"""
+        if not self._blink_state:
+            return
         painter.save()
         try:
             cursor = QtGui.QTextCursor(self.editor.document())
@@ -103,6 +110,10 @@ class MultiCursorPaint(HasPaint, Behavior):
                 )
         finally:
             painter.restore()
+
+    def _update_blink(self):
+        self._blink_state = not self._blink_state
+        self.editor.viewport().repaint()
 
     def _draw_cursor_at_position(
         self,
