@@ -548,16 +548,19 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self._update_visual()
 
     def _merge_overlapping_cursors(
-        self, cursors: list[CursorState]
+        self, cursors: list[CursorState], handle_primary: bool = True
     ) -> list[CursorState]:
         """Merge cursors that overlap or are adjacent"""
         if len(cursors) <= 1:
             return cursors
 
+        first = cursors[0]
+
         # Sort by start position
         cursors = sorted(cursors, key=lambda c: c.selectionStart())
-
         merged = [cursors[0]]
+
+        pidx = 0
         for cursor in cursors[1:]:
             last = merged[-1]
 
@@ -569,6 +572,12 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                 merged[-1] = CursorState(new_anchor, new_position)
             else:
                 merged.append(cursor)
+            if cursor is first:
+                pidx = len(merged) - 1
+
+        if handle_primary:
+            primary = merged.pop(pidx)
+            merged.insert(0, primary)
 
         return merged
 
@@ -656,7 +665,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         if next_pos >= 0:
             # Add new secondary cursor at match
             new_cursor = CursorState(next_pos, next_pos + len(search_text))
-            self.secondary_cursors.append(new_cursor)
+            self._set_all_cursors(all_cursors + [new_cursor])
             self._update_visual()
             return
 
@@ -664,7 +673,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         next_pos = self._find_next(search_text, 0)
         if next_pos >= 0 and next_pos < all_cursors[0].selectionStart():
             new_cursor = CursorState(next_pos, next_pos + len(search_text))
-            self.secondary_cursors.append(new_cursor)
+            self._set_all_cursors(all_cursors + [new_cursor])
             self._update_visual()
 
     def _find_next(self, search_text: str, start_pos: int) -> int:
@@ -1019,8 +1028,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             self.citer.update_offset(len16(line))
             self.citer.cursor_completed()
 
-    def add_cursor_above(self):
-        """Add a new cursor on the line above the primary cursor (primary moves up, leaves cursor behind)"""
+    def _add_cursor_adjacent(self, above: bool):
+        """Add a new cursor on the line above or below the primary cursor (primary moves up, leaves cursor behind)"""
         # Get current cursor position - use primary cursor
         primary = self.get_primary_cursor()
         current_position = primary.position
@@ -1032,49 +1041,35 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             return
 
         # Move to previous block
-        previous_block = block.previous()
-        if not previous_block.isValid():
+        if above:
+            adj_block = block.previous()
+        else:
+            adj_block = block.next()
+
+        if not adj_block.isValid():
             return
 
         # Calculate column position
-        col = min(current_position - block.position(), len16(previous_block.text()))
+        col = min(current_position - block.position(), len16(adj_block.text()))
 
         # Position in previous line (this will be the new primary)
-        new_primary_pos = previous_block.position() + col
+        new_primary_pos = adj_block.position() + col
 
-        self.secondary_cursors.append(CursorState(current_position, current_position))
+        new_secondary = CursorState(current_position, current_position)
         new_primary = CursorState(new_primary_pos, new_primary_pos)
-        self.set_primary_cursor(new_primary)
+        self._set_all_cursors([new_primary] + self.secondary_cursors + [new_secondary])
+
         self._update_visual()
+
+    def add_cursor_above(self):
+        """Add a new cursor on the line above the primary cursor (primary moves up, leaves cursor behind)"""
+        # Get current cursor position - use primary cursor
+        self._add_cursor_adjacent(True)
 
     def add_cursor_below(self):
         """Add a new cursor on the line below the primary cursor (primary moves down, leaves cursor behind)"""
         # Get current cursor position - use primary cursor
-        primary = self.get_primary_cursor()
-        current_position = primary.position
-
-        # Get current block and column
-        doc = self.document()
-        block = doc.findBlock(current_position)
-        if not block.isValid():
-            return
-
-        # Move to next block
-        next_block = block.next()
-        if not next_block.isValid():
-            return
-
-        # Calculate column position
-        col = min(current_position - block.position(), len16(next_block.text()))
-
-        # Position in next line (this will be the new primary)
-        new_primary_pos = next_block.position() + col
-
-        self.secondary_cursors.append(CursorState(current_position, current_position))
-
-        new_primary = CursorState(new_primary_pos, new_primary_pos)
-        self.set_primary_cursor(new_primary)
-        self._update_visual()
+        self._add_cursor_adjacent(False)
 
     def add_cursors_to_line_ends(self):
         """Add a cursor at the end of each line in the current selection"""
@@ -1122,6 +1117,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         new_cursor = CursorState(position, position)
         all_cursors, _primary_index = self.get_all_cursors()
         all_cursors.append(new_cursor)
+        all_cursors = self._merge_overlapping_cursors(all_cursors)
+
         self._set_all_cursors(all_cursors)
 
         return True
