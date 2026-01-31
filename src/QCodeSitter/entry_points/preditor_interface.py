@@ -80,27 +80,30 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         self._encoding = None
         self.__set_console__(console)
 
-        #_old, cmp_bh = self.addBehavior(TabCompletion)
-        #cmp_bh.addProvider(IdentifierProvider)
+        _old, cmp_bh = self.addBehavior(TabCompletion)
+        cmp_bh.addProvider(IdentifierProvider)
 
-        #self.addBehavior(SyntaxHighlighting)
-        #self.addBehavior(SmartIndent)
-        #self.addBehavior(HighlightMatchingBrackets)
-        #self.addBehavior(HighlightMatchingSelection)
-        #self.addBehavior(LineNumber)
-        #self.addBehavior(Overscroll)
-        #self.addBehavior(MultiCursorPaint)
-        #self.addBehavior(AutoBracket)
-        #self.addBehavior(CodeFolding)
-        #self.addBehavior(CommentToggle)
+        self.addBehavior(SyntaxHighlighting)
+        self.addBehavior(SmartIndent)
+        self.addBehavior(HighlightMatchingBrackets)
+        self.addBehavior(HighlightMatchingSelection)
+        self.addBehavior(LineNumber)
+        self.addBehavior(Overscroll)
+        self.addBehavior(MultiCursorPaint)
+        self.addBehavior(AutoBracket)
+        self.addBehavior(CodeFolding)
+        self.addBehavior(CommentToggle)
+
+    def setText(self, text: str):
+        """The WorkboxMixin assumes a QTextEdit, not a QPlainTextEdit
+        So I have to reroute setText to setPlainText"""
+        self.setPlainText(text)
 
     def __auto_complete_enabled__(self):
-        return False
         bh = self.getBehavior(TabCompletion)
         return bh is not None
 
     def __set_auto_complete_enabled__(self, state: bool):
-        return
         if state == self.__auto_complete_enabled__():
             return
         if state:
