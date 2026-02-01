@@ -34,12 +34,14 @@ class CommentToggle(HasHotkeys, Behavior):
         self._comment_prefix = COMMENT_PREFIXES.get(lang.name, "# ")
 
     def getHotkeys(self) -> ShortcutSlotGroup:
+        # disable because preditor uses it
         slots = [
             ShortcutSlot(
                 name="Toggle Comment",
                 method_name="toggle_comment",
                 defaults=[QtGui.QKeySequence("Ctrl+/")],
                 desc="Toggle line comment on current line or selection",
+                enabled=False,
             )
         ]
         return ShortcutSlotGroup("Comment", slots=slots)

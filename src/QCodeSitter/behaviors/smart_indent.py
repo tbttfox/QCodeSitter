@@ -63,19 +63,22 @@ class SmartIndent(HasKeyPress, Behavior):
 
     font = property(None, _font)
 
-    def keyPressEvent(self, event: QtGui.QKeyEvent):
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> bool:
         if event.key() == QtCore.Qt.Key.Key_Return:
             self.smartNewline()
         elif event.key() == QtCore.Qt.Key.Key_Tab:
             self.insertIndent()
+            return True
         elif event.key() == QtCore.Qt.Key.Key_Backtab:
             self.unindent()
+            return True
         elif event.key() == QtCore.Qt.Key.Key_Backspace:
             self.smartBackspace()
         else:
             text = event.text()
             if text in ("]", ")", "}"):
                 self.smartClosingBracket(text)
+        return False
 
     def expandCursorToLines(self, cursor: QtGui.QTextCursor):
         """Expand a cursor selection to whole lines
