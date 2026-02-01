@@ -606,6 +606,7 @@ class CodeFolding(HasHotkeys, Behavior):
         slots.append(
             ShortcutSlot(
                 name="Fold All",
+                method_name="fold_all",
                 defaults=[QtGui.QKeySequence("Ctrl+Shift+[")],
                 desc="Fold all foldable regions",
             )
@@ -615,6 +616,7 @@ class CodeFolding(HasHotkeys, Behavior):
         slots.append(
             ShortcutSlot(
                 name="Unfold All",
+                method_name="unfold_all",
                 defaults=[QtGui.QKeySequence("Ctrl+Shift+]")],
                 desc="Unfold all foldable regions",
             )
@@ -624,6 +626,7 @@ class CodeFolding(HasHotkeys, Behavior):
         slots.append(
             ShortcutSlot(
                 name="Create Manual Fold",
+                method_name="create_manual_fold",
                 defaults=[QtGui.QKeySequence("Ctrl+Shift+.")],
                 desc="Create a manual fold from the current selection",
             )
@@ -634,6 +637,7 @@ class CodeFolding(HasHotkeys, Behavior):
             slots.append(
                 ShortcutSlot(
                     name=f"Fold to Level {i}",
+                    method_name=f"fold_to_level_{i}",
                     defaults=[QtGui.QKeySequence(f"Ctrl+{i}")],
                     desc=f"Fold all regions at depth {i} or deeper",
                 )

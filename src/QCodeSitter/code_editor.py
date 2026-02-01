@@ -321,11 +321,10 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         # Map slots in this group
         for slot in group.slots:
-            full_path = f"{group_path}.{slot.name}"
             # Try to find the method on the behavior
-            method_name = slot.name.lower().replace(" ", "_")
-            if hasattr(behavior, method_name):
-                method_map[full_path] = getattr(behavior, method_name)
+            if hasattr(behavior, slot.method_name):
+                full_path = f"{group_path}.{slot.name}"
+                method_map[full_path] = getattr(behavior, slot.method_name)
 
         # Recursively map nested groups
         if hasattr(group, "groups"):
@@ -479,6 +478,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         slots.append(
             ShortcutSlot(
                 name="Add Next Occurrence",
+                method_name="add_next_occurrence",
                 defaults=[QtGui.QKeySequence("Ctrl+D")],
                 desc="Add cursor at next occurrence of current selection",
             )
@@ -487,6 +487,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         slots.append(
             ShortcutSlot(
                 name="Add Cursor Above",
+                method_name="add_cursor_above",
                 defaults=[QtGui.QKeySequence("Ctrl+Alt+Up")],
                 desc="Add a cursor on the line above",
             )
@@ -495,6 +496,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         slots.append(
             ShortcutSlot(
                 name="Add Cursor Below",
+                method_name="add_cursor_below",
                 defaults=[QtGui.QKeySequence("Ctrl+Alt+Down")],
                 desc="Add a cursor on the line below",
             )
@@ -503,6 +505,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         slots.append(
             ShortcutSlot(
                 name="Add Cursors to Line Ends",
+                method_name="add_cursors_to_line_ends",
                 defaults=[QtGui.QKeySequence("Ctrl+Shift+L")],
                 desc="Add cursors at the end of each line in selection",
             )

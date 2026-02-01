@@ -37,6 +37,7 @@ class CommentToggle(HasHotkeys, Behavior):
         slots = [
             ShortcutSlot(
                 name="Toggle Comment",
+                method_name="toggle_comment",
                 defaults=[QtGui.QKeySequence("Ctrl+/")],
                 desc="Toggle line comment on current line or selection",
             )

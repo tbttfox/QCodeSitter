@@ -21,12 +21,14 @@ class ShortcutSlot:
     def __init__(
         self,
         name: str,
+        method_name: str,
         defaults: list[QKeySequence],
         desc: str = "<No Description>",
         assigned: Optional[list[QKeySequence]] = None,
         enabled: bool = True,
     ):
         self.name: str = name
+        self.method_name: str = method_name
         self.desc: str = desc
         self.defaults = defaults
         self.enabled = enabled
@@ -162,8 +164,7 @@ class ShortcutManager:
                 prefs[group_path] = {}
                 for slot in group.slots:
                     prefs[group_path][slot.name] = [
-                        seq.toString(QKeySequence.PortableText)
-                        for seq in slot.assigned
+                        seq.toString(QKeySequence.PortableText) for seq in slot.assigned
                     ]
 
             # Recursively export nested groups

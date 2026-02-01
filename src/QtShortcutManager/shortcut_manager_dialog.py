@@ -211,6 +211,7 @@ class ShortcutManagerDialog(QDialog):
                 # Create new slot with copied data
                 new_slot = ShortcutSlot(
                     name=slot.name,
+                    method_name=slot.name.lower().replace(' ', '_'),
                     defaults=slot.defaults[:],  # Shallow copy list
                     desc=slot.desc,
                     assigned=[self._copy_keysequence(seq) for seq in slot.assigned],
