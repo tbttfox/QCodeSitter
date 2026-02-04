@@ -15,7 +15,6 @@ from .utils import len16
 from .behaviors import (
     Behavior,
     HasKeyPress,
-    HasHotkeys,
     HasPaint,
     HasUndoRedo,
 )
@@ -25,8 +24,6 @@ from .syntax_analyzer import SyntaxAnalyzer
 from .editor_options import EditorOptions
 from .tracked_cursor import TrackedCursor
 from .behaviors.multi_cursor_paint import MultiCursorPaint
-
-from QtShortcutManager import ShortcutManager, ShortcutSlot, ShortcutSlotGroup
 
 T_Behavior = TypeVar("T_Behavior", bound=Behavior)
 
@@ -194,7 +191,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.options = options
         self.secondary_cursors: list[CursorState] = []
 
-        self.shortcut_manager = ShortcutManager()
         self._can_join = False
 
         self.tree_manager: TreeManager = TreeManager(self, None)
@@ -254,122 +250,34 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         self.setExtraSelections(merged)
 
-    def update_shortcuts(self):
-        """Update the shortcut manager with all user-configurable shortcuts.
-
-        This collects shortcuts from managers and behaviors that implement HasHotkeys
-        and loads them into the ShortcutManager. These are user-configurable shortcuts
-        with modifier keys (Ctrl, Alt, Shift), not intrinsic editing behaviors.
-        """
-        # Remove all existing shortcut actions from the widget
+    def _setup_shortcuts(self):
+        """Create QActions for editor keyboard shortcuts."""
+        # Remove old shortcut actions
         for action in self.actions():
-            if action.property("is_shortcut_slot"):
+            if action.property("is_shortcut_action"):
                 self.removeAction(action)
 
-        # Collect all shortcut groups from self and behaviors
-        groups = []
-        groups.append(self.getHotkeys())
-        for item in self._behaviors:
-            if item and isinstance(item, HasHotkeys):
-                groups.append(item.getHotkeys())
+        shortcuts = [
+            ("Ctrl+D", self.add_next_occurrence),
+            ("Ctrl+Alt+Up", self.add_cursor_above),
+            ("Ctrl+Alt+Down", self.add_cursor_below),
+            ("Ctrl+Shift+L", self.add_cursors_to_line_ends),
+        ]
 
-        self.shortcut_manager.shortcut_groups = groups
-
-        # Create QActions for each slot and connect them
-        # This maps slot names to their corresponding methods
-        slot_method_map = self._build_slot_method_map()
-
-        for group in groups:
-            self._create_actions_for_group(group, slot_method_map, "")
-
-    def _build_slot_method_map(self) -> dict:
-        """Build a mapping of slot names to their corresponding methods.
-
-        Returns:
-            Dictionary mapping "group_path.slot_name" to the callable method
-        """
-        method_map = {}
-
-        # Map editor's own shortcuts
-        method_map["Multi-Cursor.Add Next Occurrence"] = self.add_next_occurrence
-        method_map["Multi-Cursor.Add Cursor Above"] = self.add_cursor_above
-        method_map["Multi-Cursor.Add Cursor Below"] = self.add_cursor_below
-        method_map["Multi-Cursor.Add Cursors to Line Ends"] = (
-            self.add_cursors_to_line_ends
-        )
-
-        # Map behavior shortcuts
+        # Collect shortcuts from behaviors
         for behavior in self._behaviors:
-            if isinstance(behavior, HasHotkeys):
-                group = behavior.getHotkeys()
-                self._map_group_methods(group, method_map, behavior, "")
+            if hasattr(behavior, "get_shortcuts"):
+                shortcuts.extend(behavior.get_shortcuts())
 
-        return method_map
-
-    def _map_group_methods(
-        self, group: ShortcutSlotGroup, method_map: dict, behavior, parent_path: str
-    ):
-        """Recursively map group methods to their full paths.
-
-        Args:
-            group: The ShortcutSlotGroup to process
-            method_map: Dictionary to populate
-            behavior: The behavior instance owning these shortcuts
-            parent_path: The parent group path (empty for root)
-        """
-        group_path = f"{parent_path}.{group.name}" if parent_path else group.name
-
-        # Map slots in this group
-        for slot in group.slots:
-            # Try to find the method on the behavior
-            if hasattr(behavior, slot.method_name):
-                full_path = f"{group_path}.{slot.name}"
-                method_map[full_path] = getattr(behavior, slot.method_name)
-
-        # Recursively map nested groups
-        if hasattr(group, "groups"):
-            for nested_group in group.groups:
-                self._map_group_methods(nested_group, method_map, behavior, group_path)
-
-    def _create_actions_for_group(
-        self, group: ShortcutSlotGroup, method_map: dict, parent_path: str
-    ):
-        """Recursively create QActions for a group and its slots.
-
-        Args:
-            group: The ShortcutSlotGroup to process
-            method_map: Dictionary mapping slot paths to methods
-            parent_path: The parent group path (empty for root)
-        """
-        group_path = f"{parent_path}.{group.name}" if parent_path else group.name
-
-        # Create actions for slots in this group
-        for slot in group.slots:
-            if not slot.enabled:
-                continue
-
-            full_path = f"{group_path}.{slot.name}"
-            method = method_map.get(full_path)
-            if method is None:
-                continue
-
-            # Create QAction for this slot
+        for key_sequence, method in shortcuts:
             action = QtWidgets.QAction(self)
-            action.setShortcuts(slot.assigned)
+            action.setShortcut(QtGui.QKeySequence(key_sequence))
             action.setShortcutContext(
                 QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut
             )
             action.triggered.connect(method)
-            action.setProperty("is_shortcut_slot", True)
-            action.setProperty("slot_path", full_path)
-
-            # Add action to the widget
+            action.setProperty("is_shortcut_action", True)
             self.addAction(action)
-
-        # Recursively create actions for nested groups
-        if hasattr(group, "groups"):
-            for nested_group in group.groups:
-                self._create_actions_for_group(nested_group, method_map, group_path)
 
     def updateOptions(self, keylist: Collection[str]):
         keys = set(keylist)
@@ -410,7 +318,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         old_bh = self.removeBehavior(behaviorCls)
         behavior = behaviorCls(self)
         self._behaviors.append(behavior)
-        self.update_shortcuts()
+        self._setup_shortcuts()
         return old_bh, behavior
 
     def removeBehavior(self, behaviorCls: Type[T_Behavior]) -> Optional[T_Behavior]:
@@ -429,7 +337,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             return None
         if len(torem) > 1:
             print("Warning: Multiple behaviors of the same type found to remove")
-        self.update_shortcuts()
+        self._setup_shortcuts()
         return torem[0]
 
     def getBehavior(self, behaviorCls: Type[T_Behavior]) -> Optional[T_Behavior]:
