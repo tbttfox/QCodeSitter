@@ -66,29 +66,31 @@ class CompletionPopup(QtWidgets.QListWidget):
         self.current_prefix: str = ""
 
         # Window flags for popup behavior
-        # Use Qt.Tool instead of Qt.Popup to allow editor to continue receiving events
+        # Use Qt.WindowType.Tool instead of Qt.WindowType.Popup to allow editor to continue receiving events
         self.setWindowFlags(
-            QtCore.Qt.Tool
-            | QtCore.Qt.FramelessWindowHint
-            | QtCore.Qt.WindowStaysOnTopHint
+            QtCore.Qt.WindowType.Tool
+            | QtCore.Qt.WindowType.FramelessWindowHint
+            | QtCore.Qt.WindowType.WindowStaysOnTopHint
         )
 
         # Set attribute to hide from taskbar
-        self.setAttribute(QtCore.Qt.WA_ShowWithoutActivating)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating)
 
         palette = self.palette()
         palette.setColor(
             QtGui.QPalette.ColorRole.Base, QtGui.QColor("#2b2b2b")
         )  # Background
-        palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#dcdcdc"))  # Text color
         palette.setColor(
-            QtGui.QPalette.Highlight, QtGui.QColor("#094771")
+            QtGui.QPalette.ColorRole.Text, QtGui.QColor("#dcdcdc")
+        )  # Text color
+        palette.setColor(
+            QtGui.QPalette.ColorRole.Highlight, QtGui.QColor("#094771")
         )  # Selection background
         palette.setColor(
-            QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff")
+            QtGui.QPalette.ColorRole.HighlightedText, QtGui.QColor("#ffffff")
         )  # Selection text
         palette.setColor(
-            QtGui.QPalette.Window, QtGui.QColor("#2b2b2b")
+            QtGui.QPalette.ColorRole.Window, QtGui.QColor("#2b2b2b")
         )  # Window background
         self.setPalette(palette)
         self.setAutoFillBackground(True)
@@ -99,8 +101,8 @@ class CompletionPopup(QtWidgets.QListWidget):
         self.setMaximumHeight(300)
 
         # Scrolling
-        self.setVerticalScrollMode(QtWidgets.QAbstractItemView.ScrollPerPixel)
-        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollMode(QtWidgets.QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self._min_width = 200
         self._max_width = 500
@@ -137,7 +139,7 @@ class CompletionPopup(QtWidgets.QListWidget):
             self._position_at_cursor()
             self.show()
             # Don't steal focus from editor
-            self.setFocusPolicy(QtCore.Qt.NoFocus)
+            self.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         else:
             self.hide()
 
@@ -150,7 +152,7 @@ class CompletionPopup(QtWidgets.QListWidget):
             visible_count = 0
             for i in range(self.count()):
                 item = self.item(i)
-                comp: Completion = item.data(QtCore.Qt.UserRole)
+                comp: Completion = item.data(QtCore.Qt.ItemDataRole.UserRole)
                 should_show = (
                     comp.text.lower().startswith(prefix_lower)
                     and comp.text != self.current_prefix
@@ -171,7 +173,7 @@ class CompletionPopup(QtWidgets.QListWidget):
                 and comp.text != self.current_prefix
             ):
                 item = QtWidgets.QListWidgetItem(comp.display())
-                item.setData(QtCore.Qt.UserRole, comp)
+                item.setData(QtCore.Qt.ItemDataRole.UserRole, comp)
                 self.addItem(item)
 
     def _position_at_cursor(self):
@@ -222,7 +224,7 @@ class CompletionPopup(QtWidgets.QListWidget):
             self.hide()
             return
 
-        comp: Completion = item.data(QtCore.Qt.UserRole)
+        comp: Completion = item.data(QtCore.Qt.ItemDataRole.UserRole)
         cursor = self.editor.textCursor()
 
         # Calculate how many characters to remove (the prefix length)

@@ -48,7 +48,7 @@ class LineNumberArea(GutterWidget):
                     int(top),
                     self.width() - 5,
                     self.fontMetrics().height(),
-                    QtCore.Qt.AlignRight,
+                    QtCore.Qt.AlignmentFlag.AlignRight,
                     number,
                 )
             block = block.next()

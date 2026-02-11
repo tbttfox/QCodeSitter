@@ -177,7 +177,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         **kwargs,
     ):
         super().__init__(parent=parent)
-        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._doc: TrackedDocument = TrackedDocument()
         self._clipboard_cursor_counts: list[int] = []
         self._selections: dict[str, list[QtWidgets.QTextEdit.ExtraSelection]] = {}
@@ -303,10 +303,10 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             QtGui.QPalette.ColorRole.Base, QtGui.QColor(colors["bg"])
         )  # Background
         palette.setColor(
-            QtGui.QPalette.Window, QtGui.QColor(colors["bg"])
+            QtGui.QPalette.ColorRole.Window, QtGui.QColor(colors["bg"])
         )  # Window background
         palette.setColor(
-            QtGui.QPalette.Text, QtGui.QColor(colors["fg"])
+            QtGui.QPalette.ColorRole.Text, QtGui.QColor(colors["fg"])
         )  # Window background
         self.setPalette(palette)
         self.setAutoFillBackground(True)
@@ -803,6 +803,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                     continue
             elif direction == KEY.Key_End:
                 move_op = MO.End if word_mode else MO.EndOfLine
+            else:
+                continue
 
             qt_cursor = QtGui.QTextCursor(self.document())
             state.apply(qt_cursor)

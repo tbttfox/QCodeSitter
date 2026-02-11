@@ -154,7 +154,7 @@ class HighlightMatchingBrackets(Behavior):
         # Determine quote length (handle triple quotes)
         string_cursor = self.editor.textCursor()
         string_cursor.setPosition(string_start_char)
-        string_cursor.setPosition(string_end_char, QtGui.QTextCursor.KeepAnchor)
+        string_cursor.setPosition(string_end_char, QtGui.QTextCursor.MoveMode.KeepAnchor)
         string_text = string_cursor.selectedText()
 
         quote_len = (
@@ -280,7 +280,7 @@ class HighlightMatchingBrackets(Behavior):
         end = min(end, doc_length)
 
         cursor.setPosition(start)
-        cursor.setPosition(end, QtGui.QTextCursor.KeepAnchor)
+        cursor.setPosition(end, QtGui.QTextCursor.MoveMode.KeepAnchor)
         selection = QtWidgets.QTextEdit.ExtraSelection()
         selection.cursor = cursor
         selection.format = format

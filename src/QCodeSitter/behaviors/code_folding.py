@@ -117,7 +117,7 @@ class FoldingGutterArea(GutterWidget):
         size = self.icon_size // 2
 
         painter.setPen(QtGui.QPen(self.fg_color, 1.5))
-        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
 
         if region.is_folded:
             # Draw right-pointing triangle (folded state)
@@ -138,7 +138,7 @@ class FoldingGutterArea(GutterWidget):
 
     def mousePressEvent(self, event: QtGui.QMouseEvent):
         """Handle clicks on fold indicators"""
-        if event.button() == QtCore.Qt.LeftButton:
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
             # Determine which line was clicked
             block = self.editor.firstVisibleBlock()
             top = (
@@ -211,7 +211,7 @@ class FoldingGutterArea(GutterWidget):
         try:
             if (
                 watched == self.editor.viewport()
-                and event.type() == QtCore.QEvent.Paint
+                and event.type() == QtCore.QEvent.Type.Paint
             ):
                 # Let the normal painting happen first
                 result = super().eventFilter(watched, event)

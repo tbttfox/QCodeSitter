@@ -46,7 +46,7 @@ class AutoBracket(HasKeyPress, Behavior):
         if not self.enabled:
             return
 
-        if event.key() == QtCore.Qt.Key_Backspace:
+        if event.key() == QtCore.Qt.Key.Key_Backspace:
             self.delete_pair()
             return
 

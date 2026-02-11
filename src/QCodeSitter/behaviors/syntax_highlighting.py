@@ -59,7 +59,7 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
             if "color" in spec:
                 fmt.setForeground(QtGui.QColor(spec["color"]))
             if spec.get("bold"):
-                fmt.setFontWeight(QtGui.QFont.Bold)
+                fmt.setFontWeight(QtGui.QFont.Weight.Bold)
             if spec.get("italic"):
                 fmt.setFontItalic(True)
             out[name] = fmt
