@@ -1,13 +1,11 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from Qt import QtGui, QtCore
+from Qt import QtGui, QtCore, QtWidgets
 
 from . import Behavior, HasHotkeys
 from ..utils import len16
 from ..code_editor import CursorIterator
-
-from QtShortcutManager import ShortcutSlot, ShortcutSlotGroup
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor
@@ -33,18 +31,11 @@ class CommentToggle(HasHotkeys, Behavior):
         lang = self.options["language"]
         self._comment_prefix = COMMENT_PREFIXES.get(lang.name, "# ")
 
-    def getHotkeys(self) -> ShortcutSlotGroup:
-        # disable because preditor uses it
-        slots = [
-            ShortcutSlot(
-                name="Toggle Comment",
-                method_name="toggle_comment",
-                defaults=[QtGui.QKeySequence("Ctrl+/")],
-                desc="Toggle line comment on current line or selection",
-                enabled=False,
-            )
-        ]
-        return ShortcutSlotGroup("Comment", slots=slots)
+    def getHotkeys(self) -> list[QtWidgets.QAction]:
+        action = QtWidgets.QAction("Toggle Comment", self.editor)
+        action.setShortcut(QtGui.QKeySequence("Ctrl+/"))
+        action.triggered.connect(self.toggle_comment)
+        return [action]
 
     def toggle_comment(self):
         self.editor.tree_manager.pause()

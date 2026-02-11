@@ -6,7 +6,6 @@ from tree_sitter import Node
 
 from ..gutter_widget import GutterWidget
 from . import Behavior, HasHotkeys
-from QtShortcutManager import ShortcutSlot, ShortcutSlotGroup
 
 
 if TYPE_CHECKING:
@@ -543,104 +542,24 @@ class CodeFolding(HasHotkeys, Behavior):
         self.folding_area.deleteLater()
         self.folding_area = None  # type: ignore
 
-    def fold_all_hotkey(self) -> bool:
-        """Fold all available folds"""
-        self.fold_all()
-        return True
+    def getHotkeys(self) -> list[QtWidgets.QAction]:
+        """Return keyboard shortcut actions for code folding operations"""
+        from Qt import QtWidgets
 
-    def unfold_all_hotkey(self) -> bool:
-        """Unfold all available folds"""
-        self.unfold_all()
-        return True
+        actions = []
 
-    def create_manual_fold_hotkey(self) -> bool:
-        """Fold the current user selection"""
-        self.create_manual_fold()
-        return False
+        def _action(name, shortcut, method):
+            action = QtWidgets.QAction(name, self.editor)
+            action.setShortcut(QtGui.QKeySequence(shortcut))
+            action.triggered.connect(method)
+            actions.append(action)
 
-    def fold_to_level_0(self):
-        """Fold all regions at depth 0 or deeper"""
-        self.fold_to_level(0)
+        _action("Fold All", "Ctrl+Shift+[", self.fold_all)
+        _action("Unfold All", "Ctrl+Shift+]", self.unfold_all)
+        _action("Create Manual Fold", "Ctrl+Shift+.", self.create_manual_fold)
 
-    def fold_to_level_1(self):
-        """Fold all regions at depth 1 or deeper"""
-        self.fold_to_level(1)
-
-    def fold_to_level_2(self):
-        """Fold all regions at depth 2 or deeper"""
-        self.fold_to_level(2)
-
-    def fold_to_level_3(self):
-        """Fold all regions at depth 3 or deeper"""
-        self.fold_to_level(3)
-
-    def fold_to_level_4(self):
-        """Fold all regions at depth 4 or deeper"""
-        self.fold_to_level(4)
-
-    def fold_to_level_5(self):
-        """Fold all regions at depth 5 or deeper"""
-        self.fold_to_level(5)
-
-    def fold_to_level_6(self):
-        """Fold all regions at depth 6 or deeper"""
-        self.fold_to_level(6)
-
-    def fold_to_level_7(self):
-        """Fold all regions at depth 7 or deeper"""
-        self.fold_to_level(7)
-
-    def fold_to_level_8(self):
-        """Fold all regions at depth 8 or deeper"""
-        self.fold_to_level(8)
-
-    def fold_to_level_9(self):
-        """Fold all regions at depth 9 or deeper"""
-        self.fold_to_level(9)
-
-    def getHotkeys(self) -> ShortcutSlotGroup:
-        """Return user-configurable shortcuts for code folding operations"""
-        slots = []
-
-        # Fold All - Ctrl+Shift+[
-        slots.append(
-            ShortcutSlot(
-                name="Fold All",
-                method_name="fold_all",
-                defaults=[QtGui.QKeySequence("Ctrl+Shift+[")],
-                desc="Fold all foldable regions",
-            )
-        )
-
-        # Unfold All - Ctrl+Shift+]
-        slots.append(
-            ShortcutSlot(
-                name="Unfold All",
-                method_name="unfold_all",
-                defaults=[QtGui.QKeySequence("Ctrl+Shift+]")],
-                desc="Unfold all foldable regions",
-            )
-        )
-
-        # Create Manual Fold - Ctrl+Shift+.
-        slots.append(
-            ShortcutSlot(
-                name="Create Manual Fold",
-                method_name="create_manual_fold",
-                defaults=[QtGui.QKeySequence("Ctrl+Shift+.")],
-                desc="Create a manual fold from the current selection",
-            )
-        )
-
-        # Fold to Level 0-9 - Ctrl+0 through Ctrl+9
         for i in range(10):
-            slots.append(
-                ShortcutSlot(
-                    name=f"Fold to Level {i}",
-                    method_name=f"fold_to_level_{i}",
-                    defaults=[QtGui.QKeySequence(f"Ctrl+{i}")],
-                    desc=f"Fold all regions at depth {i} or deeper",
-                )
-            )
+            _action(f"Fold to Level {i}", f"Ctrl+{i}",
+                    lambda level=i: self.fold_to_level(level))
 
-        return ShortcutSlotGroup("Code Folding", slots=slots)
+        return actions

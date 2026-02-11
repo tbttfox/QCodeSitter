@@ -17,6 +17,7 @@ from .behaviors import (
     HasKeyPress,
     HasPaint,
     HasUndoRedo,
+    HasHotkeys,
 )
 from .line_tracker import TrackedDocument
 from .tree_manager import TreeManager
@@ -206,6 +207,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         # Hide the built-in cursor so we can draw it ourselves
         self.setCursorWidth(0)
 
+        self._setup_editor_shortcuts()
         self.updateOptions(list(self.options.keys()))
 
     def textCursor(self) -> TrackedCursor:
@@ -250,34 +252,41 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         self.setExtraSelections(merged)
 
-    def _setup_shortcuts(self):
-        """Create QActions for editor keyboard shortcuts."""
-        # Remove old shortcut actions
-        for action in self.actions():
-            if action.property("is_shortcut_action"):
-                self.removeAction(action)
+    def _make_shortcut(self, shortcut, method):
+        """Create a QAction shortcut and add it to this widget."""
+        action = QtWidgets.QAction(self)
+        action.setShortcut(QtGui.QKeySequence(shortcut))
+        action.setShortcutContext(
+            QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        action.triggered.connect(method)
+        self.addAction(action)
+        return action
 
-        shortcuts = [
-            ("Ctrl+D", self.add_next_occurrence),
-            ("Ctrl+Alt+Up", self.add_cursor_above),
-            ("Ctrl+Alt+Down", self.add_cursor_below),
-            ("Ctrl+Shift+L", self.add_cursors_to_line_ends),
-        ]
+    def _setup_editor_shortcuts(self):
+        """Create QActions for the editor's own keyboard shortcuts (called once)."""
+        self._make_shortcut("Ctrl+D", self.add_next_occurrence)
+        self._make_shortcut("Ctrl+Alt+Up", self.add_cursor_above)
+        self._make_shortcut("Ctrl+Alt+Down", self.add_cursor_below)
+        self._make_shortcut("Ctrl+Shift+L", self.add_cursors_to_line_ends)
 
-        # Collect shortcuts from behaviors
-        for behavior in self._behaviors:
-            if hasattr(behavior, "get_shortcuts"):
-                shortcuts.extend(behavior.get_shortcuts())
-
-        for key_sequence, method in shortcuts:
-            action = QtWidgets.QAction(self)
-            action.setShortcut(QtGui.QKeySequence(key_sequence))
+    def _add_behavior_shortcuts(self, behavior):
+        """Add shortcut actions for a behavior that implements HasHotkeys."""
+        if not isinstance(behavior, HasHotkeys):
+            return
+        actions = behavior.getHotkeys()
+        for action in actions:
             action.setShortcutContext(
                 QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut
             )
-            action.triggered.connect(method)
-            action.setProperty("is_shortcut_action", True)
             self.addAction(action)
+        behavior._shortcut_actions = actions
+
+    def _remove_behavior_shortcuts(self, behavior):
+        """Remove shortcut actions for a behavior that implements HasHotkeys."""
+        for action in getattr(behavior, "_shortcut_actions", []):
+            self.removeAction(action)
+            action.deleteLater()
 
     def updateOptions(self, keylist: Collection[str]):
         keys = set(keylist)
@@ -318,7 +327,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         old_bh = self.removeBehavior(behaviorCls)
         behavior = behaviorCls(self)
         self._behaviors.append(behavior)
-        self._setup_shortcuts()
+        self._add_behavior_shortcuts(behavior)
         return old_bh, behavior
 
     def removeBehavior(self, behaviorCls: Type[T_Behavior]) -> Optional[T_Behavior]:
@@ -332,12 +341,12 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         for i in reversed(ridxs):
             self._behaviors.pop(i)
         for rem in torem:
+            self._remove_behavior_shortcuts(rem)
             rem.remove()
         if not torem:
             return None
         if len(torem) > 1:
             print("Warning: Multiple behaviors of the same type found to remove")
-        self._setup_shortcuts()
         return torem[0]
 
     def getBehavior(self, behaviorCls: Type[T_Behavior]) -> Optional[T_Behavior]:
@@ -378,48 +387,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                     behavior.paintEvent(e, painter)
         finally:
             painter.end()
-
-    def getHotkeys(self) -> ShortcutSlotGroup:
-        """Return user-configurable shortcuts for multi-cursor operations"""
-        slots = []
-
-        slots.append(
-            ShortcutSlot(
-                name="Add Next Occurrence",
-                method_name="add_next_occurrence",
-                defaults=[QtGui.QKeySequence("Ctrl+D")],
-                desc="Add cursor at next occurrence of current selection",
-            )
-        )
-
-        slots.append(
-            ShortcutSlot(
-                name="Add Cursor Above",
-                method_name="add_cursor_above",
-                defaults=[QtGui.QKeySequence("Ctrl+Alt+Up")],
-                desc="Add a cursor on the line above",
-            )
-        )
-
-        slots.append(
-            ShortcutSlot(
-                name="Add Cursor Below",
-                method_name="add_cursor_below",
-                defaults=[QtGui.QKeySequence("Ctrl+Alt+Down")],
-                desc="Add a cursor on the line below",
-            )
-        )
-
-        slots.append(
-            ShortcutSlot(
-                name="Add Cursors to Line Ends",
-                method_name="add_cursors_to_line_ends",
-                defaults=[QtGui.QKeySequence("Ctrl+Shift+L")],
-                desc="Add cursors at the end of each line in selection",
-            )
-        )
-
-        return ShortcutSlotGroup("Multi-Cursor", slots=slots)
 
     def get_primary_cursor(self) -> CursorState:
         """Convert Qt's primary cursor to QtGui.QTextCursor"""
