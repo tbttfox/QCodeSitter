@@ -77,7 +77,7 @@ Behaviors declare their capabilities by mixing in one or more interfaces:
 | Mixin | Method | Purpose |
 |---|---|---|
 | `HasKeyPress` | `keyPressEvent(event) -> bool` | Handle keyboard input (Tab, Enter, Backspace, etc.) |
-| `HasHotkeys` | `getHotkeys() -> ShortcutSlotGroup` | Declare user-configurable shortcuts (Ctrl+/, Ctrl+D, etc.) |
+| `HasHotkeys` | `getHotkeys() -> list[QtWidgets.QAction]` | Declare user-configurable shortcuts (Ctrl+/, Ctrl+D, etc.) |
 | `HasPaint` | `paintEvent(event, painter) -> bool` | Custom rendering in the editor viewport |
 | `HasUndoRedo` | `prepareUndo()`, `prepareRedo()`, `afterUndoRedo()` | Hook into undo/redo lifecycle |
 
@@ -114,47 +114,21 @@ class MyBehavior(Behavior):
 
 When a listened key changes in `EditorOptions`, the behavior's attribute of the same name is set automatically via `updateOptions`.
 
-### HasHotkeys in Detail
-
-`HasHotkeys` integrates with `QtShortcutManager` for user-configurable shortcuts. You define slots with default key bindings, and the system auto-binds methods by name:
-
-```python
-from QCodeSitter.behaviors import Behavior, HasHotkeys
-from QtShortcutManager import ShortcutSlot, ShortcutSlotGroup
-
-class CommentToggle(HasHotkeys, Behavior):
-    def getHotkeys(self) -> ShortcutSlotGroup:
-        slots = [
-            ShortcutSlot(
-                name="Toggle Comment",
-                defaults=[QtGui.QKeySequence("Ctrl+/")],
-                desc="Toggle line comment on current line or selection",
-            )
-        ]
-        return ShortcutSlotGroup("Comment", slots=slots)
-
-    def toggle_comment(self):
-        # Slot name "Toggle Comment" auto-binds to method "toggle_comment"
-        ...
-```
-
-Use `HasHotkeys` for modifier-key shortcuts (Ctrl+, Alt+, etc.) that should be user-configurable. Use `HasKeyPress` for intrinsic editing keys like Tab, Enter, and Backspace.
-
 ## Built-in Behaviors
 
-| Behavior | Interfaces | Description |
-|---|---|---|
-| `SyntaxHighlighting` | `HasUndoRedo` | Tree-sitter-based syntax highlighting with incremental updates |
-| `SmartIndent` | `HasKeyPress` | Language-aware auto-indentation on Enter, Tab, Backspace |
-| `LineNumber` | `Behavior` | Line number gutter |
-| `AutoBracket` | `HasKeyPress` | Auto-close brackets, quotes, and parens; selection wrapping |
-| `TabCompletion` | `HasKeyPress` | Autocomplete popup with pluggable providers |
-| `CodeFolding` | `HasHotkeys` | Tree-sitter-based code folding with gutter indicators |
-| `CommentToggle` | `HasHotkeys` | Toggle line comments (Ctrl+/) with language detection |
-| `HighlightMatchingBrackets` | `Behavior` | Highlight matching bracket/paren/brace pairs |
-| `HighlightMatchingSelection` | `Behavior` | Highlight all occurrences of selected text |
-| `MultiCursorPaint` | `HasPaint` | Render primary and secondary cursors |
-| `Overscroll` | `HasPaint` | Allow scrolling past end of document |
+| Behavior | Description |
+|---|---|
+| `SyntaxHighlighting` |  Tree-sitter-based syntax highlighting with incremental updates |
+| `SmartIndent` |  Language-aware auto-indentation on Enter, Tab, Backspace |
+| `LineNumber` | Line number gutter |
+| `AutoBracket` | Auto-close brackets, quotes, and parens; selection wrapping |
+| `TabCompletion` | Autocomplete popup with pluggable providers |
+| `CodeFolding` | Tree-sitter-based code folding with gutter indicators |
+| `CommentToggle` | Toggle line comments (Ctrl+/) with language detection |
+| `HighlightMatchingBrackets` | Highlight matching bracket/paren/brace pairs |
+| `HighlightMatchingSelection` | Highlight all occurrences of selected text |
+| `MultiCursorPaint` | Render primary and secondary cursors |
+| `Overscroll` | Allow scrolling past end of document |
 
 ## Multi-Cursor Editing
 
@@ -192,12 +166,6 @@ QCodeSitter uses tree-sitter for parsing, with UTF-16 encoding throughout to mat
 
 The `TrackedDocument` (a `QTextDocument` subclass) and `TrackedCursor` (a `QTextCursor` subclass) automatically track UTF-16 byte offsets and emit change signals that keep the parse tree in sync.
 
-## Installation
-
-```
-pip install .
-```
-
 ### Dependencies
 
 - [Qt.py](https://github.com/mottosso/Qt.py) (works with PySide2, PySide6, PyQt5, or PyQt6)
@@ -206,13 +174,5 @@ pip install .
 
 ### Running Tests
 
-```
-pip install .[test]
-pytest tests/ -v
-```
+Tests are set up to be run with `tox`
 
-Or with tox:
-
-```
-tox
-```
