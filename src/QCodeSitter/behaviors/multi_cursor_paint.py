@@ -38,10 +38,10 @@ class MultiCursorPaint(HasPaint, Behavior):
     def _colors(self, val):
         """Update colors when color options change"""
         self.primary_cursor_color = QtGui.QColor(
-            val.get("primary_cursor_color", "#FFFFFFFF")
+            val.get("primary_cursor", "#FFFFFFFF")
         )
         self.secondary_cursor_color = QtGui.QColor(
-            val.get("secondary_cursor_color", "#B4B4B4")
+            val.get("secondary_cursor", "#B4B4B4")
         )
         self.selection_color = QtGui.QColor(val.get("selection_color", "#B4B4B4"))
 

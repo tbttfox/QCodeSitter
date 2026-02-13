@@ -18,7 +18,7 @@ from ..behaviors.providers.identifiers import IdentifierProvider
 from ..behaviors.code_folding import CodeFolding
 from ..behaviors.multi_cursor_paint import MultiCursorPaint
 from ..editor_options import EditorOptions
-from ..hl_groups import FORMAT_SPECS, COLORS
+from ..hl_groups import DARK_THEME, LIGHT_THEME, read_theme
 from ..highlight_query import HIGHLIGHT_QUERY
 
 
@@ -48,6 +48,7 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         **kwargs,
     ):
         if options is None:
+            col, syn = read_theme(DARK_THEME)
             self.options = EditorOptions(
                 {
                     "space_indent_width": 4,
@@ -55,8 +56,8 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
                     "indent_using_tabs": False,
                     "copy_indents_as_spaces": True,
                     "language": Language(tspython.language()),
-                    "highlights": (HIGHLIGHT_QUERY, FORMAT_SPECS),
-                    "colors": COLORS,
+                    "highlights": (HIGHLIGHT_QUERY, syn),
+                    "colors": col,
                     "font": QtGui.QFont("MS Shell Dlg 2", pointSize=11),
                     "vim_completion_keys": True,  # c-n c-p for next/prev  c-y for accept
                     "debounce_delay": 150,  # in milliseconds
@@ -90,7 +91,7 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         self.addBehavior(LineNumber)
         self.addBehavior(Overscroll)
         self.addBehavior(MultiCursorPaint)
-        self.addBehavior(AutoBracket)
+        #self.addBehavior(AutoBracket)
         self.addBehavior(CodeFolding)
         self.addBehavior(CommentToggle)
 
