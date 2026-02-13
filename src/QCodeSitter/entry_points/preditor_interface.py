@@ -2,7 +2,7 @@ import logging
 
 import tree_sitter_python as tspython
 from tree_sitter import Language
-from Qt import QtWidgets, QtGui
+from Qt import QtGui
 
 from ..code_editor import CodeEditor
 from ..behaviors.smart_indent import SmartIndent
@@ -48,7 +48,7 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         **kwargs,
     ):
         if options is None:
-            col, syn = read_theme(DARK_THEME)
+            col, syn = read_theme(LIGHT_THEME)
             self.options = EditorOptions(
                 {
                     "space_indent_width": 4,
@@ -91,9 +91,33 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         self.addBehavior(LineNumber)
         self.addBehavior(Overscroll)
         self.addBehavior(MultiCursorPaint)
-        #self.addBehavior(AutoBracket)
+        # self.addBehavior(AutoBracket)
         self.addBehavior(CodeFolding)
         self.addBehavior(CommentToggle)
+
+        self._windowStyleSheet = "Bright"
+        window = self.window()
+        if hasattr(window, "styleSheetChanged"):
+            window.styleSheetChanged.connect(self.updateColorScheme)
+
+    def updateColorScheme(self, stylesheet):
+        if stylesheet == self._windowStyleSheet:
+            return
+        self._windowStyleSheet = stylesheet
+        theme = LIGHT_THEME
+        if self._windowStyleSheet.lower() == "dark":
+            theme = DARK_THEME
+        col, syn = read_theme(theme)
+        self.options["highlights"] = (HIGHLIGHT_QUERY, syn)
+        self.options["colors"] = col
+
+        # Make sure that preditor doesn't override the bg color
+        # with its stylesheet...
+        # Maybe I can move to stylesheets in the future???
+        bgcolor = QtGui.QColor(col["bg"])
+        bgc = (bgcolor.red(), bgcolor.green(), bgcolor.blue())
+        ss = f"QWidget {{background-color: rgb{bgc}}}"
+        self.setStyleSheet(ss)
 
     def setText(self, text: str):
         """The WorkboxMixin assumes a QTextEdit, not a QPlainTextEdit
@@ -194,11 +218,6 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
             return sc.selection().toPlainText(), line
 
         return self.textCursor().selection().toPlainText(), line
-
-    def __comment_toggle__(self):
-        bh = self.getBehavior(CommentToggle)
-        if bh is not None:
-            bh.toggle_comment()
 
     def keyPressEvent(self, event):
         if self.process_shortcut(event):

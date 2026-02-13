@@ -256,9 +256,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         """Create a QAction shortcut and add it to this widget."""
         action = QtWidgets.QAction(self)
         action.setShortcut(QtGui.QKeySequence(shortcut))
-        action.setShortcutContext(
-            QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut
-        )
+        action.setShortcutContext(QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut)
         action.triggered.connect(method)
         self.addAction(action)
         return action
@@ -299,15 +297,10 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def setColors(self, colors: dict[str, str]):
         palette = self.palette()
-        palette.setColor(
-            QtGui.QPalette.ColorRole.Base, QtGui.QColor(colors["bg"])
-        )  # Background
-        palette.setColor(
-            QtGui.QPalette.ColorRole.Window, QtGui.QColor(colors["bg"])
-        )  # Window background
-        palette.setColor(
-            QtGui.QPalette.ColorRole.Text, QtGui.QColor(colors["fg"])
-        )  # Window background
+        bgcolor = QtGui.QColor(colors["bg"])
+        palette.setColor(QtGui.QPalette.ColorRole.Base, bgcolor)  # Background
+        palette.setColor(QtGui.QPalette.ColorRole.Window, bgcolor)  # Window bg
+        palette.setColor(QtGui.QPalette.ColorRole.Text, QtGui.QColor(colors["fg"]))
         self.setPalette(palette)
         self.setAutoFillBackground(True)
 
