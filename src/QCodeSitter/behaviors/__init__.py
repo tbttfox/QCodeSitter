@@ -18,7 +18,8 @@ class Behavior:
         self.listen = listen
 
     def updateAll(self):
-        self.updateOptions(self.listen)
+        if self.editor._loaded:
+            self.updateOptions(self.listen)
 
     def updateOptions(self, keys: Collection[str]):
         carekeys = set(keys) & self.listen

@@ -192,6 +192,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.options = options
         self.secondary_cursors: list[CursorState] = []
 
+        self._loaded = False
         self._can_join = False
 
         self.tree_manager: TreeManager = TreeManager(self, None)
@@ -208,7 +209,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.setCursorWidth(0)
 
         self._setup_editor_shortcuts()
-        self.updateOptions(list(self.options.keys()))
 
     def textCursor(self) -> TrackedCursor:
         return TrackedCursor(self._doc, super().textCursor())
@@ -217,6 +217,14 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         current_margins = self.viewportMargins()
         current_margins.setLeft(sum(self.gutterWidths.values()))
         self.setViewportMargins(current_margins)
+
+    def showEvent(self, arg__1: QtGui.QShowEvent):
+        super().showEvent(arg__1)
+        if not self._loaded:
+            self._loaded = True
+            self.updateOptions(list(self.options.keys()))
+            for bh in self._behaviors:
+                bh.updateAll()
 
     def resizeEvent(self, e: QtGui.QResizeEvent):
         super().resizeEvent(e)
