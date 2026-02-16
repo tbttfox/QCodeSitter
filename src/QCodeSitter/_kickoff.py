@@ -18,7 +18,7 @@ from QCodeSitter.behaviors.code_folding import CodeFolding
 from QCodeSitter.behaviors.comment_toggle import CommentToggle
 from QCodeSitter.behaviors.multi_cursor_paint import MultiCursorPaint
 from QCodeSitter.editor_options import EditorOptions
-from QCodeSitter.hl_groups import FORMAT_SPECS, COLORS
+from QCodeSitter.hl_groups import DARK_THEME, LIGHT_THEME, read_theme
 from QCodeSitter.highlight_query import HIGHLIGHT_QUERY
 # fmt: on
 
@@ -26,6 +26,7 @@ from QCodeSitter.highlight_query import HIGHLIGHT_QUERY
 app = QtWidgets.QApplication(sys.argv)
 win = QtWidgets.QMainWindow()
 
+col, syn = read_theme(DARK_THEME)
 options = EditorOptions(
     {
         "space_indent_width": 4,
@@ -33,8 +34,8 @@ options = EditorOptions(
         "indent_using_tabs": False,
         "copy_indents_as_spaces": True,
         "language": Language(tspython.language()),
-        "highlights": (HIGHLIGHT_QUERY, FORMAT_SPECS),
-        "colors": COLORS,
+        "highlights": (HIGHLIGHT_QUERY, syn),
+        "colors": col,
         "font": QtGui.QFont("MS Shell Dlg 2", pointSize=11),
         "vim_completion_keys": True,  # c-n c-p for next/prev  c-y for accept
         "debounce_delay": 150,  # in milliseconds
@@ -58,7 +59,7 @@ edit.addBehavior(HighlightMatchingSelection)
 edit.addBehavior(LineNumber)
 edit.addBehavior(Overscroll)
 edit.addBehavior(MultiCursorPaint)
-edit.addBehavior(AutoBracket)
+#edit.addBehavior(AutoBracket)
 edit.addBehavior(CodeFolding)
 edit.addBehavior(CommentToggle)
 
