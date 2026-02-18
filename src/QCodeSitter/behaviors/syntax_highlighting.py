@@ -190,6 +190,15 @@ class SyntaxHighlighting(Behavior, HasUndoRedo):
         if not value:
             self.highlighter = None
             return
+
+        if self.editor.tree_manager.parser is None:
+            self.highlighter = None
+            return
+
+        if self.editor.tree_manager.parser.language is None:
+            self.highlighter = None
+            return
+
         hlquery, fmts = value
         self.highlighter = TreeSitterHighlighter(
             self.editor._doc, self.editor.tree_manager, hlquery, fmts

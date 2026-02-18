@@ -28,15 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
-    """A very simple multi-line text editor without any bells and whistles.
-
-    It's better than nothing, but not by much.
-    """
-
-    _warning_text = (
-        "This is a bare bones workbox, if you have another option, it's probably"
-        "a better option."
-    )
+    """A full-featured multi-cursor editor powered by treesitter"""
 
     def __init__(
         self,
@@ -70,6 +62,7 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
             )
         else:
             self.options = options
+
         super().__init__(
             parent=parent,
             console=console,
@@ -78,6 +71,7 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
             options=self.options,
             **kwargs,
         )
+
         self._encoding = None
         self.__set_console__(console)
 
@@ -99,6 +93,8 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         window = self.window()
         if hasattr(window, "styleSheetChanged"):
             window.styleSheetChanged.connect(self.updateColorScheme)
+        if hasattr(window, "_stylesheet"):
+            self.updateColorScheme(window._stylesheet)
 
     def updateColorScheme(self, stylesheet):
         if stylesheet == self._windowStyleSheet:

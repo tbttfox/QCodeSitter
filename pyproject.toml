@@ -14,8 +14,7 @@ test = ["pytest>=7.0", "pytest-cov", "pytest-qt>=4.0"]
 dev = ["tox>=4.0", "mypy", "ruff"]
 
 [project.entry-points."preditor.plug.editors"]
-qcodesitter = "QCodeSitter.entry_points.preditor_interface:CodeSitterTextEdit"
-
+QCodeSitter = "QCodeSitter.entry_points.preditor_interface:CodeSitterTextEdit"
 
 [tool.setuptools.packages.find]
 where = ["src"]
