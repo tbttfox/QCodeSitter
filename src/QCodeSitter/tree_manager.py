@@ -55,23 +55,22 @@ class TreeManager(QtCore.QObject):
         Returns:
             UTF-16LE encoded bytes from the requested position to end of document
         """
-        # Clear cache at the start of each parse (when row 0 is requested)
-        # This ensures we don't use stale block references after document edits
-        if ts_point.row == 0:
-            self._ts_prediction = {}
-
         curblock: Optional[QtGui.QTextBlock] = self._ts_prediction.get(ts_point.row)
         if curblock is None:
             try:
                 curblock = self.editor.document().findBlockByNumber(ts_point.row)
             except IndexError:
-                self._ts_prediction = {}
                 return b""
 
         # Check if block is valid (can be invalid after undo)
         if not curblock.isValid():
-            self._ts_prediction = {}
             return b""
+
+        # Validate cached block still refers to the expected row
+        if curblock.blockNumber() != ts_point.row:
+            curblock = self.editor.document().findBlockByNumber(ts_point.row)
+            if not curblock.isValid():
+                return b""
 
         self._ts_prediction[ts_point.row] = curblock
         nxt = curblock.next()
@@ -86,6 +85,8 @@ class TreeManager(QtCore.QObject):
 
     def fullUpdate(self):
         if self.parser is not None:
+            # Clear the block cache before reparsing
+            self._ts_prediction = {}
             self.tree = self.parser.parse(self._source_callback, encoding="utf16")
             self.reparsed.emit()
 
@@ -135,8 +136,11 @@ class TreeManager(QtCore.QObject):
             self._pause_edit = True
             return self.tree
 
+
         old_tree = self.tree
         if self.parser is not None:
+            # Clear the block cache before reparsing
+            self._ts_prediction = {}
             if self.tree is not None:
                 self.tree = self.parser.parse(
                     self._source_callback, self.tree, encoding="utf16"
