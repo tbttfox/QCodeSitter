@@ -1,9 +1,10 @@
 from __future__ import annotations
-from tree_sitter import Query, QueryCursor
+from tree_sitter import Query
 from typing import Optional
 from ..tab_completion import Completion, TabCompletion
 from ...constants import ENC
 from . import Provider
+from ..ts_version_fix import query_byte_range
 
 
 class IdentifierProvider(Provider):
@@ -39,13 +40,18 @@ class IdentifierProvider(Provider):
         if self.query is None:
             self.query = Query(tree.language, self.IDENTIFIER_QUERY)
 
-        cursor = QueryCursor(self.query)
-
         # Set the byte range for the query cursor
-        cursor.set_byte_range(0, tree.root_node.end_byte)
-        identifiers = set()
+        captures = query_byte_range(
+            self.query,
+            tree.root_node,
+            0,
+            tree.root_node.end_byte,
+        )
 
-        captures = cursor.captures(tree.root_node)
+        identifiers = set()
+        if captures is None:
+            return identifiers
+
         for capture_name, nodes in captures.items():
             for node in nodes:
                 if node.text is None:

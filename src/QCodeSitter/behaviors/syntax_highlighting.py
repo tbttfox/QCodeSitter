@@ -3,7 +3,8 @@ from __future__ import annotations
 from . import Behavior, HasUndoRedo
 from typing import TYPE_CHECKING, Optional, Any
 from Qt import QtGui
-from tree_sitter import Query, QueryCursor
+from tree_sitter import Query
+from .ts_version_fix import query_byte_range
 
 if TYPE_CHECKING:
     from ..tree_manager import TreeManager
@@ -109,14 +110,10 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
             # Tree is stale, skip highlighting until tree updates
             return
 
-        # Create a fresh QueryCursor for each block to avoid stale state issues
-        try:
-            cursor = QueryCursor(self.query)
-            cursor.set_byte_range(block_start_byte, block_end_byte)
-            captures = cursor.captures(root)
-        except (ValueError, RuntimeError):
-            # Query failed - tree might be in inconsistent state
+        captures = query_byte_range(self.query, root, block_start_byte, block_end_byte)
+        if captures is None:
             return
+
         for capture_name, nodes in captures.items():
             fmt = self.formats.get(capture_name)
             if fmt is None:

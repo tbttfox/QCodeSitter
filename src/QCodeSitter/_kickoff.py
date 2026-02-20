@@ -33,6 +33,7 @@ options = EditorOptions(
         "tab_indent_width": 8,
         "indent_using_tabs": False,
         "copy_indents_as_spaces": True,
+        "language_name": "python",
         "language": Language(tspython.language()),
         "highlights": (HIGHLIGHT_QUERY, syn),
         "colors": col,

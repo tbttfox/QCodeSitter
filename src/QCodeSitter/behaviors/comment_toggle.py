@@ -28,8 +28,8 @@ class CommentToggle(HasHotkeys, Behavior):
 
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
-        lang = self.options["language"]
-        self._comment_prefix = COMMENT_PREFIXES.get(lang.name, "# ")
+        lang_name = self.options["language_name"]
+        self._comment_prefix = COMMENT_PREFIXES.get(lang_name, "# ")
 
     def getHotkeys(self) -> list[QtWidgets.QAction]:
         action = QtWidgets.QAction("Toggle Comment", self.editor)
