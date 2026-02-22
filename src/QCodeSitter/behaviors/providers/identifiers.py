@@ -4,7 +4,7 @@ from typing import Optional
 from ..tab_completion import Completion, TabCompletion
 from ...constants import ENC
 from . import Provider
-from ..ts_version_fix import query_byte_range
+from ...ts_version_fix import query_byte_range
 
 
 class IdentifierProvider(Provider):

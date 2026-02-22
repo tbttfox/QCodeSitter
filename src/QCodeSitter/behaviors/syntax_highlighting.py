@@ -4,7 +4,7 @@ from . import Behavior, HasUndoRedo
 from typing import TYPE_CHECKING, Optional, Any
 from Qt import QtGui
 from tree_sitter import Query
-from .ts_version_fix import query_byte_range
+from ..ts_version_fix import query_byte_range
 
 if TYPE_CHECKING:
     from ..tree_manager import TreeManager
