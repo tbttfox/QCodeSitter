@@ -828,6 +828,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             qt_cursor.setPosition(cursor_state.anchor)
             qt_cursor.setPosition(cursor_state.position, MM.KeepAnchor)
             selected_text = qt_cursor.selectedText()
+            selected_text = selected_text.replace("\u2029", "\n")
             selected_texts.append(selected_text)
         return selected_texts
 
