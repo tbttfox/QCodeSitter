@@ -148,8 +148,10 @@ class TestCursorMovement:
         editor.setPlainText("Hello World")
         set_cursor_position(editor, 0)
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_Right,
-            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_Right,
+            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier,
         )
         # Should be at or past "Hello"
         assert editor.textCursor().position() >= 5
@@ -159,8 +161,10 @@ class TestCursorMovement:
         editor.setPlainText("Hello World")
         set_cursor_position(editor, 11)
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_Left,
-            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_Left,
+            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier,
         )
         # Should be at start of "World"
         assert editor.textCursor().position() <= 6
@@ -170,8 +174,10 @@ class TestCursorMovement:
         editor.setPlainText("Hello")
         set_cursor_position(editor, 0)
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_Right,
-            modifiers=QtCore.Qt.KeyboardModifier.ShiftModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_Right,
+            modifiers=QtCore.Qt.KeyboardModifier.ShiftModifier,
         )
         cursor = editor.textCursor()
         assert cursor.hasSelection()
@@ -184,11 +190,14 @@ class TestClipboardOperations:
     def test_copy_selection(self, editor, qtbot):
         """Test copying selected text."""
         from Qt import QtWidgets
+
         editor.setPlainText("Hello World")
         set_cursor_selection(editor, 0, 5)
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_C,
-            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_C,
+            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier,
         )
         clipboard = QtWidgets.QApplication.clipboard()
         assert clipboard.text() == "Hello"
@@ -196,11 +205,14 @@ class TestClipboardOperations:
     def test_cut_selection(self, editor, qtbot):
         """Test cutting selected text."""
         from Qt import QtWidgets
+
         editor.setPlainText("Hello World")
         set_cursor_selection(editor, 0, 6)
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_X,
-            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_X,
+            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier,
         )
         assert editor.toPlainText() == "World"
         clipboard = QtWidgets.QApplication.clipboard()
@@ -209,25 +221,31 @@ class TestClipboardOperations:
     def test_paste_text(self, editor, qtbot):
         """Test pasting text from clipboard."""
         from Qt import QtWidgets
+
         editor.setPlainText("")
         clipboard = QtWidgets.QApplication.clipboard()
         clipboard.setText("Pasted")
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_V,
-            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_V,
+            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier,
         )
         assert editor.toPlainText() == "Pasted"
 
     def test_paste_replaces_selection(self, editor, qtbot):
         """Test pasting replaces selected text."""
         from Qt import QtWidgets
+
         editor.setPlainText("Hello World")
         set_cursor_selection(editor, 6, 11)
         clipboard = QtWidgets.QApplication.clipboard()
         clipboard.setText("Python")
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_V,
-            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_V,
+            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier,
         )
         assert editor.toPlainText() == "Hello Python"
 
@@ -243,8 +261,10 @@ class TestUndoRedo:
             simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_H, char)
         assert editor.toPlainText() == "Hello"
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_Z,
-            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_Z,
+            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier,
         )
         # Undo may undo all or part depending on edit block merging
         assert len(editor.toPlainText()) < 5
@@ -256,13 +276,17 @@ class TestUndoRedo:
         simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_X, "X")
         assert editor.toPlainText() == "X"
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_Z,
-            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_Z,
+            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier,
         )
         assert editor.toPlainText() == ""
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_Y,
-            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_Y,
+            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier,
         )
         assert editor.toPlainText() == "X"
 
@@ -273,8 +297,10 @@ class TestUndoRedo:
         simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_Backspace)
         assert editor.toPlainText() == "Hell"
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_Z,
-            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_Z,
+            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier,
         )
         assert editor.toPlainText() == "Hello"
 

@@ -366,7 +366,9 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         """Handle mouse press events"""
         if e.modifiers() & QtCore.Qt.KeyboardModifier.AltModifier:
             # Alt+Click to add cursor at position
-            cursor = self.cursorForPosition(e.pos())
+            pos_fn = getattr(e, "position", None)
+            pos = pos_fn().toPoint() if pos_fn is not None else e.pos()
+            cursor = self.cursorForPosition(pos)
             position = cursor.position()
             self.add_cursor_at_position(position)
             e.accept()

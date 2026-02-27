@@ -136,7 +136,6 @@ class TreeManager(QtCore.QObject):
             self._pause_edit = True
             return self.tree
 
-
         old_tree = self.tree
         if self.parser is not None:
             # Clear the block cache before reparsing

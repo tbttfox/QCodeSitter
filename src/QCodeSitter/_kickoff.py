@@ -44,7 +44,7 @@ options = EditorOptions(
         "auto_bracket_pairs": "()[]{}\"\"''``",
         "indent_bracket_pairs": ["()", "[]", "{}"],
         "highlight_bracket_pairs": ["()", "[]", "{}"],
-        "highlight_quote_pairs": "\"'`"
+        "highlight_quote_pairs": "\"'`",
     }
 )
 
@@ -60,7 +60,7 @@ edit.addBehavior(HighlightMatchingSelection)
 edit.addBehavior(LineNumber)
 edit.addBehavior(Overscroll)
 edit.addBehavior(MultiCursorPaint)
-#edit.addBehavior(AutoBracket)
+# edit.addBehavior(AutoBracket)
 edit.addBehavior(CodeFolding)
 edit.addBehavior(CommentToggle)
 

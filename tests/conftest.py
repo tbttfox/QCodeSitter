@@ -15,14 +15,16 @@ from Qt import QtGui
 
 from QCodeSitter.code_editor import CodeEditor, CursorState
 from QCodeSitter.editor_options import EditorOptions
-from QCodeSitter.hl_groups import FORMAT_SPECS, COLORS
+from QCodeSitter.hl_groups import DARK_THEME, read_theme
 from QCodeSitter.highlight_query import HIGHLIGHT_QUERY
 
 # Import behaviors
 from QCodeSitter.behaviors.smart_indent import SmartIndent
 from QCodeSitter.behaviors.line_numbers import LineNumber
 from QCodeSitter.behaviors.overscroll import Overscroll
-from QCodeSitter.behaviors.highlight_matching_selection import HighlightMatchingSelection
+from QCodeSitter.behaviors.highlight_matching_selection import (
+    HighlightMatchingSelection,
+)
 from QCodeSitter.behaviors.highlight_matching_brackets import HighlightMatchingBrackets
 from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
 from QCodeSitter.behaviors.auto_bracket import AutoBracket
@@ -42,35 +44,43 @@ def python_language():
 @pytest.fixture
 def default_options(python_language):
     """Create default editor options for testing."""
-    return EditorOptions({
-        "space_indent_width": 4,
-        "tab_indent_width": 8,
-        "indent_using_tabs": False,
-        "language": python_language,
-        "highlights": (HIGHLIGHT_QUERY, FORMAT_SPECS),
-        "colors": COLORS,
-        "font": QtGui.QFont("Monospace", pointSize=10),
-        "vim_completion_keys": False,
-        "debounce_delay": 0,  # No debounce for tests
-        "auto_bracket_enabled": True,
-        "auto_bracket_pairs": "()[]{}\"\"''``",
-        "indent_bracket_pairs": ["()", "[]", "{}"],
-        "highlight_bracket_pairs": ["()", "[]", "{}"],
-        "highlight_quote_pairs": "\"'`",
-    })
+
+    col, syn = read_theme(DARK_THEME)
+    return EditorOptions(
+        {
+            "space_indent_width": 4,
+            "tab_indent_width": 8,
+            "indent_using_tabs": False,
+            "language_name": "python",
+            "language": python_language,
+            "highlights": (HIGHLIGHT_QUERY, syn),
+            "colors": col,
+            "font": QtGui.QFont("Monospace", pointSize=10),
+            "vim_completion_keys": False,
+            "debounce_delay": 0,  # No debounce for tests
+            "auto_bracket_enabled": True,
+            "auto_bracket_pairs": "()[]{}\"\"''``",
+            "indent_bracket_pairs": ["()", "[]", "{}"],
+            "highlight_bracket_pairs": ["()", "[]", "{}"],
+            "highlight_quote_pairs": "\"'`",
+        }
+    )
 
 
 @pytest.fixture
 def minimal_options(python_language):
     """Create minimal editor options (no behaviors)."""
-    return EditorOptions({
-        "space_indent_width": 4,
-        "tab_indent_width": 4,
-        "indent_using_tabs": False,
-        "language": python_language,
-        "colors": COLORS,
-        "font": QtGui.QFont("Monospace", pointSize=10),
-    })
+    col, _syn = read_theme(DARK_THEME)
+    return EditorOptions(
+        {
+            "space_indent_width": 4,
+            "tab_indent_width": 4,
+            "indent_using_tabs": False,
+            "language": python_language,
+            "colors": col,
+            "font": QtGui.QFont("Monospace", pointSize=10),
+        }
+    )
 
 
 @pytest.fixture
@@ -144,7 +154,7 @@ def editor_with_multicursor(editor):
     editor.setTextCursor(cursor)
     # Add secondary cursors at start of lines 2 and 3
     editor.secondary_cursors = [
-        CursorState(4, 4),   # Start of line 2
-        CursorState(8, 8),   # Start of line 3
+        CursorState(4, 4),  # Start of line 2
+        CursorState(8, 8),  # Start of line 3
     ]
     return editor

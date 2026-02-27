@@ -157,7 +157,9 @@ class TestSyntaxAnalyzer:
         """Test detecting dedent after return statement."""
         editor.setPlainText("def foo():\n    return 1")
         qtbot.wait(100)
-        result = editor.syntax_analyzer.should_dedent_after_position(1, 11, "    return 1")
+        result = editor.syntax_analyzer.should_dedent_after_position(
+            1, 11, "    return 1"
+        )
         # Result depends on implementation
         assert result in (True, False)
 

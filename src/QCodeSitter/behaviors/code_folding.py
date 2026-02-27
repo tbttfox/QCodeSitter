@@ -266,10 +266,12 @@ class FoldingGutterArea(GutterWidget):
                 num_hidden -= 1
 
             num_hidden -= 1
-            plural = 's' if num_hidden > 1 else ''
+            plural = "s" if num_hidden > 1 else ""
 
             # Draw ellipsis and line count
-            full_text = f"... ({num_hidden} hidden line{plural})" if num_hidden > 0 else ""
+            full_text = (
+                f"... ({num_hidden} hidden line{plural})" if num_hidden > 0 else ""
+            )
 
             # Draw the ellipsis and count with a darker background box
             box_padding = 3
@@ -559,7 +561,10 @@ class CodeFolding(HasHotkeys, Behavior):
         _action("Create Manual Fold", "Ctrl+Shift+.", self.create_manual_fold)
 
         for i in range(10):
-            _action(f"Fold to Level {i}", f"Ctrl+{i}",
-                    lambda level=i: self.fold_to_level(level))
+            _action(
+                f"Fold to Level {i}",
+                f"Ctrl+{i}",
+                lambda level=i: self.fold_to_level(level),
+            )
 
         return actions

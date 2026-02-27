@@ -11,6 +11,7 @@ dependencies = ["Qt.py", "stransi", "tree-sitter", "tree-sitter-python"]
 
 [project.optional-dependencies]
 test = ["pytest>=7.0", "pytest-cov", "pytest-qt>=4.0"]
+fuzz = ["pytest>=7.0", "pytest-qt>=4.0", "pytest-timeout", "hypothesis"]
 dev = ["tox>=4.0", "mypy", "ruff"]
 
 [project.entry-points."preditor.plug.editors"]
@@ -24,4 +25,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v"
+addopts = "-v --ignore=tests/test_fuzz.py"
+markers = [
+    "fuzz: slow fuzz tests (run with: tox -e fuzz)",
+]

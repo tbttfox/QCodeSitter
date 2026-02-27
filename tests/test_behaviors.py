@@ -179,8 +179,10 @@ class TestSmartIndent:
         editor.setPlainText("    hello")
         set_cursor_position(editor, 4)
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_Backtab,
-            modifiers=QtCore.Qt.KeyboardModifier.ShiftModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_Backtab,
+            modifiers=QtCore.Qt.KeyboardModifier.ShiftModifier,
         )
         text = editor.toPlainText()
         assert text == "hello"
@@ -230,6 +232,7 @@ class TestBehaviorManagement:
     def test_add_behavior(self, editor, qtbot):
         """Test adding a new behavior to the editor."""
         from QCodeSitter.behaviors.overscroll import Overscroll
+
         # Remove Overscroll behavior first, then add it back
         editor.removeBehavior(Overscroll)
         assert editor.getBehavior(Overscroll) is None
@@ -299,6 +302,7 @@ class TestAutoBracketWithMultiCursor:
         # Set up cursors after each letter
         set_cursor_position(editor, 1)
         from QCodeSitter.code_editor import CursorState
+
         editor.secondary_cursors = [CursorState(3, 3), CursorState(5, 5)]
         simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_ParenLeft, "(")
         text = editor.toPlainText()
@@ -313,6 +317,7 @@ class TestAutoBracketWithMultiCursor:
         # Select each word
         set_cursor_selection(editor, 0, 3)
         from QCodeSitter.code_editor import CursorState
+
         editor.secondary_cursors = [CursorState(4, 7), CursorState(8, 11)]
         simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_ParenLeft, "(")
         text = editor.toPlainText()
@@ -330,6 +335,7 @@ class TestSmartIndentWithMultiCursor:
         editor.setPlainText("a\nb\nc")
         set_cursor_position(editor, 0)
         from QCodeSitter.code_editor import CursorState
+
         editor.secondary_cursors = [CursorState(2, 2), CursorState(4, 4)]
         simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_Tab)
         text = editor.toPlainText()
@@ -343,6 +349,7 @@ class TestSmartIndentWithMultiCursor:
         # Position cursors at end of each line
         set_cursor_position(editor, 5)
         from QCodeSitter.code_editor import CursorState
+
         editor.secondary_cursors = [CursorState(11, 11)]
         simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_Return)
         text = editor.toPlainText()

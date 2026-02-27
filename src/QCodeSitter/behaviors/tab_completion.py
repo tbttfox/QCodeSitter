@@ -101,7 +101,9 @@ class CompletionPopup(QtWidgets.QListWidget):
         self.setMaximumHeight(300)
 
         # Scrolling
-        self.setVerticalScrollMode(QtWidgets.QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.setVerticalScrollMode(
+            QtWidgets.QAbstractItemView.ScrollMode.ScrollPerPixel
+        )
         self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self._min_width = 200

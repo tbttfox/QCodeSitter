@@ -174,6 +174,7 @@ class TestMultiCursorClipboard:
     def test_copy_from_multiple_cursors(self, editor, qtbot):
         """Test copying from multiple cursors."""
         from Qt import QtWidgets
+
         editor.setPlainText("foo\nbar\nbaz")
         # Select "foo", "bar", "baz" with separate cursors
         set_cursor_selection(editor, 0, 3)
@@ -182,8 +183,10 @@ class TestMultiCursorClipboard:
             CursorState(8, 11),  # "baz"
         ]
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_C,
-            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_C,
+            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier,
         )
         clipboard = QtWidgets.QApplication.clipboard()
         # Clipboard should contain all selections joined by newlines
@@ -199,8 +202,10 @@ class TestMultiCursorClipboard:
             CursorState(10, 11),
         ]
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_X,
-            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_X,
+            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier,
         )
         text = editor.toPlainText()
         lines = text.split("\n")
@@ -219,8 +224,10 @@ class TestMultiCursorClipboard:
         ]
         # First copy from matching cursors
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_C,
-            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_C,
+            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier,
         )
         # Clear and set up new content
         editor.setPlainText("A\nB\nC")
@@ -231,8 +238,10 @@ class TestMultiCursorClipboard:
         ]
         # Paste should distribute to each cursor
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_V,
-            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_V,
+            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier,
         )
         # Each line should have pasted content
         text = editor.toPlainText()
@@ -254,9 +263,11 @@ class TestExitMultiCursor:
         editor = editor_with_multicursor
         assert len(editor.secondary_cursors) == 2
         # Simulate a mouse click
+        pos = QtCore.QPointF(10, 10)
         event = QtGui.QMouseEvent(
             QtCore.QEvent.Type.MouseButtonPress,
-            QtCore.QPoint(10, 10),
+            pos,
+            pos,
             QtCore.Qt.MouseButton.LeftButton,
             QtCore.Qt.MouseButton.LeftButton,
             QtCore.Qt.KeyboardModifier.NoModifier,
@@ -270,9 +281,11 @@ class TestExitMultiCursor:
         set_cursor_position(editor, 0)
         assert len(editor.secondary_cursors) == 0
         # Simulate Alt+Click
+        pos = QtCore.QPointF(50, 10)  # Some position in the editor
         event = QtGui.QMouseEvent(
             QtCore.QEvent.Type.MouseButtonPress,
-            QtCore.QPoint(50, 10),  # Some position in the editor
+            pos,
+            pos,
             QtCore.Qt.MouseButton.LeftButton,
             QtCore.Qt.MouseButton.LeftButton,
             QtCore.Qt.KeyboardModifier.AltModifier,
@@ -286,8 +299,10 @@ class TestExitMultiCursor:
         editor = editor_with_multicursor
         assert len(editor.secondary_cursors) == 2
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_A,
-            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_A,
+            modifiers=QtCore.Qt.KeyboardModifier.ControlModifier,
         )
         assert len(editor.secondary_cursors) == 0
 
@@ -349,8 +364,10 @@ class TestMultiCursorMovement:
         """Test Shift+Arrow creates selection at all cursors."""
         editor = editor_with_multicursor
         simulate_keypress(
-            qtbot, editor, QtCore.Qt.Key.Key_Right,
-            modifiers=QtCore.Qt.KeyboardModifier.ShiftModifier
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_Right,
+            modifiers=QtCore.Qt.KeyboardModifier.ShiftModifier,
         )
         cursors, _ = editor.get_all_cursors()
         # All cursors should have selections
