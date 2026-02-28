@@ -915,6 +915,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             ptr += el + 1  # skip the newlines
 
         for i, cursor in enumerate(self.citer.iterate_cursors()):
+            if i >= len(lines):
+                break
             line = lines[i]
             cursor.insertText(line)
             self.citer.update_offset(len16(line))

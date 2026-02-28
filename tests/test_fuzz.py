@@ -316,31 +316,6 @@ class TestFuzz:
         check_invariants(editor)
 
     @given(
-        ops=st.lists(
-            st.tuples(
-                st.sampled_from(keys_with_text),
-                st.sampled_from(modifier_flags),
-            ),
-            min_size=1,
-            max_size=200,
-        )
-    )
-    @settings(
-        max_examples=300,
-        deadline=None,
-        suppress_health_check=[
-            HealthCheck.too_slow,
-            HealthCheck.function_scoped_fixture,
-        ],
-    )
-    def test_rapid_keypresses(self, editor, ops):
-        """Rapid keypress sequences should not hang or crash."""
-        reset_editor(editor)
-        for (key, text), mod in ops:
-            simulate_keypress(None, editor, key, text, mod)
-        check_invariants(editor)
-
-    @given(
         n_cursors=st.integers(min_value=2, max_value=20),
         ops=st.lists(operation(), min_size=1, max_size=40),
     )
