@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from Qt import QtGui
 from Qt import QtCore
 from Qt import QtWidgets
-from Qt import QtCompat
 
 from tree_sitter import Language
 
@@ -111,6 +110,7 @@ class CursorIterator:
         self._cursor_primary_idx: int = 0
         self.handled = False
 
+    def get(self):
         cursors, primary_index = self.editor.get_all_cursors()
         self._cursor_srt_list = cursors
         self._cursor_cmp_list = [False] * len(cursors)
@@ -183,7 +183,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self._selections: dict[str, list[QtWidgets.QTextEdit.ExtraSelection]] = {}
         self._behaviors: list[Behavior] = []
         self._updatingMargins = False
-        self.citer: CursorIterator
+        self.citer: CursorIterator = CursorIterator(self)
 
         self.gutterWidths: dict[str, int] = {}
         self.gutterOrder: list[str] = []
@@ -477,6 +477,10 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.secondary_cursors.clear()
         self._update_visual()
 
+    def setPlainText(self, text):
+        self.exit_multi_cursor_mode()
+        super().setPlainText(text)
+
     def undo(self):
         """Override undo to exit multi-cursor mode first"""
         # Qt's undo system doesn't track our CursorState positions, so we exit
@@ -575,15 +579,13 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def keyPressEvent(self, e: QtGui.QKeyEvent):
         self.tree_manager.pause()
         try:
-            self.citer = CursorIterator(self)
+            self.citer.get()
             for behavior in self._behaviors:
                 if isinstance(behavior, HasKeyPress):
                     if behavior.keyPressEvent(e):
-                        self.tree_manager.unpause()
                         return
 
             if self._handle_key_event(e):
-                self.tree_manager.unpause()
                 return
 
             # I think this is required to handle the rest of the hotkeys
@@ -865,13 +867,19 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def cut(self):
         """Cut text from all cursors to clipboard"""
         self.copy()
-        for cursor in self.citer.iterate_cursors():
-            if cursor.hasSelection():
-                self.citer.update_offset(
-                    cursor.selectionStart() - cursor.selectionEnd()
-                )
-                cursor.removeSelectedText()
-            self.citer.cursor_completed()
+
+        self.tree_manager.pause()
+        try:
+            self.citer.get()
+            for cursor in self.citer.iterate_cursors():
+                if cursor.hasSelection():
+                    self.citer.update_offset(
+                        cursor.selectionStart() - cursor.selectionEnd()
+                    )
+                    cursor.removeSelectedText()
+                self.citer.cursor_completed()
+        finally:
+            self.tree_manager.unpause()
 
     def paste(self):
         """Paste clipboard text at all cursor positions"""
