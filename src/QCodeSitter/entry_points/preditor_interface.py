@@ -27,6 +27,30 @@ from preditor.gui.workbox_mixin import WorkboxMixin
 logger = logging.getLogger(__name__)
 
 
+col, syn = read_theme(LIGHT_THEME)
+DEFAULT_OPTIONS = EditorOptions(
+    {
+        "space_indent_width": 4,
+        "tab_indent_width": 8,
+        "indent_using_tabs": False,
+        "copy_indents_as_spaces": True,
+        "language_name": "python",
+        "language": Language(tspython.language()),
+        "highlights": (HIGHLIGHT_QUERY, syn),
+        "colors": col,
+        "font": QtGui.QFont("MS Shell Dlg 2", pointSize=11),
+        "vim_completion_keys": True,  # c-n c-p for next/prev  c-y for accept
+        "debounce_delay": 150,  # in milliseconds
+        "auto_bracket_enabled": True,
+        "auto_bracket_pairs": "()[]{}\"\"''``",
+        "indent_bracket_pairs": ["()", "[]", "{}"],
+        "highlight_bracket_pairs": ["()", "[]", "{}"],
+        "highlight_quote_pairs": "\"'`",
+    }
+)
+del col, syn
+
+
 class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
     """A full-featured multi-cursor editor powered by treesitter"""
 
@@ -36,34 +60,9 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         core_name=None,
         delayable_engine="default",
         parent=None,
-        options=None,
         **kwargs,
     ):
-        if options is None:
-            col, syn = read_theme(LIGHT_THEME)
-            self.options = EditorOptions(
-                {
-                    "space_indent_width": 4,
-                    "tab_indent_width": 8,
-                    "indent_using_tabs": False,
-                    "copy_indents_as_spaces": True,
-                    "language_name": "python",
-                    "language": Language(tspython.language()),
-                    "highlights": (HIGHLIGHT_QUERY, syn),
-                    "colors": col,
-                    "font": QtGui.QFont("MS Shell Dlg 2", pointSize=11),
-                    "vim_completion_keys": True,  # c-n c-p for next/prev  c-y for accept
-                    "debounce_delay": 150,  # in milliseconds
-                    "auto_bracket_enabled": True,
-                    "auto_bracket_pairs": "()[]{}\"\"''``",
-                    "indent_bracket_pairs": ["()", "[]", "{}"],
-                    "highlight_bracket_pairs": ["()", "[]", "{}"],
-                    "highlight_quote_pairs": "\"'`",
-                }
-            )
-        else:
-            self.options = options
-
+        self.options = DEFAULT_OPTIONS
         super().__init__(
             parent=parent,
             console=console,
