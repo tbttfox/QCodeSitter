@@ -121,6 +121,28 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         self.setPlainText(text)
         self.tree_manager.fullUpdate()
 
+    def __num_lines__(self):
+        return self.document().blockCount()
+
+    def __text_part__(self, lineNum=None, start=None, end=None):
+        doc = self.document()
+        if lineNum is not None:
+            block = doc.findBlockByNumber(lineNum)
+            return block.text()
+        if start is not None and end is not None:
+            block = doc.findBlockByNumber(start)
+            lines = []
+            for _ in range(start, end):
+                lines.append(block.text())
+                block.next()
+                if not block.isValid():
+                    break
+            return '\n'.join(lines)
+        if start is None and end is None:
+            return self.__text__()
+
+        raise ValueError("You must pass start and end if you pass either.")
+
     def __auto_complete_enabled__(self):
         bh = self.getBehavior(TabCompletion)
         return bh is not None
