@@ -884,16 +884,19 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def paste(self):
         """Paste clipboard text at all cursor positions"""
         clipboard = QtWidgets.QApplication.clipboard()
-        mimeData = clipboard.mimeData()
-        clipboard_text = mimeData.text()
+        self.insertFromMimeData(clipboard.mimeData())
+
+    def insertFromMimeData(self, source: QtCore.QMimeData):
+        """Insert mime data using TrackedCursors"""
+        clipboard_text = source.text()
         if not clipboard_text:
             return
 
-        if not mimeData.hasFormat(MIME):
+        if not source.hasFormat(MIME):
             self.insert_text(clipboard_text)
             return
 
-        copylen_text = bytes(mimeData.data(MIME)).decode()
+        copylen_text = bytes(source.data(MIME)).decode()
         lens = list(map(int, copylen_text.split(",")))
 
         # Check that the number of cursors and the number of paste lines matches
@@ -921,6 +924,51 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             cursor.insertText(line)
             self.citer.update_offset(len16(line))
             self.citer.cursor_completed()
+
+    def dropEvent(self, e: QtGui.QDropEvent):
+        """Handle drop events using TrackedCursor so document updates correctly fire"""
+        if not e.mimeData().hasText() and not e.mimeData().hasFormat(MIME):
+            e.ignore()
+            return
+
+        is_move = (e.source() == self and e.dropAction() == QtCore.Qt.DropAction.MoveAction)
+        
+        pos_fn = getattr(e, "position", None)
+        pos = pos_fn().toPoint() if pos_fn is not None else e.pos()
+        target_cursor = self.cursorForPosition(pos)
+        target_pos = target_cursor.position()
+
+        main_cursor = self.textCursor()
+        if is_move and main_cursor.hasSelection():
+            if main_cursor.selectionStart() <= target_pos <= main_cursor.selectionEnd():
+                e.ignore()
+                return
+
+        self.tree_manager.pause()
+        try:
+            self.citer.get()
+            if is_move and main_cursor.hasSelection():
+                sel_start = main_cursor.selectionStart()
+                sel_end = main_cursor.selectionEnd()
+                
+                # Delete using TrackedCursor
+                main_cursor.removeSelectedText()
+                self.citer.update_offset(-(sel_end - sel_start))
+                
+                if target_pos > sel_start:
+                    target_pos -= (sel_end - sel_start)
+                    
+            tc = self.textCursor()
+            tc.setPosition(target_pos)
+            self.setTextCursor(tc)
+            
+            # Reset the cursor iterator to target just this drop location as primary
+            self.exit_multi_cursor_mode()
+            self.citer.get()
+            self.insertFromMimeData(e.mimeData())
+            e.accept()
+        finally:
+            self.tree_manager.unpause()
 
     def _add_cursor_adjacent(self, above: bool):
         """Add a new cursor on the line above or below the primary cursor (primary moves up, leaves cursor behind)"""
