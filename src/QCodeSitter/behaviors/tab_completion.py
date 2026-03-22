@@ -8,7 +8,7 @@ from ..qt_missing import QGuiApplication
 from dataclasses import dataclass
 from tree_sitter import Node, Point, Tree
 from typing import Optional, TYPE_CHECKING, Collection, Type, TypeVar
-from . import Behavior, HasKeyPress
+from . import Behavior
 
 from .providers import Provider
 
@@ -253,7 +253,7 @@ class CompletionPopup(QtWidgets.QListWidget):
         self.scrollToItem(item)
 
 
-class TabCompletion(HasKeyPress, Behavior):
+class TabCompletion(Behavior):
     """Orchestrates completion requests with debouncing and caching"""
 
     def __init__(self, editor: CodeEditor):
@@ -482,6 +482,9 @@ class TabCompletion(HasKeyPress, Behavior):
             return False
         self.completion_popup.hide()
         return False
+
+    def hasKeyPress(self) -> bool:
+        return True
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> bool:
         KEY = QtCore.Qt.Key

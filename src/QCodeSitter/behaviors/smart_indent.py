@@ -14,7 +14,7 @@ MO = QtGui.QTextCursor.MoveOperation
 MM = QtGui.QTextCursor.MoveMode
 
 
-class SmartIndent(HasKeyPress, Behavior):
+class SmartIndent(Behavior):
     def __init__(self, editor: CodeEditor):
         self.space_indent_width: int = 4
         self._tab_indent_width: int = 4
@@ -62,6 +62,9 @@ class SmartIndent(HasKeyPress, Behavior):
         )
 
     font = property(None, _font)
+
+    def hasKeyPress(self) -> bool:
+        return True
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> bool:
         if event.key() == QtCore.Qt.Key.Key_Return:

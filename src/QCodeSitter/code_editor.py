@@ -11,11 +11,7 @@ from tree_sitter import Language
 
 from .constants import MIME
 from .utils import len16
-from .behaviors import (
-    Behavior,
-    HasKeyPress,
-    HasHotkeys,
-)
+from .behaviors import Behavior
 from .line_tracker import TrackedDocument
 from .tree_manager import TreeManager
 from .syntax_analyzer import SyntaxAnalyzer
@@ -184,7 +180,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self._clipboard_cursor_counts: list[int] = []
         self._selections: dict[str, list[QtWidgets.QTextEdit.ExtraSelection]] = {}
         self._behaviors: list[Behavior] = []
-        self._keypressBehaviors: list[HasKeyPress] = []
+        self._keypressBehaviors: list[Behavior] = []
         self._updatingMargins = False
         self.citer: CursorIterator = CursorIterator(self)
 
@@ -280,20 +276,18 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self._make_shortcut("Ctrl+Shift+L", self.add_cursors_to_line_ends)
 
     def _add_behavior_shortcuts(self, behavior):
-        """Add shortcut actions for a behavior that implements HasHotkeys."""
-        if not isinstance(behavior, HasHotkeys):
-            return
+        """Add shortcut actions for a behavior"""
         actions = behavior.getHotkeys()
         for action in actions:
             action.setShortcutContext(
                 QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut
             )
             self.addAction(action)
-        behavior._shortcut_actions = actions
+        behavior.shortcut_actions = actions
 
     def _remove_behavior_shortcuts(self, behavior):
-        """Remove shortcut actions for a behavior that implements HasHotkeys."""
-        for action in getattr(behavior, "_shortcut_actions", []):
+        """Remove shortcut actions for a behavior"""
+        for action in behavior.shortcut_actions:
             self.removeAction(action)
             action.deleteLater()
 
@@ -331,7 +325,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         old_bh = self.removeBehavior(behaviorCls)
         behavior = behaviorCls(self)
         self._behaviors.append(behavior)
-        if isinstance(behavior, HasKeyPress):
+        if behavior.hasKeyPress():
             self._keypressBehaviors.append(behavior)
         self._add_behavior_shortcuts(behavior)
         return old_bh, behavior

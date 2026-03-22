@@ -13,6 +13,7 @@ class Behavior:
         self.options: EditorOptions = editor.options
         self.listen: set[str] = set()
         self.options.optionsUpdated.connect(self.updateOptions)
+        self.shortcut_actions: list[QtWidgets.QAction] = []
 
     def setListen(self, listen: set[str]):
         self.listen = listen
@@ -29,32 +30,11 @@ class Behavior:
     def remove(self):
         pass
 
+    def getHotkeys(self) -> list[QtWidgets.QAction]:
+        return []
 
-class HasKeyPress:
-    """Marker for behaviors that handle key press events with short-circuit semantics.
-
-    Implement keyPressEvent and return True to consume the event and stop
-    further dispatch. addBehavior registers this behavior for direct dispatch
-    via CodeEditor._keypressBehaviors.
-    """
+    def hasKeyPress(self) -> bool:
+        return False
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> bool:
         raise NotImplementedError("You must implement the keyPressEvent")
-
-
-class HasHotkeys:
-    """Interface for behaviors that provide keyboard shortcuts.
-
-    Use this interface for shortcuts that:
-    - Use modifier keys (Ctrl, Alt, Shift) with commands
-    - Are context-independent or have broad applicability
-
-    Do NOT use this for intrinsic editing behaviors like Tab, Return, Backspace, etc.
-    """
-
-    _shortcut_actions: list[QtWidgets.QAction] = []
-
-    def getHotkeys(self) -> list[QtWidgets.QAction]:
-        raise NotImplementedError("You must implement getHotkeys")
-
-

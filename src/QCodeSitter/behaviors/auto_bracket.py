@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from Qt import QtGui, QtCore
 
-from . import Behavior, HasKeyPress
+from . import Behavior
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor
@@ -17,7 +17,7 @@ def _build_pair_from_str(pair_str):
     return pairs, common
 
 
-class AutoBracket(HasKeyPress, Behavior):
+class AutoBracket(Behavior):
     """Automatically inserts closing brackets, quotes, and other paired characters"""
 
     # Map of opening characters to their closing pairs
@@ -42,17 +42,20 @@ class AutoBracket(HasKeyPress, Behavior):
         if "auto_bracket_enabled" in keys:
             self.enabled = self.options.get("auto_bracket_enabled", True)
 
-    def keyPressEvent(self, event: QtGui.QKeyEvent):
+    def hasKeyPress(self) -> bool:
+        return True
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> bool:
         if not self.enabled:
-            return
+            return False
 
         if event.key() == QtCore.Qt.Key.Key_Backspace:
             self.delete_pair()
-            return
+            return False
 
         text = event.text()
         if len(text) != 1:
-            return
+            return False
 
         # Handle skipping over closing character
         skip_chars = set(self.pairs.values())
@@ -62,6 +65,7 @@ class AutoBracket(HasKeyPress, Behavior):
         # Handle inserting opening character with its pair
         if text in self.pairs:
             self.insert_pair(text)
+        return False
 
     def delete_pair(self):
         citer = self.editor.citer
