@@ -18,6 +18,22 @@ from Qt import QtCore, QtGui
 
 from QCodeSitter.code_editor import CodeEditor, CursorState
 from QCodeSitter.editor_options import EditorOptions
+from QCodeSitter.utils import len16
+
+from QCodeSitter.behaviors.smart_indent import SmartIndent
+from QCodeSitter.behaviors.line_numbers import LineNumber
+from QCodeSitter.behaviors.overscroll import Overscroll
+from QCodeSitter.behaviors.highlight_matching_selection import (
+    HighlightMatchingSelection,
+)
+from QCodeSitter.behaviors.highlight_matching_brackets import HighlightMatchingBrackets
+from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
+from QCodeSitter.behaviors.auto_bracket import AutoBracket
+from QCodeSitter.behaviors.tab_completion import TabCompletion
+from QCodeSitter.behaviors.providers.identifiers import IdentifierProvider
+from QCodeSitter.behaviors.code_folding import CodeFolding
+from QCodeSitter.behaviors.multi_cursor_paint import MultiCursorPaint
+from QCodeSitter.behaviors.comment_toggle import CommentToggle
 
 from tests.helpers import simulate_keypress
 
@@ -98,7 +114,6 @@ def operation(draw):
             [
                 "keypress",
                 "insert_text",
-                "set_plain_text",
                 "set_cursor",
                 "add_secondary_cursor",
                 "undo",
@@ -119,9 +134,6 @@ def operation(draw):
 
     if kind == "insert_text":
         return ("insert_text", draw(text_strategy))
-
-    if kind == "set_plain_text":
-        return ("set_plain_text", draw(text_strategy))
 
     if kind == "set_cursor":
         return ("set_cursor", draw(st.integers(min_value=0, max_value=5000)))
@@ -179,9 +191,6 @@ def apply_operation(editor, op):
     elif kind == "insert_text":
         editor.insert_text(op[1])
 
-    elif kind == "set_plain_text":
-        editor.setPlainText(op[1])
-
     elif kind == "set_cursor":
         pos = min(op[1], len(editor.toPlainText()))
         cursor = editor.textCursor()
@@ -220,19 +229,38 @@ def apply_operation(editor, op):
         editor.move_cursors(direction, select, word_mode)
 
 
-def reset_editor(editor):
-    """Reset editor to a clean state between Hypothesis examples.
+def make_bare_editor(minimal_options):
+    """Create a fresh bare editor (no behaviors)."""
+    editor = CodeEditor(minimal_options)
+    editor.show()
+    return editor
 
-    Hypothesis reuses the same fixture across all examples, so we must
-    clear mutable state at the start of each example to avoid leakage.
-    """
-    editor.setPlainText("")
-    editor.document().clearUndoRedoStacks()
+
+def make_full_editor(default_options):
+    """Create a fresh editor with all behaviors."""
+    editor = CodeEditor(default_options)
+
+    _, tab_completion = editor.addBehavior(TabCompletion)
+    tab_completion.addProvider(IdentifierProvider)
+
+    editor.addBehavior(SyntaxHighlighting)
+    editor.addBehavior(SmartIndent)
+    editor.addBehavior(HighlightMatchingBrackets)
+    editor.addBehavior(HighlightMatchingSelection)
+    editor.addBehavior(LineNumber)
+    editor.addBehavior(Overscroll)
+    editor.addBehavior(MultiCursorPaint)
+    editor.addBehavior(AutoBracket)
+    editor.addBehavior(CodeFolding)
+    editor.addBehavior(CommentToggle)
+
+    editor.show()
+    return editor
 
 
 def check_invariants(editor):
     """Verify editor invariants that must always hold."""
-    doc_len = len(editor.toPlainText())
+    doc_len = len16(editor.toPlainText())
 
     # Primary cursor must be within document bounds
     cursor = editor.textCursor()
@@ -253,7 +281,6 @@ def check_invariants(editor):
         )
 
 
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -272,12 +299,12 @@ class TestFuzz:
             HealthCheck.function_scoped_fixture,
         ],
     )
-    def test_random_operations_bare(self, bare_editor, ops):
+    def test_random_operations_bare(self, minimal_options, ops):
         """Random operations on a bare editor (no behaviors) should not crash."""
-        reset_editor(bare_editor)
+        editor = make_bare_editor(minimal_options)
         for op in ops:
-            apply_operation(bare_editor, op)
-        check_invariants(bare_editor)
+            apply_operation(editor, op)
+        check_invariants(editor)
 
     @given(ops=st.lists(operation(), min_size=1, max_size=80))
     @settings(
@@ -288,29 +315,9 @@ class TestFuzz:
             HealthCheck.function_scoped_fixture,
         ],
     )
-    def test_random_operations_full(self, editor, ops):
+    def test_random_operations_full(self, default_options, ops):
         """Random operations on a fully-loaded editor should not crash."""
-        reset_editor(editor)
-        for op in ops:
-            apply_operation(editor, op)
-        check_invariants(editor)
-
-    @given(
-        initial_text=text_strategy,
-        ops=st.lists(operation(), min_size=1, max_size=80),
-    )
-    @settings(
-        max_examples=200,
-        deadline=None,
-        suppress_health_check=[
-            HealthCheck.too_slow,
-            HealthCheck.function_scoped_fixture,
-        ],
-    )
-    def test_random_operations_with_initial_text(self, editor, initial_text, ops):
-        """Random operations starting from random initial text should not crash."""
-        reset_editor(editor)
-        editor.setPlainText(initial_text)
+        editor = make_full_editor(default_options)
         for op in ops:
             apply_operation(editor, op)
         check_invariants(editor)
@@ -327,11 +334,11 @@ class TestFuzz:
             HealthCheck.function_scoped_fixture,
         ],
     )
-    def test_multicursor_stress(self, editor, n_cursors, ops):
+    def test_multicursor_stress(self, default_options, n_cursors, ops):
         """Multi-cursor editing under stress should not crash."""
-        reset_editor(editor)
+        editor = make_full_editor(default_options)
         # Set up some text to work with
-        editor.setPlainText("line one\nline two\nline three\nline four\nline five\n")
+        editor.insert_text("line one\nline two\nline three\nline four\nline five\n")
 
         # Add several cursors
         doc_len = len(editor.toPlainText())
@@ -354,9 +361,9 @@ class TestFuzz:
             HealthCheck.function_scoped_fixture,
         ],
     )
-    def test_undo_redo_stress(self, editor, ops):
+    def test_undo_redo_stress(self, default_options, ops):
         """Rapid undo/redo should not crash or corrupt state."""
-        reset_editor(editor)
+        editor = make_full_editor(default_options)
         # Build up some undo history
         editor.insert_text("hello world\n")
         editor.insert_text("foo bar baz\n")

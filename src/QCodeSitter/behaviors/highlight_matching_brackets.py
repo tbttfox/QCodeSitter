@@ -82,6 +82,9 @@ class HighlightMatchingBrackets(Behavior):
         block_start = block.position()
         col = pos - block_start
         text = block.text()
+        # positionInBlock() returns UTF-16 code units which can exceed
+        # Python str length when surrogate pairs (e.g. emoji) are present
+        col = min(col, len(text))
 
         # Check character before cursor (preferred)
         allmatch = self.highlight_quote_chars + self.bracket_chars

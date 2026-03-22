@@ -396,6 +396,9 @@ class TabCompletion(HasKeyPress, Behavior):
         line_num = block.blockNumber()
         char_col = cursor.positionInBlock()
         full_line = block.text()
+        # positionInBlock() returns UTF-16 code units which can exceed
+        # Python str length when surrogate pairs (e.g. emoji) are present
+        char_col = min(char_col, len(full_line))
 
         # Extract prefix (word before cursor)
         start, prefix = self._extract_prefix(full_line, char_col)

@@ -39,7 +39,6 @@ class TreeManager(QtCore.QObject):
 
         self.tree: Optional[Tree] = None
         self._source_callback = self.treesitter_source_callback
-        self._ts_prediction: dict[int, QtGui.QTextBlock] = {}
         self._paused = False
         self._pause_edit = False
 
@@ -55,12 +54,10 @@ class TreeManager(QtCore.QObject):
         Returns:
             UTF-16LE encoded bytes from the requested position to end of document
         """
-        curblock: Optional[QtGui.QTextBlock] = self._ts_prediction.get(ts_point.row)
-        if curblock is None:
-            try:
-                curblock = self.editor.document().findBlockByNumber(ts_point.row)
-            except IndexError:
-                return b""
+        try:
+            curblock = self.editor.document().findBlockByNumber(ts_point.row)
+        except IndexError:
+            return b""
 
         # Check if block is valid (can be invalid after undo)
         if not curblock.isValid():
@@ -72,9 +69,7 @@ class TreeManager(QtCore.QObject):
             if not curblock.isValid():
                 return b""
 
-        self._ts_prediction[ts_point.row] = curblock
         nxt = curblock.next()
-        self._ts_prediction[ts_point.row + 1] = nxt
         suffix = "\n" if nxt.isValid() else ""
         linetext = curblock.text() + suffix
 
@@ -86,7 +81,6 @@ class TreeManager(QtCore.QObject):
     def fullUpdate(self):
         if self.parser is not None:
             # Clear the block cache before reparsing
-            self._ts_prediction = {}
             self.tree = self.parser.parse(self._source_callback, encoding="utf16")
             self.reparsed.emit()
 
@@ -139,7 +133,6 @@ class TreeManager(QtCore.QObject):
         old_tree = self.tree
         if self.parser is not None:
             # Clear the block cache before reparsing
-            self._ts_prediction = {}
             if self.tree is not None:
                 self.tree = self.parser.parse(
                     self._source_callback, self.tree, encoding="utf16"

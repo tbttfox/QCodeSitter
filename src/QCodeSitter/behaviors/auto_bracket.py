@@ -71,7 +71,7 @@ class AutoBracket(HasKeyPress, Behavior):
 
             block = cursor.block()
             text = block.text()
-            col = cursor.positionInBlock()
+            col = min(cursor.positionInBlock(), len(text))
 
             # Check for triple-quote deletion
             if col >= 3 and col + 3 <= len(text):
@@ -202,7 +202,7 @@ class AutoBracket(HasKeyPress, Behavior):
 
             elif open_char in self._common:
                 line = cursor.block().text()
-                col = cursor.positionInBlock()
+                col = min(cursor.positionInBlock(), len(line))
 
                 if self._should_skip_triple_quote(open_char, line, col):
                     cursor.movePosition(MO.Right, MM.MoveAnchor, 3)
