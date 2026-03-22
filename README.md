@@ -1,6 +1,6 @@
 # QCodeSitter
 
-A reusable, tree-sitter-powered code editor widget for Qt applications. QCodeSitter provides a `QPlainTextEdit` subclass with syntax highlighting, multi-cursor editing, smart indentation, code folding, and more -- all driven by a modular **Behavior** system that makes it easy to add, remove, or customize features.
+A reusable, tree-sitter-powered code editor widget for Qt applications. QCodeSitter provides a `QPlainTextEdit` subclass with syntax highlighting, multi-cursor editing, smart indentation, code folding, and more -- all driven by a modular plugin system that makes it easy to add, remove, or customize features.
 
 This is not an IDE. It's a drop-in editor widget you can embed in your own Qt application.
 
@@ -42,7 +42,7 @@ You only pay for what you use. If you don't need code folding, don't add it. If 
 
 ## The Behavior System
 
-Every editor feature beyond basic text editing is implemented as a **Behavior**. Behaviors are modular, self-contained classes that plug into the editor through a well-defined interface.
+Every editor feature beyond basic text editing is implemented as a **Behavior**. Behaviors are essentially just plugins. They are modular, self-contained classes that plug into the editor through a well-defined interface.
 
 ### Base Class
 
@@ -68,36 +68,6 @@ Behaviors are added and removed at runtime:
 old, new = editor.addBehavior(MyBehavior)   # Returns (old_instance, new_instance)
 editor.removeBehavior(MyBehavior)            # Returns removed instance
 editor.getBehavior(MyBehavior)               # Returns instance or None
-```
-
-### Mixin Interfaces
-
-Behaviors declare their capabilities by mixing in one or more interfaces:
-
-| Mixin | Method | Purpose |
-|---|---|---|
-| `HasKeyPress` | `keyPressEvent(event) -> bool` | Handle keyboard input (Tab, Enter, Backspace, etc.) |
-| `HasHotkeys` | `getHotkeys() -> list[QtWidgets.QAction]` | Declare user-configurable shortcuts (Ctrl+/, Ctrl+D, etc.) |
-| `HasPaint` | `paintEvent(event, painter) -> bool` | Custom rendering in the editor viewport |
-| `HasUndoRedo` | `prepareUndo()`, `prepareRedo()`, `afterUndoRedo()` | Hook into undo/redo lifecycle |
-
-For example, a behavior that handles both keyboard input and custom painting:
-
-```python
-from QCodeSitter.behaviors import Behavior, HasKeyPress, HasPaint
-
-class MyFeature(HasKeyPress, HasPaint, Behavior):
-    def keyPressEvent(self, event):
-        # Return True to consume the event, False to pass it through
-        if event.key() == Qt.Key_F1:
-            self.do_something()
-            return True
-        return False
-
-    def paintEvent(self, event, painter):
-        # Draw custom overlays
-        painter.drawRect(...)
-        return False
 ```
 
 ### Reacting to Option Changes
