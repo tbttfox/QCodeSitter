@@ -110,6 +110,11 @@ class MultiCursorPaint(HasPaint, Behavior):
             painter.restore()
 
     def _update_blink(self):
+        if not self.editor.hasFocus():
+            if self._blink_state:
+                self._blink_state = False
+                self.editor.viewport().repaint()
+            return
         self._blink_state = not self._blink_state
         self.editor.viewport().repaint()
 
