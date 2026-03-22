@@ -1,5 +1,5 @@
 from __future__ import annotations
-from . import HasPaint, Behavior
+from . import Behavior
 from typing import TYPE_CHECKING
 from Qt import QtGui, QtCore, QtWidgets
 
@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from ..code_editor import CodeEditor
 
 
-class MultiCursorPaint(HasPaint, Behavior):
+class MultiCursorPaint(Behavior):
     """Behavior that renders cursors with custom painting
 
     This behavior handles rendering of both the primary cursor and secondary
@@ -33,6 +33,9 @@ class MultiCursorPaint(HasPaint, Behavior):
         self.blink_timer = QtCore.QTimer(self.editor)
         self.blink_timer.timeout.connect(self._update_blink)
         self.blink_timer.start(QtWidgets.QApplication.instance().cursorFlashTime() // 2)
+        self.editor.behaviorPaint.connect(
+            self.paintEvent, QtCore.Qt.ConnectionType.DirectConnection
+        )
         self.updateAll()
 
     def _colors(self, val):
@@ -156,4 +159,5 @@ class MultiCursorPaint(HasPaint, Behavior):
 
     def remove(self):
         """Clean up when behavior is removed"""
+        self.editor.behaviorPaint.disconnect(self.paintEvent)
         self.editor.clear_selections("multi_cursor")

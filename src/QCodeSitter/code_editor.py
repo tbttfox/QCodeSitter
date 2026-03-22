@@ -14,8 +14,6 @@ from .utils import len16
 from .behaviors import (
     Behavior,
     HasKeyPress,
-    HasPaint,
-    HasUndoRedo,
     HasHotkeys,
 )
 from .line_tracker import TrackedDocument
@@ -168,6 +166,10 @@ class CursorIterator:
 
 class CodeEditor(QtWidgets.QPlainTextEdit):
     gutterResize = QtCore.Signal()
+    behaviorPaint = QtCore.Signal(object, object)
+    behaviorPrepareUndo = QtCore.Signal()
+    behaviorPrepareRedo = QtCore.Signal()
+    behaviorAfterUndoRedo = QtCore.Signal()
 
     def __init__(
         self,
@@ -182,6 +184,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self._clipboard_cursor_counts: list[int] = []
         self._selections: dict[str, list[QtWidgets.QTextEdit.ExtraSelection]] = {}
         self._behaviors: list[Behavior] = []
+        self._keypressBehaviors: list[HasKeyPress] = []
         self._updatingMargins = False
         self.citer: CursorIterator = CursorIterator(self)
 
@@ -328,6 +331,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         old_bh = self.removeBehavior(behaviorCls)
         behavior = behaviorCls(self)
         self._behaviors.append(behavior)
+        if isinstance(behavior, HasKeyPress):
+            self._keypressBehaviors.append(behavior)
         self._add_behavior_shortcuts(behavior)
         return old_bh, behavior
 
@@ -341,6 +346,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                 torem.append(bh)
         for i in reversed(ridxs):
             self._behaviors.pop(i)
+        self._keypressBehaviors = [b for b in self._keypressBehaviors if b not in torem]
         for rem in torem:
             self._remove_behavior_shortcuts(rem)
             rem.remove()
@@ -385,9 +391,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         # Create a painter on the viewport for behaviors to use
         painter = QtGui.QPainter(self.viewport())
         try:
-            for behavior in self._behaviors:
-                if isinstance(behavior, HasPaint):
-                    behavior.paintEvent(e, painter)
+            self.behaviorPaint.emit(e, painter)
         finally:
             painter.end()
 
@@ -487,11 +491,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         # multi-cursor mode to avoid cursor position desync after undo
         self.exit_multi_cursor_mode()
 
-        # Notify behaviors that implement HasUndoRedo
-        for behavior in self._behaviors:
-            if isinstance(behavior, HasUndoRedo):
-                behavior.prepareUndo()
-
+        self.behaviorPrepareUndo.emit()
         super().undo()
 
         # After undo, notify behaviors to update
@@ -504,11 +504,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         # multi-cursor mode to avoid cursor position desync after redo
         self.exit_multi_cursor_mode()
 
-        # Notify behaviors that implement HasUndoRedo
-        for behavior in self._behaviors:
-            if isinstance(behavior, HasUndoRedo):
-                behavior.prepareRedo()
-
+        self.behaviorPrepareRedo.emit()
         super().redo()
 
         # After redo, notify behaviors to update
@@ -516,10 +512,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         QtCore.QTimer.singleShot(0, self._after_undo_redo)
 
     def _after_undo_redo(self):
-        """Notify behaviors after undo/redo completes"""
-        for behavior in self._behaviors:
-            if isinstance(behavior, HasUndoRedo):
-                behavior.afterUndoRedo()
+        self.behaviorAfterUndoRedo.emit()
 
     def add_next_occurrence(self):
         """Add cursor at next occurrence of current selection
@@ -580,10 +573,9 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.tree_manager.pause()
         try:
             self.citer.get()
-            for behavior in self._behaviors:
-                if isinstance(behavior, HasKeyPress):
-                    if behavior.keyPressEvent(e):
-                        return
+            for behavior in self._keypressBehaviors:
+                if behavior.keyPressEvent(e):
+                    return
 
             if self._handle_key_event(e):
                 return

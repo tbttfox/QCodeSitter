@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from . import Behavior, HasUndoRedo
+from . import Behavior
 from typing import TYPE_CHECKING, Optional, Any
 from Qt import QtGui
 from tree_sitter import Query
@@ -151,12 +151,15 @@ class DummyHighlighter(QtGui.QSyntaxHighlighter):
         return
 
 
-class SyntaxHighlighting(Behavior, HasUndoRedo):
+class SyntaxHighlighting(Behavior):
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
         self.setListen({"highlights"})
         self._highlights = None
         self.highlighter: Optional[TreeSitterHighlighter] = None
+        self.editor.behaviorPrepareUndo.connect(self.prepareUndo)
+        self.editor.behaviorPrepareRedo.connect(self.prepareRedo)
+        self.editor.behaviorAfterUndoRedo.connect(self.afterUndoRedo)
         self.updateAll()
 
     def prepareUndo(self):
@@ -207,6 +210,9 @@ class SyntaxHighlighting(Behavior, HasUndoRedo):
             self.highlighter.rehighlight()
 
     def remove(self):
+        self.editor.behaviorPrepareUndo.disconnect(self.prepareUndo)
+        self.editor.behaviorPrepareRedo.disconnect(self.prepareRedo)
+        self.editor.behaviorAfterUndoRedo.disconnect(self.afterUndoRedo)
         self.highlighter = None
 
         mydoc = self.editor.document()

@@ -31,6 +31,13 @@ class Behavior:
 
 
 class HasKeyPress:
+    """Marker for behaviors that handle key press events with short-circuit semantics.
+
+    Implement keyPressEvent and return True to consume the event and stop
+    further dispatch. addBehavior registers this behavior for direct dispatch
+    via CodeEditor._keypressBehaviors.
+    """
+
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> bool:
         raise NotImplementedError("You must implement the keyPressEvent")
 
@@ -51,35 +58,3 @@ class HasHotkeys:
         raise NotImplementedError("You must implement getHotkeys")
 
 
-class HasPaint:
-    """Interface for behaviors that need to customize paint events.
-
-    Use this interface for behaviors that need to draw custom content
-    in the editor viewport (e.g., overlays, backgrounds, decorations).
-
-    The painter is provided by the editor and is already active on the viewport.
-    """
-
-    def paintEvent(self, event: QtGui.QPaintEvent, painter) -> bool:
-        raise NotImplementedError("You must implement the paintEvent")
-
-
-class HasUndoRedo:
-    """Interface for behaviors that need to be notified about undo/redo operations.
-
-    Use this interface for behaviors that need to prepare before undo/redo
-    or update after undo/redo completes (e.g., syntax highlighting that needs
-    to sync with document state).
-    """
-
-    def prepareUndo(self):
-        """Called before undo operation - prepare for document change"""
-        pass
-
-    def prepareRedo(self):
-        """Called before redo operation - prepare for document change"""
-        pass
-
-    def afterUndoRedo(self):
-        """Called after undo/redo completes - update to match new document state"""
-        pass

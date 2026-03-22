@@ -1,5 +1,5 @@
 from __future__ import annotations
-from . import HasPaint, Behavior
+from . import Behavior
 from typing import TYPE_CHECKING
 from Qt import QtGui, QtCore
 
@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from ..code_editor import CodeEditor
 
 
-class Overscroll(HasPaint, Behavior):
+class Overscroll(Behavior):
     """Behavior that allows scrolling past the end of the document"""
 
     def __init__(self, editor: CodeEditor):
@@ -29,7 +29,9 @@ class Overscroll(HasPaint, Behavior):
         self.editor.document().contentsChanged.connect(self.on_contents_changed)
 
         self.update_extra_scroll()
-
+        self.editor.behaviorPaint.connect(
+            self.paintEvent, QtCore.Qt.ConnectionType.DirectConnection
+        )
         self.updateAll()
 
     def on_contents_changed(self):
@@ -100,6 +102,7 @@ class Overscroll(HasPaint, Behavior):
 
     def remove(self):
         """Set the scroll back to the line count"""
+        self.editor.behaviorPaint.disconnect(self.paintEvent)
         sb = self.editor.verticalScrollBar()
         viewport_height = self.editor.viewport().height()
         line_height = self.editor.fontMetrics().lineSpacing()
