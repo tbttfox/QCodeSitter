@@ -1,8 +1,9 @@
 import logging
 
+from functools import partial
 import tree_sitter_python as tspython
 from tree_sitter import Language
-from Qt import QtGui
+from Qt import QtGui, QtCore
 
 from ..code_editor import CodeEditor
 from ..behaviors.smart_indent import SmartIndent
@@ -24,10 +25,8 @@ from ..highlight_query import HIGHLIGHT_QUERY
 
 from preditor.gui.workbox_mixin import WorkboxMixin
 
-logger = logging.getLogger(__name__)
 
-
-col, syn = read_theme(LIGHT_THEME)
+_col, _syn = read_theme(LIGHT_THEME)
 DEFAULT_OPTIONS = EditorOptions(
     {
         "space_indent_width": 4,
@@ -36,8 +35,8 @@ DEFAULT_OPTIONS = EditorOptions(
         "copy_indents_as_spaces": True,
         "language_name": "python",
         "language": Language(tspython.language()),
-        "highlights": (HIGHLIGHT_QUERY, syn),
-        "colors": col,
+        "highlights": (HIGHLIGHT_QUERY, _syn),
+        "colors": _col,
         "font": QtGui.QFont("MS Shell Dlg 2", pointSize=11),
         "vim_completion_keys": True,  # c-n c-p for next/prev  c-y for accept
         "debounce_delay": 150,  # in milliseconds
@@ -48,7 +47,21 @@ DEFAULT_OPTIONS = EditorOptions(
         "highlight_quote_pairs": "\"'`",
     }
 )
-del col, syn
+
+
+def _colorPropInit(name: str, default):
+    """Initializes a default color property value with a usable getter and setter."""
+
+    def _getattr(attrName, default, self):
+        return self._color_properties(attrName, default)
+
+    def _setattr(attrName, self, value):
+        return self._set_color_properties(attrName, value)
+
+    ga = partial(_getattr, name, default)
+    sa = partial(_setattr, name)
+    typ = default.__class__
+    return QtCore.Property(typ, fget=(lambda s: ga(s)), fset=(lambda s, v: sa(s, v)))
 
 
 class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
@@ -71,6 +84,12 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
             options=self.options,
             **kwargs,
         )
+        self._color_upate_timer = QtCore.QTimer()
+        self._color_upate_timer.setSingleShot(True)
+        self._color_upate_timer.setInterval(0)
+        self._color_upate_timer.timeout.connect(self._color_properties_updated)
+        self._color_properties = {}
+        self._color_tracker = set()
 
         self._encoding = None
         self.__set_console__(console)
@@ -137,7 +156,7 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
                 block.next()
                 if not block.isValid():
                     break
-            return '\n'.join(lines)
+            return "\n".join(lines)
         if start is None and end is None:
             return self.__text__()
 
@@ -242,3 +261,54 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
             return
         else:
             super(CodeSitterTextEdit, self).keyPressEvent(event)
+
+    def _color_properties(self, attrName, default):
+        return self._color_properties.get(attrName, default)
+
+    def _set_color_properties(self, attrName, value):
+        self._color_properties[attrName] = value
+        self._color_upate_timer.start()
+        self._color_tracker.add(attrName)
+
+    def _color_properties_updated(self):
+        ud = {k: self._color_properties[k] for k in self._color_tracker}
+        print(ud)
+        self._color_tracker = set()
+
+    # fmt: off
+    pyMarginsForegroundColor = _colorPropInit("pyMarginsForegroundColor", QtGui.QColor(202, 202, 202))
+    pyMarginsBackgroundColor = _colorPropInit("pyMarginsBackgroundColor", QtGui.QColor(70, 70, 73))
+    pySelectionBackgroundColor = _colorPropInit("pySelectionBackgroundColor", QtGui.QColor(90, 90, 93))
+    pySelectionForegroundColor = _colorPropInit("pySelectionForegroundColor", QtGui.QColor(240, 240, 240))
+    pyCaretBackgroundColor = _colorPropInit("pyCaretBackgroundColor", QtGui.QColor(70, 70, 73))
+    pyCaretForegroundColor = _colorPropInit("pyCaretForegroundColor", QtGui.QColor(255, 255, 255))
+    pyMatchedBraceBackgroundColor = _colorPropInit("pyMatchedBraceBackgroundColor", QtGui.QColor(60, 60, 63))
+    pyMatchedBraceForegroundColor = _colorPropInit("pyMatchedBraceForegroundColor", QtGui.QColor(240, 240, 240))
+    pyUnmatchedBraceBackgroundColor = _colorPropInit("pyUnmatchedBraceBackgroundColor", QtGui.QColor(70, 70, 73))
+    pyUnmatchedBraceForegroundColor = _colorPropInit("pyUnmatchedBraceForegroundColor", QtGui.QColor(200, 180, 180))
+    pyEdgeColor = _colorPropInit("pyEdgeColor", QtGui.QColor(100, 45, 45))
+
+    pyIndentationGuidesBackgroundColor = _colorPropInit("pyIndentationGuidesBackgroundColor", QtGui.QColor(70, 70, 73))
+    pyIndentationGuidesForegroundColor = _colorPropInit("pyIndentationGuidesForegroundColor", QtGui.QColor(102, 153, 204))
+    pyMarkerBackgroundColor = _colorPropInit("pyMarkerBackgroundColor", QtGui.QColor(45, 255, 45))
+    pyMarkerForegroundColor = _colorPropInit("pyMarkerForegroundColor", QtGui.QColor(200, 0, 200))
+    foldMarginsBackgroundColor = _colorPropInit("foldMarginsBackgroundColor", QtGui.QColor(60, 60, 63))
+    foldMarginsForegroundColor = _colorPropInit("foldMarginsForegroundColor", QtGui.QColor(60, 60, 63))
+    braceBadForeground = _colorPropInit("braceBadForeground", QtGui.QColor(255, 255, 255))
+    braceBadBackground = _colorPropInit("braceBadBackground", QtGui.QColor(100, 60, 60))
+
+    colorDefault = _colorPropInit("colorDefault", QtGui.QColor(22, 160, 250))
+    colorComment = _colorPropInit("colorComment", QtGui.QColor(0, 160, 0))
+    colorNumber = _colorPropInit("colorNumber", QtGui.QColor(0, 200, 200))
+    colorString = _colorPropInit("colorString", QtGui.QColor(240, 135, 0))
+    colorKeyword = _colorPropInit("colorKeyword", QtGui.QColor(250, 24, 110))
+    colorTripleQuotedString = _colorPropInit("colorTripleQuotedString", QtGui.QColor(240, 135, 0))
+    colorMethod = _colorPropInit("colorMethod", QtGui.QColor(255, 204, 102))
+    colorFunction = _colorPropInit("colorFunction", QtGui.QColor(22, 160, 250))
+    colorOperator = _colorPropInit("colorOperator", QtGui.QColor(204, 204, 204))
+    colorIdentifier = _colorPropInit("colorIdentifier", QtGui.QColor(22, 160, 250))
+    colorCommentBlock = _colorPropInit("colorCommentBlock", QtGui.QColor(117, 113, 94))
+    colorUnclosedString = _colorPropInit("colorUnclosedString", QtGui.QColor(255, 255, 255))
+    colorSmartHighlight = _colorPropInit("colorSmartHighlight", QtGui.QColor(255, 255, 255))
+    colorDecorator = _colorPropInit("colorDecorator", QtGui.QColor(240, 100, 102))
+    # fmt: on

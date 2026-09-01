@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from Qt import QtWidgets, QtGui, QtCore
 
 
-from . import HasKeyPress, Behavior
+from . import Behavior
 from ..utils import dedent_string, len16
 
 if TYPE_CHECKING:

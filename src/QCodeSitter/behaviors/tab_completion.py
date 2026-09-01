@@ -408,9 +408,8 @@ class TabCompletion(Behavior):
         if self.editor.tree_manager.tree:
             try:
                 # With UTF-16, character column IS the code unit column
-                byte_offset = self.editor.document().point_to_byte(
-                    Point(line_num, char_col)
-                )
+                pt = Point(line_num, char_col)
+                byte_offset = self.editor.document().point_to_byte(pt)
                 node = self.editor.tree_manager.get_node_at_point(byte_offset)
             except (IndexError, ValueError):
                 pass

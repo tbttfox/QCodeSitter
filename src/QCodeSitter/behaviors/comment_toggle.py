@@ -1,9 +1,9 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from Qt import QtGui, QtCore, QtWidgets
+from Qt import QtGui, QtWidgets
 
-from . import Behavior, HasHotkeys
+from . import Behavior
 from ..utils import len16
 from ..code_editor import CursorIterator
 
@@ -23,7 +23,7 @@ MO = QtGui.QTextCursor.MoveOperation
 MM = QtGui.QTextCursor.MoveMode
 
 
-class CommentToggle(HasHotkeys, Behavior):
+class CommentToggle(Behavior):
     """Toggle line comments for the current line or selection."""
 
     def __init__(self, editor: CodeEditor):

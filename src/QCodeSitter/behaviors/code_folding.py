@@ -1,11 +1,11 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from Qt import QtGui, QtCore
+from Qt import QtGui, QtCore, QtWidgets
 from tree_sitter import Node
 
 from ..gutter_widget import GutterWidget
-from . import Behavior, HasHotkeys
+from . import Behavior
 
 
 if TYPE_CHECKING:
@@ -289,7 +289,7 @@ class FoldingGutterArea(GutterWidget):
             painter.drawText(int(ellipsis_x), ellipsis_y, full_text)
 
 
-class CodeFolding(HasHotkeys, Behavior):
+class CodeFolding(Behavior):
     """Behavior that provides code folding based on tree-sitter AST"""
 
     # Node types where the last line should be hidden (Python indentation-based blocks)
