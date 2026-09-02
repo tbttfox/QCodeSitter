@@ -1,29 +1,108 @@
-import logging
+from __future__ import annotations
 
 from functools import partial
+
 import tree_sitter_python as tspython
-from tree_sitter import Language
-from Qt import QtGui, QtCore
-
-from ..code_editor import CodeEditor
-from ..behaviors.smart_indent import SmartIndent
-from ..behaviors.line_numbers import LineNumber
-from ..behaviors.overscroll import Overscroll
-from ..behaviors.highlight_matching_selection import HighlightMatchingSelection
-from ..behaviors.highlight_matching_brackets import HighlightMatchingBrackets
-from ..behaviors.comment_toggle import CommentToggle
-from ..behaviors.syntax_highlighting import SyntaxHighlighting
-from ..behaviors.auto_bracket import AutoBracket
-from ..behaviors.tab_completion import TabCompletion
-from ..behaviors.providers.identifiers import IdentifierProvider
-from ..behaviors.code_folding import CodeFolding
-from ..behaviors.multi_cursor_paint import MultiCursorPaint
-from ..editor_options import EditorOptions
-from ..hl_groups import DARK_THEME, LIGHT_THEME, read_theme
-from ..highlight_query import HIGHLIGHT_QUERY
-
-
 from preditor.gui.workbox_mixin import WorkboxMixin
+from Qt import QtCore, QtGui
+from tree_sitter import Language
+
+from ..behaviors.auto_bracket import AutoBracket
+from ..behaviors.code_folding import CodeFolding
+from ..behaviors.comment_toggle import CommentToggle
+from ..behaviors.highlight_matching_brackets import HighlightMatchingBrackets
+from ..behaviors.highlight_matching_selection import HighlightMatchingSelection
+from ..behaviors.line_numbers import LineNumber
+from ..behaviors.multi_cursor_paint import MultiCursorPaint
+from ..behaviors.overscroll import Overscroll
+from ..behaviors.providers.identifiers import IdentifierProvider
+from ..behaviors.smart_indent import SmartIndent
+from ..behaviors.syntax_highlighting import SyntaxHighlighting
+from ..behaviors.tab_completion import TabCompletion
+from ..code_editor import CodeEditor
+from ..editor_options import EditorOptions
+from ..highlight_query import HIGHLIGHT_QUERY
+from ..hl_groups import DARK_THEME, LIGHT_THEME, read_theme
+
+# ----------------------------------------------------------------------------------
+# PrEditor colorscheme bridge
+#
+# PrEditor defines its editor colors through Qt stylesheet ``qproperty-*`` rules
+# (see ``preditor/resource/stylesheet/*.css``).  ``CodeSitterTextEdit`` exposes a
+# superset of those same Qt properties (built lower down by ``_colorPropInit``) so
+# a PrEditor stylesheet can drive it too.  Any property the active stylesheet
+# actually sets is treated as an override on top of the bundled dracula/edge
+# themes from ``hl_groups`` - properties that are never set fall back to the
+# bundled value, which keeps things working when no PrEditor stylesheet (or an
+# older one without the richer rules) is present.
+#
+# ``_SYNTAX_PROP_MAP`` maps a Qt property name -> the tree-sitter capture groups
+# it should recolor.  ``_GUI_PROP_MAP`` maps a Qt property name -> keys in the
+# gui color palette (gutter, selection, cursor, ...).
+# ----------------------------------------------------------------------------------
+
+_SYNTAX_PROP_MAP: dict[str, tuple[str, ...]] = {
+    # Names shared with PrEditor's existing DocumentEditor stylesheet block
+    "colorDefault": ("none",),
+    "colorComment": ("comment",),
+    "colorCommentBlock": ("keyword.directive",),
+    "colorNumber": ("number", "number.float"),
+    "colorString": ("string", "string.regexp"),
+    "colorTripleQuotedString": ("string.documentation",),
+    "colorKeyword": (
+        "keyword",
+        "keyword.conditional",
+        "keyword.coroutine",
+        "keyword.exception",
+        "keyword.function",
+        "keyword.import",
+        "keyword.operator",
+        "keyword.repeat",
+        "keyword.return",
+        "keyword.type",
+    ),
+    "colorOperator": ("operator",),
+    "colorMethod": ("function.method", "function.method.call"),
+    "colorFunction": ("function", "function.call", "function.macro", "constructor"),
+    "colorIdentifier": ("variable",),
+    "colorDecorator": ("attribute", "attribute.builtin"),
+    # Names new to the richer QCodeSitter scheme
+    "colorBoolean": ("boolean",),
+    "colorEscape": ("string.escape", "character.special"),
+    "colorPunctuation": (
+        "punctuation.bracket",
+        "punctuation.delimiter",
+        "punctuation.special",
+    ),
+    "colorFunctionBuiltin": ("function.builtin",),
+    "colorMember": ("variable.member",),
+    "colorParameter": ("variable.parameter",),
+    "colorBuiltin": ("variable.builtin",),
+    "colorConstant": ("constant", "constant.builtin"),
+    "colorType": ("type", "type.definition"),
+    "colorTypeBuiltin": ("type.builtin",),
+    "colorModule": ("module", "module.builtin"),
+}
+
+_GUI_PROP_MAP: dict[str, tuple[str, ...]] = {
+    "paperDefault": ("bg",),
+    "pyMarginsBackgroundColor": ("gutter",),
+    "pyMarginsForegroundColor": ("gutter_fg",),
+    "pySelectionBackgroundColor": ("selection", "visual"),
+    "pySelectionForegroundColor": ("selection_color",),
+    "pyMatchedBraceBackgroundColor": ("pair_hl",),
+    "pyCaretForegroundColor": ("primary_cursor",),
+    "pyCaretBackgroundColor": ("secondary_cursor",),
+    "colorSmartHighlight": ("match_hl",),
+}
+
+
+def _qcolor_to_hex(color: QtGui.QColor) -> str:
+    """Return ``color`` as ``#RRGGBB`` (or ``#AARRGGBB`` when it has alpha)."""
+    r, g, b, a = color.red(), color.green(), color.blue(), color.alpha()
+    if a != 255:
+        return f"#{a:02x}{r:02x}{g:02x}{b:02x}"
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 _col, _syn = read_theme(LIGHT_THEME)
@@ -53,10 +132,10 @@ def _colorPropInit(name: str, default):
     """Initializes a default color property value with a usable getter and setter."""
 
     def _getattr(attrName, default, self):
-        return self._color_properties(attrName, default)
+        return self._color_property(attrName, default)
 
     def _setattr(attrName, self, value):
-        return self._set_color_properties(attrName, value)
+        return self._set_color_property(attrName, value)
 
     ga = partial(_getattr, name, default)
     sa = partial(_setattr, name)
@@ -88,8 +167,13 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         self._color_upate_timer.setSingleShot(True)
         self._color_upate_timer.setInterval(0)
         self._color_upate_timer.timeout.connect(self._color_properties_updated)
-        self._color_properties = {}
-        self._color_tracker = set()
+        # Qt property values that a PrEditor stylesheet has explicitly set. Only
+        # keys present here override the bundled theme.
+        self._color_prop_values: dict[str, QtGui.QColor] = {}
+        self._color_tracker: set[str] = set()
+        self._windowStyleSheet = "Bright"
+        self._style_signal_connected = False
+        self._applied_bg_ss = None
 
         self._encoding = None
         self.__set_console__(console)
@@ -108,31 +192,93 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         self.addBehavior(CodeFolding)
         self.addBehavior(CommentToggle)
 
-        self._windowStyleSheet = "Bright"
-        window = self.window()
-        if hasattr(window, "styleSheetChanged"):
-            window.styleSheetChanged.connect(self.updateColorScheme)
-        if hasattr(window, "_stylesheet"):
-            self.updateColorScheme(window._stylesheet)
+        self._ensure_style_connection()
 
-    def updateColorScheme(self, stylesheet):
-        if stylesheet == self._windowStyleSheet:
+    def _ensure_style_connection(self):
+        """Hook up to the PrEditor window's ``styleSheetChanged`` signal.
+
+        Safe to call more than once; the connection is only made once and only
+        when a PrEditor-style window is actually reachable.
+        """
+        window = self.window()
+        if window is None:
             return
-        self._windowStyleSheet = stylesheet
-        theme = LIGHT_THEME
-        if self._windowStyleSheet.lower() == "dark":
-            theme = DARK_THEME
-        col, syn = read_theme(theme)
+        if not self._style_signal_connected and hasattr(window, "styleSheetChanged"):
+            window.styleSheetChanged.connect(self.updateColorScheme)
+            self._style_signal_connected = True
+        stylesheet = getattr(window, "_stylesheet", None)
+        if stylesheet:
+            self.updateColorScheme(stylesheet)
+
+    def updateColorScheme(self, stylesheet=None):
+        """Slot for PrEditor's ``styleSheetChanged(str)`` signal.
+
+        ``stylesheet`` is the name (or css text) of the newly applied window
+        stylesheet. We only use it to decide between the light and dark bundled
+        themes - the fine grained colors come from the Qt ``qproperty-*`` values
+        the stylesheet sets on this widget (see ``_apply_theme``).
+        """
+        if stylesheet:
+            self._windowStyleSheet = stylesheet
+        self._apply_theme()
+
+    def _color_properties_updated(self):
+        """Debounced handler: a stylesheet has changed one or more color props."""
+        self._apply_theme()
+
+    def _apply_theme(self):
+        """Rebuild the editor color options from the bundled theme + overrides."""
+        dark = "dark" in (self._windowStyleSheet or "").lower()
+        base = DARK_THEME if dark else LIGHT_THEME
+        col, syn = read_theme(base)
+
+        for prop, qcolor in self._color_prop_values.items():
+            hexcol = _qcolor_to_hex(qcolor)
+            for group in _SYNTAX_PROP_MAP.get(prop, ()):
+                spec = dict(syn.get(group, {}))
+                spec["color"] = hexcol
+                syn[group] = spec
+            for key in _GUI_PROP_MAP.get(prop, ()):
+                col[key] = hexcol
+
+        self._color_tracker = set()
+
         self.options["highlights"] = (HIGHLIGHT_QUERY, syn)
         self.options["colors"] = col
 
         # Make sure that preditor doesn't override the bg color
-        # with its stylesheet...
-        # Maybe I can move to stylesheets in the future???
+        # with its window stylesheet.
         bgcolor = QtGui.QColor(col["bg"])
         bgc = (bgcolor.red(), bgcolor.green(), bgcolor.blue())
         ss = f"QWidget {{background-color: rgb{bgc}}}"
-        self.setStyleSheet(ss)
+        if ss != self._applied_bg_ss:
+            self._applied_bg_ss = ss
+            self.setStyleSheet(ss)
+
+    def _color_property(self, name, default):
+        values = self.__dict__.get("_color_prop_values")
+        if not values or name not in values:
+            return default
+        return values[name]
+
+    def _set_color_property(self, name, value):
+        values = self.__dict__.setdefault("_color_prop_values", {})
+        if values.get(name) == value:
+            # No change - bail out so re-polishing the stylesheet (which we can
+            # trigger ourselves via setStyleSheet) can't cause an update loop.
+            return
+        values[name] = value
+        self.__dict__.setdefault("_color_tracker", set()).add(name)
+        timer = self.__dict__.get("_color_upate_timer")
+        if timer is not None:
+            timer.start()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # The window stylesheet is usually fully polished by the time we're
+        # shown, so this is the reliable place to pick up PrEditor's colors.
+        self._ensure_style_connection()
+        self._apply_theme()
 
     def setText(self, text: str):
         """The WorkboxMixin assumes a QTextEdit, not a QPlainTextEdit
@@ -260,22 +406,10 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         if self.process_shortcut(event):
             return
         else:
-            super(CodeSitterTextEdit, self).keyPressEvent(event)
-
-    def _color_properties(self, attrName, default):
-        return self._color_properties.get(attrName, default)
-
-    def _set_color_properties(self, attrName, value):
-        self._color_properties[attrName] = value
-        self._color_upate_timer.start()
-        self._color_tracker.add(attrName)
-
-    def _color_properties_updated(self):
-        ud = {k: self._color_properties[k] for k in self._color_tracker}
-        print(ud)
-        self._color_tracker = set()
+            super().keyPressEvent(event)
 
     # fmt: off
+    paperDefault = _colorPropInit("paperDefault", QtGui.QColor(255, 255, 255))
     pyMarginsForegroundColor = _colorPropInit("pyMarginsForegroundColor", QtGui.QColor(202, 202, 202))
     pyMarginsBackgroundColor = _colorPropInit("pyMarginsBackgroundColor", QtGui.QColor(70, 70, 73))
     pySelectionBackgroundColor = _colorPropInit("pySelectionBackgroundColor", QtGui.QColor(90, 90, 93))
@@ -311,4 +445,17 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
     colorUnclosedString = _colorPropInit("colorUnclosedString", QtGui.QColor(255, 255, 255))
     colorSmartHighlight = _colorPropInit("colorSmartHighlight", QtGui.QColor(255, 255, 255))
     colorDecorator = _colorPropInit("colorDecorator", QtGui.QColor(240, 100, 102))
+
+    # Richer tree-sitter aware groups (new to QCodeSitter, ignored by QScintilla)
+    colorBoolean = _colorPropInit("colorBoolean", QtGui.QColor(80, 250, 123))
+    colorEscape = _colorPropInit("colorEscape", QtGui.QColor(139, 233, 253))
+    colorPunctuation = _colorPropInit("colorPunctuation", QtGui.QColor(248, 248, 242))
+    colorFunctionBuiltin = _colorPropInit("colorFunctionBuiltin", QtGui.QColor(139, 233, 253))
+    colorMember = _colorPropInit("colorMember", QtGui.QColor(255, 184, 108))
+    colorParameter = _colorPropInit("colorParameter", QtGui.QColor(255, 184, 108))
+    colorBuiltin = _colorPropInit("colorBuiltin", QtGui.QColor(189, 147, 249))
+    colorConstant = _colorPropInit("colorConstant", QtGui.QColor(189, 147, 249))
+    colorType = _colorPropInit("colorType", QtGui.QColor(164, 255, 255))
+    colorTypeBuiltin = _colorPropInit("colorTypeBuiltin", QtGui.QColor(139, 233, 253))
+    colorModule = _colorPropInit("colorModule", QtGui.QColor(255, 184, 108))
     # fmt: on
