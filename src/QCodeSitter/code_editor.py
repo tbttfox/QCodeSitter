@@ -306,6 +306,10 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         palette.setColor(QtGui.QPalette.ColorRole.Base, bgcolor)  # Background
         palette.setColor(QtGui.QPalette.ColorRole.Window, bgcolor)  # Window bg
         palette.setColor(QtGui.QPalette.ColorRole.Text, QtGui.QColor(colors["fg"]))
+        if "selection" in colors:
+            palette.setColor(
+                QtGui.QPalette.ColorRole.Highlight, QtGui.QColor(colors["selection"])
+            )
         self.setPalette(palette)
         self.setAutoFillBackground(True)
 

@@ -250,3 +250,50 @@ def read_theme(theme) -> tuple[dict[str, str], dict[str, dict[str, str]]]:
         newsyn[k] = vdata
 
     return gui, newsyn
+
+
+def resolve_capture(name: str, specs: dict):
+    """Look up a treesitter capture name, falling back to its parent groups
+
+    For example "function.method.call" will check "function.method.call", then
+    "function.method", then "function". This mirrors how nvim resolves highlight groups
+
+    Args:
+        name: The dotted treesitter capture name
+        specs: A dictionary keyed by capture names
+
+    Returns:
+        The value of the most specific matching key, or None if nothing matches
+    """
+    parts = name.split(".")
+    while parts:
+        val = specs.get(".".join(parts))
+        if val is not None:
+            return val
+        parts.pop()
+    return None
+
+
+def overlay_syntax(
+    base: dict[str, dict], overrides: dict[str, dict]
+) -> dict[str, dict]:
+    """Overlay syntax specs onto a base set of syntax specs
+
+    Overrides are resolved hierarchically, so an override for "keyword" will replace
+    the base "keyword.return" unless there is also an override for "keyword.return".
+
+    Args:
+        base: A syntax spec dictionary as returned by read_theme
+        overrides: A partial syntax spec dictionary
+
+    Returns:
+        A new syntax spec dictionary
+    """
+    names = set(base) | set(overrides)
+    out = {}
+    for name in names:
+        spec = resolve_capture(name, overrides)
+        if spec is None:
+            spec = base[name]
+        out[name] = dict(spec)
+    return out

@@ -206,6 +206,57 @@ class TestSyntaxHighlighting:
         assert "def" in editor.toPlainText()
         assert "pass" in editor.toPlainText()
 
+    @staticmethod
+    def _token_color(editor, line, token):
+        block = editor.document().findBlockByNumber(line)
+        text = block.text()
+        # Qt format ranges are in UTF-16 code units
+        start = len(text[: text.index(token)].encode("utf-16-le")) // 2
+        length = len(token.encode("utf-16-le")) // 2
+        for rng in block.layout().formats():
+            if rng.start == start and rng.length == length:
+                return rng.format.foreground().color().name()
+        return None
+
+    @staticmethod
+    def _capture_color(editor, name):
+        hl = editor.getBehavior(SyntaxHighlighting).highlighter
+        return hl.formats[name].foreground().color().name()
+
+    @pytest.mark.parametrize(
+        "text, token, capture",
+        [
+            ("x = self.y", "self", "variable.builtin"),  # #eq?
+            ("MAX_SIZE = 1", "MAX_SIZE", "constant"),  # #match?
+            ("x = __name__", "__name__", "constant.builtin"),  # #match?
+            ("print(x)", "print", "function.builtin"),  # #any-of?
+            ("x = foo.bar", "bar", "variable.member"),  # #match? with lua classes
+            ("x = Foo(1)", "Foo", "constructor"),  # #match? with lua classes
+            ("é𝒳 = self", "self", "variable.builtin"),  # surrogate pairs before
+        ],
+    )
+    def test_text_predicates(self, editor, qtbot, text, token, capture):
+        """Test captures that depend on text predicates get their format.
+
+        The tree is parsed from a callback so tree-sitter can't evaluate the
+        text predicates itself.
+        """
+        editor.setPlainText(text)
+        editor.tree_manager.fullUpdate()
+        qtbot.wait(100)
+        assert self._token_color(editor, 0, token) == self._capture_color(
+            editor, capture
+        )
+
+    def test_text_predicate_negative(self, editor, qtbot):
+        """Test predicates don't match text they shouldn't."""
+        editor.setPlainText("x = selfish")
+        editor.tree_manager.fullUpdate()
+        qtbot.wait(100)
+        assert self._token_color(editor, 0, "selfish") == self._capture_color(
+            editor, "variable"
+        )
+
 
 class TestSyntaxIntegration:
     """Test integration between syntax components."""

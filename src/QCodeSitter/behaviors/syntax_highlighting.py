@@ -5,6 +5,9 @@ from typing import TYPE_CHECKING, Optional, Any
 from Qt import QtGui
 from tree_sitter import Query
 from ..ts_version_fix import query_byte_range
+from ..constants import ENC
+from ..hl_groups import resolve_capture
+from ..query_predicates import QueryPredicates, document_node_text, prepare_query_source
 
 if TYPE_CHECKING:
     from ..tree_manager import TreeManager
@@ -38,7 +41,12 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
             raise RuntimeError("The tree language must be properly set")
 
         # highlights_query_source = tspython.HIGHLIGHTS_QUERY,
-        self.query = Query(lang, highlights_query_source)
+        # The tree is parsed from a callback, so tree-sitter can't read the node text
+        # for predicates like #eq? and #match?. We evaluate those ourselves
+        self.query = Query(lang, prepare_query_source(highlights_query_source))
+        self.predicates = QueryPredicates(
+            lambda node: document_node_text(self._doc, node)
+        )
         self.formats = self._compile_formats(format_specs)
 
     def setDocument(self, doc: TrackedDocument):
@@ -65,7 +73,18 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
                 fmt.setFontItalic(True)
             out[name] = fmt
 
+        # Captures in the query without an explicit format fall back to their
+        # parent group. ie: "keyword.return" -> "keyword"
+        for name in self.query_capture_names():
+            if name not in out:
+                fmt = resolve_capture(name, out)
+                if fmt is not None:
+                    out[name] = fmt
+
         return out
+
+    def query_capture_names(self) -> list[str]:
+        return [self.query.capture_name(i) for i in range(self.query.capture_count)]
 
     # ------------------------------------------------------------------
     # QtGui.QSyntaxHighlighter entry point
@@ -83,6 +102,9 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
             return
 
         block_num = block.blockNumber()
+        # Qt positions are UTF-16 code units, but python's len counts code points
+        # so they differ when the text contains characters outside the BMP
+        text_len = len(text.encode(ENC)) // 2
 
         # Get document bounds safely
         try:
@@ -93,8 +115,7 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
             if block.next().isValid():
                 block_end_byte = self._doc.line_to_byte(block_num + 1)
             else:
-                # In UTF-16, len(text) gives us the code unit count directly
-                block_end_byte = block_start_byte + len(text) * 2
+                block_end_byte = block_start_byte + text_len * 2
         except (IndexError, RuntimeError):
             # Block number is out of range - document changed during highlighting
             return
@@ -110,7 +131,9 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
             # Tree is stale, skip highlighting until tree updates
             return
 
-        captures = query_byte_range(self.query, root, block_start_byte, block_end_byte)
+        captures = query_byte_range(
+            self.query, root, block_start_byte, block_end_byte, self.predicates
+        )
         if captures is None:
             return
 
@@ -136,9 +159,9 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
                 local_start = start_char - block_start_char
                 local_end = end_char - block_start_char
 
-                # Clamp to [0, len(text)]
+                # Clamp to [0, text_len]
                 local_start = max(0, local_start)
-                local_end = min(len(text), local_end)
+                local_end = min(text_len, local_end)
                 local_len = local_end - local_start
 
                 # Apply format if valid range
@@ -187,16 +210,15 @@ class SyntaxHighlighting(Behavior):
 
     @highlights.setter
     def highlights(self, value):
+        self._highlights = value
+        self._detachHighlighter()
         if not value:
-            self.highlighter = None
             return
 
         if self.editor.tree_manager.parser is None:
-            self.highlighter = None
             return
 
         if self.editor.tree_manager.parser.language is None:
-            self.highlighter = None
             return
 
         hlquery, fmts = value
@@ -204,6 +226,22 @@ class SyntaxHighlighting(Behavior):
             self.editor._doc, self.editor.tree_manager, hlquery, fmts
         )
         self.editor.tree_manager.reparsed.connect(self._on_reparsed)
+
+    def _detachHighlighter(self):
+        """Stop the current highlighter from formatting the document
+
+        The QSyntaxHighlighter is parented to the document, so dropping our
+        reference isn't enough to stop it from running.
+        """
+        if self.highlighter is None:
+            return
+        try:
+            self.editor.tree_manager.reparsed.disconnect(self._on_reparsed)
+        except (RuntimeError, TypeError):
+            pass
+        self.highlighter.setDocument(None)
+        self.highlighter.deleteLater()
+        self.highlighter = None
 
     def _on_reparsed(self):
         if self.highlighter:
@@ -213,7 +251,7 @@ class SyntaxHighlighting(Behavior):
         self.editor.behaviorPrepareUndo.disconnect(self.prepareUndo)
         self.editor.behaviorPrepareRedo.disconnect(self.prepareRedo)
         self.editor.behaviorAfterUndoRedo.disconnect(self.afterUndoRedo)
-        self.highlighter = None
+        self._detachHighlighter()
 
         mydoc = self.editor.document()
         newHigh = DummyHighlighter(mydoc)
