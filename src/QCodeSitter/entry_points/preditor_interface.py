@@ -19,7 +19,7 @@ from ..behaviors.providers.identifiers import IdentifierProvider
 from ..behaviors.code_folding import CodeFolding
 from ..behaviors.multi_cursor_paint import MultiCursorPaint
 from ..editor_options import EditorOptions
-from ..hl_groups import DARK_THEME, LIGHT_THEME, read_theme
+from ..hl_groups import DARK_THEME, LIGHT_THEME, read_theme, overlay_syntax, resolve_capture
 from ..highlight_query import HIGHLIGHT_QUERY
 
 
@@ -49,19 +49,42 @@ DEFAULT_OPTIONS = EditorOptions(
 )
 
 
-def _colorPropInit(name: str, default):
-    """Initializes a default color property value with a usable getter and setter."""
+# Maps a Qt property name to the (section, key) of the theme it overrides
+# The section is "gui", "syntax", or "style"
+THEME_PROPERTIES: dict[str, tuple[str, str]] = {}
+
+
+def _themePropInit(name: str, section: str, key: str, default=None):
+    """Initializes a theme property with a usable getter and setter.
+
+    These properties are meant to be set from a stylesheet like
+    `CodeSitterTextEdit { qproperty-hlKeyword: rgb(250, 24, 110); }`
+    Color properties default to an invalid QColor, which means "use the built-in theme"
+    """
+    if default is None:
+        default = QtGui.QColor()
+    THEME_PROPERTIES[name] = (section, key)
 
     def _getattr(attrName, default, self):
-        return self._color_properties(attrName, default)
+        return self._theme_values.get(attrName, default)
 
     def _setattr(attrName, self, value):
-        return self._set_color_properties(attrName, value)
+        return self._set_theme_value(attrName, value)
 
     ga = partial(_getattr, name, default)
     sa = partial(_setattr, name)
     typ = default.__class__
     return QtCore.Property(typ, fget=(lambda s: ga(s)), fset=(lambda s, v: sa(s, v)))
+
+
+def _colorToHex(color: QtGui.QColor) -> str:
+    if color.alpha() == 255:
+        return color.name(QtGui.QColor.NameFormat.HexRgb)
+    return color.name(QtGui.QColor.NameFormat.HexArgb)
+
+
+def _colorToCss(color: QtGui.QColor) -> str:
+    return f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alpha()})"
 
 
 class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
@@ -84,12 +107,13 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
             options=self.options,
             **kwargs,
         )
-        self._color_upate_timer = QtCore.QTimer()
-        self._color_upate_timer.setSingleShot(True)
-        self._color_upate_timer.setInterval(0)
-        self._color_upate_timer.timeout.connect(self._color_properties_updated)
-        self._color_properties = {}
-        self._color_tracker = set()
+        # Stylesheets set the theme properties one at a time, so collect them all
+        # and rebuild the theme once they're done
+        self._theme_update_timer = QtCore.QTimer(self)
+        self._theme_update_timer.setSingleShot(True)
+        self._theme_update_timer.setInterval(0)
+        self._theme_update_timer.timeout.connect(self.rebuildTheme)
+        self._theme_values = {}
 
         self._encoding = None
         self.__set_console__(console)
@@ -119,20 +143,71 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         if stylesheet == self._windowStyleSheet:
             return
         self._windowStyleSheet = stylesheet
-        theme = LIGHT_THEME
-        if self._windowStyleSheet.lower() == "dark":
-            theme = DARK_THEME
-        col, syn = read_theme(theme)
-        self.options["highlights"] = (HIGHLIGHT_QUERY, syn)
-        self.options["colors"] = col
+        self._theme_update_timer.start()
 
-        # Make sure that preditor doesn't override the bg color
-        # with its stylesheet...
-        # Maybe I can move to stylesheets in the future???
-        bgcolor = QtGui.QColor(col["bg"])
-        bgc = (bgcolor.red(), bgcolor.green(), bgcolor.blue())
-        ss = f"QWidget {{background-color: rgb{bgc}}}"
-        self.setStyleSheet(ss)
+    def _baseTheme(self):
+        """Pick the built-in theme that stylesheet properties are layered on top of"""
+        bg = self._theme_values.get("guiBg")
+        if bg is not None and bg.isValid():
+            return DARK_THEME if bg.lightness() < 128 else LIGHT_THEME
+        if str(self._windowStyleSheet).lower() == "dark":
+            return DARK_THEME
+        return LIGHT_THEME
+
+    def buildTheme(self):
+        """Build the gui colors and syntax specs from the built-in theme and any
+        theme properties set by the stylesheet
+
+        Returns:
+            colors: The gui color dictionary
+            syntax: The syntax spec dictionary
+        """
+        col, syn = read_theme(self._baseTheme())
+
+        syn_colors = {}
+        styles = {}
+        for propName, value in self._theme_values.items():
+            section, key = THEME_PROPERTIES[propName]
+            if section == "style":
+                styles[key] = set(value.replace(",", " ").split())
+            elif value.isValid():
+                if section == "gui":
+                    col[key] = _colorToHex(value)
+                else:
+                    syn_colors[key] = {"color": _colorToHex(value)}
+
+        syn = overlay_syntax(syn, syn_colors)
+
+        # If the stylesheet defines the style lists, they take precedence
+        for style, names in styles.items():
+            lookup = {n: True for n in names}
+            for name, spec in syn.items():
+                spec[style] = resolve_capture(name, lookup) is not None
+
+        return col, syn
+
+    def rebuildTheme(self):
+        col, syn = self.buildTheme()
+
+        # The options are shared between editors, so only update them if they changed
+        highlights = (HIGHLIGHT_QUERY, syn)
+        if self.options.get("highlights") != highlights:
+            self.options["highlights"] = highlights
+        if self.options.get("colors") != col:
+            self.options["colors"] = col
+
+        # Make sure that preditor doesn't override the colors with its stylesheet
+        bg = _colorToCss(QtGui.QColor(col["bg"]))
+        fg = _colorToCss(QtGui.QColor(col["fg"]))
+        sel = _colorToCss(QtGui.QColor(col.get("selection", col["bg"])))
+        ss = (
+            f"QWidget {{background-color: {bg};}}\n"
+            f"QPlainTextEdit {{color: {fg}; selection-background-color: {sel};}}"
+        )
+        # Setting the stylesheet re-polishes the widget, which re-applies the
+        # theme properties. Avoid doing that unless something actually changed
+        if self.styleSheet() != ss:
+            self.setStyleSheet(ss)
 
     def setText(self, text: str):
         """The WorkboxMixin assumes a QTextEdit, not a QPlainTextEdit
@@ -262,53 +337,82 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         else:
             super(CodeSitterTextEdit, self).keyPressEvent(event)
 
-    def _color_properties(self, attrName, default):
-        return self._color_properties.get(attrName, default)
-
-    def _set_color_properties(self, attrName, value):
-        self._color_properties[attrName] = value
-        self._color_upate_timer.start()
-        self._color_tracker.add(attrName)
-
-    def _color_properties_updated(self):
-        ud = {k: self._color_properties[k] for k in self._color_tracker}
-        print(ud)
-        self._color_tracker = set()
+    def _set_theme_value(self, attrName, value):
+        if self._theme_values.get(attrName) == value:
+            return
+        self._theme_values[attrName] = value
+        self._theme_update_timer.start()
 
     # fmt: off
-    pyMarginsForegroundColor = _colorPropInit("pyMarginsForegroundColor", QtGui.QColor(202, 202, 202))
-    pyMarginsBackgroundColor = _colorPropInit("pyMarginsBackgroundColor", QtGui.QColor(70, 70, 73))
-    pySelectionBackgroundColor = _colorPropInit("pySelectionBackgroundColor", QtGui.QColor(90, 90, 93))
-    pySelectionForegroundColor = _colorPropInit("pySelectionForegroundColor", QtGui.QColor(240, 240, 240))
-    pyCaretBackgroundColor = _colorPropInit("pyCaretBackgroundColor", QtGui.QColor(70, 70, 73))
-    pyCaretForegroundColor = _colorPropInit("pyCaretForegroundColor", QtGui.QColor(255, 255, 255))
-    pyMatchedBraceBackgroundColor = _colorPropInit("pyMatchedBraceBackgroundColor", QtGui.QColor(60, 60, 63))
-    pyMatchedBraceForegroundColor = _colorPropInit("pyMatchedBraceForegroundColor", QtGui.QColor(240, 240, 240))
-    pyUnmatchedBraceBackgroundColor = _colorPropInit("pyUnmatchedBraceBackgroundColor", QtGui.QColor(70, 70, 73))
-    pyUnmatchedBraceForegroundColor = _colorPropInit("pyUnmatchedBraceForegroundColor", QtGui.QColor(200, 180, 180))
-    pyEdgeColor = _colorPropInit("pyEdgeColor", QtGui.QColor(100, 45, 45))
+    # GUI colors. See hl_groups.py for how these are used
+    guiBg =              _themePropInit("guiBg",              "gui", "bg")
+    guiBgDim =           _themePropInit("guiBgDim",           "gui", "bg_dim")
+    guiFg =              _themePropInit("guiFg",              "gui", "fg")
+    guiFgDim =           _themePropInit("guiFgDim",           "gui", "fg_dim")
+    guiGutter =          _themePropInit("guiGutter",          "gui", "gutter")
+    guiGutterFg =        _themePropInit("guiGutterFg",        "gui", "gutter_fg")
+    guiHlDim =           _themePropInit("guiHlDim",           "gui", "hl_dim")
+    guiMatchHl =         _themePropInit("guiMatchHl",         "gui", "match_hl")
+    guiMenu =            _themePropInit("guiMenu",            "gui", "menu")
+    guiOutsideBg =       _themePropInit("guiOutsideBg",       "gui", "outside_bg")
+    guiPairHl =          _themePropInit("guiPairHl",          "gui", "pair_hl")
+    guiPrimaryCursor =   _themePropInit("guiPrimaryCursor",   "gui", "primary_cursor")
+    guiSecondaryCursor = _themePropInit("guiSecondaryCursor", "gui", "secondary_cursor")
+    guiSelection =       _themePropInit("guiSelection",       "gui", "selection")
+    guiSelectionColor =  _themePropInit("guiSelectionColor",  "gui", "selection_color")
+    guiVisual =          _themePropInit("guiVisual",          "gui", "visual")
 
-    pyIndentationGuidesBackgroundColor = _colorPropInit("pyIndentationGuidesBackgroundColor", QtGui.QColor(70, 70, 73))
-    pyIndentationGuidesForegroundColor = _colorPropInit("pyIndentationGuidesForegroundColor", QtGui.QColor(102, 153, 204))
-    pyMarkerBackgroundColor = _colorPropInit("pyMarkerBackgroundColor", QtGui.QColor(45, 255, 45))
-    pyMarkerForegroundColor = _colorPropInit("pyMarkerForegroundColor", QtGui.QColor(200, 0, 200))
-    foldMarginsBackgroundColor = _colorPropInit("foldMarginsBackgroundColor", QtGui.QColor(60, 60, 63))
-    foldMarginsForegroundColor = _colorPropInit("foldMarginsForegroundColor", QtGui.QColor(60, 60, 63))
-    braceBadForeground = _colorPropInit("braceBadForeground", QtGui.QColor(255, 255, 255))
-    braceBadBackground = _colorPropInit("braceBadBackground", QtGui.QColor(100, 60, 60))
+    # Syntax colors named after the treesitter captures. Unset captures fall back to
+    # their parent group, so hlKeywordReturn falls back to hlKeyword
+    hlAttribute =            _themePropInit("hlAttribute",            "syntax", "attribute")
+    hlAttributeBuiltin =     _themePropInit("hlAttributeBuiltin",     "syntax", "attribute.builtin")
+    hlBoolean =              _themePropInit("hlBoolean",              "syntax", "boolean")
+    hlCharacterSpecial =     _themePropInit("hlCharacterSpecial",     "syntax", "character.special")
+    hlComment =              _themePropInit("hlComment",              "syntax", "comment")
+    hlConstant =             _themePropInit("hlConstant",             "syntax", "constant")
+    hlConstantBuiltin =      _themePropInit("hlConstantBuiltin",      "syntax", "constant.builtin")
+    hlConstructor =          _themePropInit("hlConstructor",          "syntax", "constructor")
+    hlFunction =             _themePropInit("hlFunction",             "syntax", "function")
+    hlFunctionBuiltin =      _themePropInit("hlFunctionBuiltin",      "syntax", "function.builtin")
+    hlFunctionCall =         _themePropInit("hlFunctionCall",         "syntax", "function.call")
+    hlFunctionMacro =        _themePropInit("hlFunctionMacro",        "syntax", "function.macro")
+    hlFunctionMethod =       _themePropInit("hlFunctionMethod",       "syntax", "function.method")
+    hlFunctionMethodCall =   _themePropInit("hlFunctionMethodCall",   "syntax", "function.method.call")
+    hlKeyword =              _themePropInit("hlKeyword",              "syntax", "keyword")
+    hlKeywordConditional =   _themePropInit("hlKeywordConditional",   "syntax", "keyword.conditional")
+    hlKeywordCoroutine =     _themePropInit("hlKeywordCoroutine",     "syntax", "keyword.coroutine")
+    hlKeywordDirective =     _themePropInit("hlKeywordDirective",     "syntax", "keyword.directive")
+    hlKeywordException =     _themePropInit("hlKeywordException",     "syntax", "keyword.exception")
+    hlKeywordFunction =      _themePropInit("hlKeywordFunction",      "syntax", "keyword.function")
+    hlKeywordImport =        _themePropInit("hlKeywordImport",        "syntax", "keyword.import")
+    hlKeywordOperator =      _themePropInit("hlKeywordOperator",      "syntax", "keyword.operator")
+    hlKeywordRepeat =        _themePropInit("hlKeywordRepeat",        "syntax", "keyword.repeat")
+    hlKeywordReturn =        _themePropInit("hlKeywordReturn",        "syntax", "keyword.return")
+    hlKeywordType =          _themePropInit("hlKeywordType",          "syntax", "keyword.type")
+    hlModule =               _themePropInit("hlModule",               "syntax", "module")
+    hlModuleBuiltin =        _themePropInit("hlModuleBuiltin",        "syntax", "module.builtin")
+    hlNone =                 _themePropInit("hlNone",                 "syntax", "none")
+    hlNumber =               _themePropInit("hlNumber",               "syntax", "number")
+    hlNumberFloat =          _themePropInit("hlNumberFloat",          "syntax", "number.float")
+    hlOperator =             _themePropInit("hlOperator",             "syntax", "operator")
+    hlPunctuation =          _themePropInit("hlPunctuation",          "syntax", "punctuation")
+    hlPunctuationBracket =   _themePropInit("hlPunctuationBracket",   "syntax", "punctuation.bracket")
+    hlPunctuationDelimiter = _themePropInit("hlPunctuationDelimiter", "syntax", "punctuation.delimiter")
+    hlPunctuationSpecial =   _themePropInit("hlPunctuationSpecial",   "syntax", "punctuation.special")
+    hlString =               _themePropInit("hlString",               "syntax", "string")
+    hlStringDocumentation =  _themePropInit("hlStringDocumentation",  "syntax", "string.documentation")
+    hlStringEscape =         _themePropInit("hlStringEscape",         "syntax", "string.escape")
+    hlStringRegexp =         _themePropInit("hlStringRegexp",         "syntax", "string.regexp")
+    hlType =                 _themePropInit("hlType",                 "syntax", "type")
+    hlTypeBuiltin =          _themePropInit("hlTypeBuiltin",          "syntax", "type.builtin")
+    hlTypeDefinition =       _themePropInit("hlTypeDefinition",       "syntax", "type.definition")
+    hlVariable =             _themePropInit("hlVariable",             "syntax", "variable")
+    hlVariableBuiltin =      _themePropInit("hlVariableBuiltin",      "syntax", "variable.builtin")
+    hlVariableMember =       _themePropInit("hlVariableMember",       "syntax", "variable.member")
+    hlVariableParameter =    _themePropInit("hlVariableParameter",    "syntax", "variable.parameter")
 
-    colorDefault = _colorPropInit("colorDefault", QtGui.QColor(22, 160, 250))
-    colorComment = _colorPropInit("colorComment", QtGui.QColor(0, 160, 0))
-    colorNumber = _colorPropInit("colorNumber", QtGui.QColor(0, 200, 200))
-    colorString = _colorPropInit("colorString", QtGui.QColor(240, 135, 0))
-    colorKeyword = _colorPropInit("colorKeyword", QtGui.QColor(250, 24, 110))
-    colorTripleQuotedString = _colorPropInit("colorTripleQuotedString", QtGui.QColor(240, 135, 0))
-    colorMethod = _colorPropInit("colorMethod", QtGui.QColor(255, 204, 102))
-    colorFunction = _colorPropInit("colorFunction", QtGui.QColor(22, 160, 250))
-    colorOperator = _colorPropInit("colorOperator", QtGui.QColor(204, 204, 204))
-    colorIdentifier = _colorPropInit("colorIdentifier", QtGui.QColor(22, 160, 250))
-    colorCommentBlock = _colorPropInit("colorCommentBlock", QtGui.QColor(117, 113, 94))
-    colorUnclosedString = _colorPropInit("colorUnclosedString", QtGui.QColor(255, 255, 255))
-    colorSmartHighlight = _colorPropInit("colorSmartHighlight", QtGui.QColor(255, 255, 255))
-    colorDecorator = _colorPropInit("colorDecorator", QtGui.QColor(240, 100, 102))
+    # Space or comma separated lists of captures to draw italic or bold.
+    # Like the colors, these apply to child captures as well
+    hlItalic = _themePropInit("hlItalic", "style", "italic", "")
+    hlBold =   _themePropInit("hlBold",   "style", "bold", "")
     # fmt: on
