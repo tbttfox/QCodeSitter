@@ -7,8 +7,6 @@ multi-cursor, and edge cases.
 
 from __future__ import annotations
 
-
-from QCodeSitter.code_editor import CursorState
 from QCodeSitter.behaviors.comment_toggle import CommentToggle
 from QCodeSitter.code_editor import CursorState
 from tests.helpers import (

@@ -24,6 +24,11 @@ class HighlightMatchingSelection(Behavior):
 
     colors = property(None, _colors)
 
+    def remove(self):
+        super().remove()
+        self.editor.selectionChanged.disconnect(self.highlight_occurrences)
+        self.editor.clear_selections("selection_highlight")
+
     def highlight_occurrences(self):
         """Highlight all occurrences of the currently selected text"""
         extra_selections = []

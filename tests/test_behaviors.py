@@ -8,7 +8,13 @@ from __future__ import annotations
 
 from Qt import QtCore
 
+from QCodeSitter.behaviors.code_folding import CodeFolding
+from QCodeSitter.behaviors.highlight_matching_selection import (
+    HighlightMatchingSelection,
+)
+from QCodeSitter.behaviors.line_numbers import LineNumber
 from QCodeSitter.behaviors.smart_indent import SmartIndent
+from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
 from tests.helpers import (
     set_cursor_position,
     set_cursor_selection,
@@ -87,14 +93,20 @@ class TestAutoBracket:
         assert editor.toPlainText() == "(hello)"
 
     def test_wrap_selection_with_quotes(self, editor, qtbot):
-        """Test typing " wraps selection with "" (may vary by implementation)."""
-        editor.setPlainText("hello")
-        set_cursor_selection(editor, 0, 5)
+        """Test typing " wraps selection with ""."""
+        editor.setPlainText("x = hello")
+        set_cursor_selection(editor, 4, 9)
         simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_QuoteDbl, '"')
-        # The exact behavior depends on auto-bracket implementation
-        # May wrap or insert pair before selection
-        text = editor.toPlainText()
-        assert '"' in text and "hello" in text
+        assert editor.toPlainText() == 'x = "hello"'
+        cursor = editor.textCursor()
+        assert (cursor.selectionStart(), cursor.selectionEnd()) == (5, 10)
+
+    def test_pairs_option(self, editor, qtbot):
+        """Test the auto_bracket_pairs option changes which pairs are inserted."""
+        editor.options["auto_bracket_pairs"] = "()"
+        editor.setPlainText("")
+        simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_BracketLeft, "[")
+        assert editor.toPlainText() == "["
 
     def test_delete_pair(self, editor, qtbot):
         """Test backspace between empty pair deletes both."""
@@ -182,6 +194,19 @@ class TestSmartIndent:
         text = editor.toPlainText()
         assert text == "hello"
 
+    def test_shift_tab_unindents_tabs_over_blank_line(self, editor, qtbot):
+        """Test unindenting tab indented lines when the selection has a blank line."""
+        editor.options["indent_using_tabs"] = True
+        editor.setPlainText("\ta\n\n\tb")
+        set_cursor_selection(editor, 0, 6)
+        simulate_keypress(
+            qtbot,
+            editor,
+            QtCore.Qt.Key.Key_Backtab,
+            modifiers=QtCore.Qt.KeyboardModifier.ShiftModifier,
+        )
+        assert editor.toPlainText() == "a\n\nb"
+
     def test_smart_backspace_removes_indent(self, editor, qtbot):
         """Test backspace at end of indent removes whole indent."""
         editor.setPlainText("    ")
@@ -255,6 +280,21 @@ class TestBehaviorManagement:
         """Test getting a behavior that doesn't exist returns None."""
         assert bare_editor.getBehavior(LineNumber) is None
 
+    def test_removed_behavior_stops_listening(self, editor, qtbot):
+        """Test a removed behavior no longer reacts to the editor."""
+        editor.removeBehavior(HighlightMatchingSelection)
+        editor.setPlainText("foo foo")
+        set_cursor_selection(editor, 0, 3)
+        assert "selection_highlight" not in editor._selections
+
+    def test_remove_syntax_highlighting_clears_formats(self, editor, qtbot):
+        """Test removing syntax highlighting removes its formats."""
+        editor.setPlainText("def foo():\n    return 1\n")
+        block = editor.document().firstBlock()
+        assert block.layout().formats()
+        editor.removeBehavior(SyntaxHighlighting)
+        assert not block.layout().formats()
+
 
 class TestLineNumbers:
     """Test line number display behavior."""
@@ -286,6 +326,18 @@ class TestCodeFolding:
         regions = {(r.node.type, r.start_line) for r in folding.folding_area.regions}
         assert ("function_definition", 0) in regions
         assert ("class_definition", 7) in regions
+
+    def test_fold_to_level_shortcut(self, editor_with_text, qtbot):
+        """Test the fold to level shortcuts fold to their own level."""
+        folding = editor_with_text.getBehavior(CodeFolding)
+        action = next(
+            a for a in folding.shortcut_actions if a.text() == "Fold to Level 1"
+        )
+        action.trigger()
+        regions = folding.folding_area.regions
+        assert all(r.is_folded == (r.depth >= 1) for r in regions)
+        assert any(r.is_folded for r in regions)
+        assert any(not r.is_folded for r in regions)
 
 
 class TestAutoBracketWithMultiCursor:
@@ -352,4 +404,4 @@ class TestSmartIndentWithMultiCursor:
         # New lines should maintain the 4-space indent
         for i, line in enumerate(lines):
             if line.strip():
-                assert line.startswith("    "), f"Line {i} not indented: {repr(line)}"
+                assert line.startswith("    "), f"Line {i} not indented: {line!r}"

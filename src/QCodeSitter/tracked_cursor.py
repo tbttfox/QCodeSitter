@@ -4,8 +4,6 @@ from typing import TYPE_CHECKING
 
 from Qt import QtGui
 
-from .constants import ENC
-
 if TYPE_CHECKING:
     from .line_tracker import TrackedDocument
 
@@ -23,43 +21,41 @@ class TrackedCursor(QtGui.QTextCursor):
             return self.removeSelectedText()
         ttc = QtGui.QTextCursor(self)
         ttc.movePosition(ttc.MoveOperation.NextCharacter, ttc.MoveMode.KeepAnchor)
-        bytes_removed = ttc.selectedText().encode(ENC)
+        removed = ttc.selectedText()
         position = self.position()
         super().deleteChar()
-        self._doc.manual_contents_change(position, bytes_removed, b"")
+        self._doc.manual_contents_change(position, removed, "")
 
     def deletePreviousChar(self):
         if self.hasSelection():
             return self.removeSelectedText()
         ttc = QtGui.QTextCursor(self)
         ttc.movePosition(ttc.MoveOperation.PreviousCharacter, ttc.MoveMode.KeepAnchor)
-        bytes_removed = ttc.selectedText().encode(ENC)
+        removed = ttc.selectedText()
         position = ttc.position()
         super().deletePreviousChar()
-        self._doc.manual_contents_change(position, bytes_removed, b"")
+        self._doc.manual_contents_change(position, removed, "")
 
     def removeSelectedText(self):
-        bytes_removed = self.selectedText().encode(ENC)
+        removed = self.selectedText()
         position = self.selectionStart()
         super().removeSelectedText()
-        self._doc.manual_contents_change(position, bytes_removed, b"")
+        self._doc.manual_contents_change(position, removed, "")
 
     def insertBlock(self, *args, **kwargs):
-        bytes_added = "\n".encode(ENC)
         position = self.position()
         super().insertBlock(*args, **kwargs)
-        self._doc.manual_contents_change(position, b"", bytes_added)
+        self._doc.manual_contents_change(position, "", "\n")
 
     def insertText(self, text, format: QtGui.QTextCharFormat | None = None):
-        bytes_added = text.encode(ENC)
         if self.hasSelection():
             position = self.selectionStart()
-            bytes_removed = self.selectedText().encode(ENC)
+            removed = self.selectedText()
         else:
             position = self.position()
-            bytes_removed = b""
+            removed = ""
         if format:
             super().insertText(text, format)
         else:
             super().insertText(text)
-        self._doc.manual_contents_change(position, bytes_removed, bytes_added)
+        self._doc.manual_contents_change(position, removed, text)

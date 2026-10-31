@@ -34,6 +34,36 @@ class TestEditorBasicOperations:
         simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_Comma, ",")
         assert editor.toPlainText() == "Hello, World"
 
+    def test_insert_text_method_uses_current_cursor(self, editor, qtbot):
+        """Test calling insert_text directly edits at the current cursor."""
+        editor.setPlainText("abc")
+        set_cursor_position(editor, 3)
+        editor.insert_text("X")
+        set_cursor_position(editor, 0)
+        editor.insert_text("Y")
+        assert editor.toPlainText() == "YabcX"
+
+    def test_multiline_delete_reports_end_point(self, editor, qtbot):
+        """Test deleting a selection across lines reports the right edit rows."""
+        editor.setPlainText("a\nbb\ncc\nd")
+        edits = []
+        editor.document().byteContentsChange.connect(lambda *args: edits.append(args))
+        cursor = editor.textCursor()
+        cursor.setPosition(2)
+        cursor.setPosition(8, cursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
+        start_byte, old_end_byte, new_end_byte, start, old_end, new_end = edits[-1]
+        assert (start_byte, old_end_byte, new_end_byte) == (4, 16, 4)
+        assert (start.row, start.column) == (1, 0)
+        assert (old_end.row, old_end.column) == (3, 0)
+        assert (new_end.row, new_end.column) == (1, 0)
+
+    def test_option_updates_reach_editor(self, editor, qtbot):
+        """Test changing the options after the editor is shown updates it."""
+        assert editor.indent_using_tabs is False
+        editor.options["indent_using_tabs"] = True
+        assert editor.indent_using_tabs is True
+
     def test_backspace(self, editor, qtbot):
         """Test backspace deletes character before cursor."""
         editor.setPlainText("Hello")

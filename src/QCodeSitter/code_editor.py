@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Collection, TypeVar
 
@@ -70,15 +71,7 @@ class CursorState:
 
     def build_cursor(self, document: QtGui.QTextDocument) -> QtGui.QTextCursor:
         """Build a cursor for a given document"""
-        cursor = QtGui.QTextCursor(document)
-        cursor.setPosition(self.anchor)
-        cursor.setPosition(self.position, MM.KeepAnchor)
-        return cursor
-
-    def __eq__(self, other) -> bool:
-        if not isinstance(other, CursorState):
-            return False
-        return self.anchor == other.anchor and self.position == other.position
+        return self.apply(QtGui.QTextCursor(document))
 
     def __hash__(self) -> int:
         return hash((self.anchor, self.position))
@@ -101,12 +94,28 @@ class CursorIterator:
         self._cursor_srt_list: list[CursorState] = []
         self._cursor_primary_idx: int = 0
         self.handled = False
+        self.active = False
 
     def get(self):
+        """Snapshot the editor's current cursors"""
         cursors, primary_index = self.editor.get_all_cursors()
         self._cursor_srt_list = cursors
         self._cursor_cmp_list = [False] * len(cursors)
         self._cursor_primary_idx = primary_index
+
+    @contextmanager
+    def session(self):
+        """Run several iterate_cursors passes as a single operation
+
+        The cursors are snapshot once at the start, and any cursor completed
+        by one pass is skipped by the passes after it
+        """
+        self.get()
+        self.active = True
+        try:
+            yield
+        finally:
+            self.active = False
 
     def update_offset(self, val):
         """Keep track of the position delta for the current cursor
@@ -125,6 +134,9 @@ class CursorIterator:
     ):
         """Iterate over all non-completed cursor states for editing in a single edit block"""
         # TODO: Figure out how to combine single insertions
+        if not self.active:
+            # A one-off edit outside of a session works on the current cursors
+            self.get()
 
         qt_cursor = self.editor.textCursor()
         if join_edit:
@@ -197,10 +209,11 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self._doc.byteContentsChange.connect(self.tree_manager.update)
         self._doc.fullUpdateRequest.connect(self.tree_manager.fullUpdate)
 
-        # TODO: Get this data from options
+        # Defaults for when these aren't in the options
         self.space_indent_width: int = 4
         self.indent_using_tabs: bool = False
         self.copy_indents_as_spaces: bool = True
+        self.options.optionsUpdated.connect(self._on_options_updated)
 
         # Hide the built-in cursor so we can draw it ourselves
         self.setCursorWidth(0)
@@ -209,6 +222,23 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def textCursor(self) -> TrackedCursor:
         return TrackedCursor(self._doc, super().textCursor())
+
+    @contextmanager
+    def edit_session(self):
+        """Group the edits made by one user action
+
+        The cursors are snapshot once for all the citer passes, and the tree
+        is only reparsed once at the end. Nested sessions join the outer one
+        """
+        if self.citer.active:
+            yield
+            return
+        self.tree_manager.pause()
+        try:
+            with self.citer.session():
+                yield
+        finally:
+            self.tree_manager.unpause()
 
     def updateGutter(self):
         current_margins = self.viewportMargins()
@@ -289,14 +319,26 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             self.removeAction(action)
             action.deleteLater()
 
+    def _on_options_updated(self, keylist: Collection[str]):
+        # Everything gets applied when the editor is first shown
+        if self._loaded:
+            self.updateOptions(keylist)
+
     def updateOptions(self, keylist: Collection[str]):
-        keys = set(keylist)
+        keys = {k for k in keylist if k in self.options}
         if "font" in keys:
             self.setFont(self.options["font"])
         if "language" in keys:
             self.setLanguage(self.options["language"])
         if "colors" in keys:
             self.setColors(self.options["colors"])
+        for key in (
+            "space_indent_width",
+            "indent_using_tabs",
+            "copy_indents_as_spaces",
+        ):
+            if key in keys:
+                setattr(self, key, self.options[key])
 
     def setColors(self, colors: dict[str, str]):
         palette = self.palette()
@@ -564,9 +606,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         return -1
 
     def keyPressEvent(self, e: QtGui.QKeyEvent):
-        self.tree_manager.pause()
-        try:
-            self.citer.get()
+        with self.edit_session():
             for behavior in self._keypressBehaviors:
                 if behavior.keyPressEvent(e):
                     return
@@ -576,8 +616,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
             # I think this is required to handle the rest of the hotkeys
             super().keyPressEvent(e)
-        finally:
-            self.tree_manager.unpause()
 
     def _handle_key_event(self, event: QtGui.QKeyEvent) -> bool:
         """Handle key events for multi-cursor mode
@@ -600,7 +638,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         # Handle printable characters (normal typing)
         if text and text.isprintable() and modifiers in (nomod, shift):
-            do_join = False
             next_join = text.isalnum() or text == "_"
             do_join = self._can_join and next_join
             self._can_join = next_join
@@ -806,7 +843,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         return True
 
     def selected_texts(self) -> list[str]:
-        """Copy text from all cursors to clipboard (joined with newlines)"""
+        """Get the selected text of every cursor, in document order"""
         all_cursors, _primary_index = self.get_all_cursors()
 
         # Collect selected text from all cursors
@@ -825,15 +862,14 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         """Copy text from all cursors to clipboard (joined with newlines)"""
         selected_texts = self.selected_texts()
         if self.copy_indents_as_spaces:
-            nst = []
-            for st in selected_texts:
-                st = re.sub(
+            selected_texts = [
+                re.sub(
                     r"(?m)^\t+",
                     lambda m: " " * self.space_indent_width * len(m.group()),
                     st,
                 )
-                nst.append(st)
-            selected_texts = nst
+                for st in selected_texts
+            ]
 
         clipboard_text = "\n".join(selected_texts)
 
@@ -850,9 +886,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         """Cut text from all cursors to clipboard"""
         self.copy()
 
-        self.tree_manager.pause()
-        try:
-            self.citer.get()
+        with self.edit_session():
             for cursor in self.citer.iterate_cursors():
                 if cursor.hasSelection():
                     self.citer.update_offset(
@@ -860,8 +894,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                     )
                     cursor.removeSelectedText()
                 self.citer.cursor_completed()
-        finally:
-            self.tree_manager.unpause()
 
     def paste(self):
         """Paste clipboard text at all cursor positions"""
@@ -913,44 +945,38 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             e.ignore()
             return
 
-        is_move = (e.source() == self and e.dropAction() == QtCore.Qt.DropAction.MoveAction)
-        
+        main_cursor = self.textCursor()
+        is_move = (
+            e.source() == self
+            and e.dropAction() == QtCore.Qt.DropAction.MoveAction
+            and main_cursor.hasSelection()
+        )
+
         pos_fn = getattr(e, "position", None)
         pos = pos_fn().toPoint() if pos_fn is not None else e.pos()
-        target_cursor = self.cursorForPosition(pos)
-        target_pos = target_cursor.position()
+        target_pos = self.cursorForPosition(pos).position()
 
-        main_cursor = self.textCursor()
-        if is_move and main_cursor.hasSelection():
-            if main_cursor.selectionStart() <= target_pos <= main_cursor.selectionEnd():
-                e.ignore()
-                return
+        sel_start = main_cursor.selectionStart()
+        sel_end = main_cursor.selectionEnd()
+        if is_move and sel_start <= target_pos <= sel_end:
+            e.ignore()
+            return
 
-        self.tree_manager.pause()
-        try:
-            self.citer.get()
-            if is_move and main_cursor.hasSelection():
-                sel_start = main_cursor.selectionStart()
-                sel_end = main_cursor.selectionEnd()
-                
+        with self.edit_session():
+            if is_move:
                 # Delete using TrackedCursor
                 main_cursor.removeSelectedText()
-                self.citer.update_offset(-(sel_end - sel_start))
-                
                 if target_pos > sel_start:
-                    target_pos -= (sel_end - sel_start)
-                    
+                    target_pos -= sel_end - sel_start
+
+            # The drop location becomes the only cursor
+            self.exit_multi_cursor_mode()
             tc = self.textCursor()
             tc.setPosition(target_pos)
             self.setTextCursor(tc)
-            
-            # Reset the cursor iterator to target just this drop location as primary
-            self.exit_multi_cursor_mode()
             self.citer.get()
             self.insertFromMimeData(e.mimeData())
             e.accept()
-        finally:
-            self.tree_manager.unpause()
 
     def _add_cursor_adjacent(self, above: bool):
         """Add a new cursor on the line above or below the primary cursor (primary moves up, leaves cursor behind)"""
@@ -985,12 +1011,10 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def add_cursor_above(self):
         """Add a new cursor on the line above the primary cursor (primary moves up, leaves cursor behind)"""
-        # Get current cursor position - use primary cursor
         self._add_cursor_adjacent(True)
 
     def add_cursor_below(self):
         """Add a new cursor on the line below the primary cursor (primary moves down, leaves cursor behind)"""
-        # Get current cursor position - use primary cursor
         self._add_cursor_adjacent(False)
 
     def add_cursors_to_line_ends(self):
@@ -1024,14 +1048,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                 break
             block = block.next()
 
-        if not cursors:
-            return
-        # Enter multi-cursor mode with these cursors
-        new_primary = cursors[0]
-        self.secondary_cursors = cursors[1:]
-        # Update the visual Qt cursor to the primary position
-        self.set_primary_cursor(new_primary)
-        self._update_visual()
+        # Enter multi-cursor mode with the first line's cursor as the primary
+        self._set_all_cursors(cursors)
 
     def add_cursor_at_position(self, position: int) -> bool:
         """Add a cursor at the specified position (for Alt+Click)"""

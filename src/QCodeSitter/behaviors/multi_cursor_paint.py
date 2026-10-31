@@ -61,27 +61,20 @@ class MultiCursorPaint(Behavior):
 
     def _update_selections(self):
         """Update ExtraSelections for cursors with text selections"""
+        states = list(self.editor.secondary_cursors)
+        # Qt draws the primary selection itself unless we're in multi-cursor mode
+        if states:
+            states.append(self.editor.get_primary_cursor())
+
+        fmt = QtGui.QTextCharFormat()
+        fmt.setBackground(self.selection_color.lighter(150))
+        doc = self.editor.document()
         selections = []
-
-        for state in self.editor.secondary_cursors:
+        for state in states:
             if state.hasSelection():
-                # Create ExtraSelection for the text selection
                 selection = QtWidgets.QTextEdit.ExtraSelection()
-                fmt = QtGui.QTextCharFormat()
-                fmt.setBackground(self.selection_color.lighter(150))
                 selection.format = fmt
-                selection.cursor = state.build_cursor(self.editor.document())
-                selections.append(selection)
-
-        # Check if primary cursor has a selection (only in multi-cursor mode)
-        if self.editor.secondary_cursors:
-            primary = self.editor.get_primary_cursor()
-            if primary.hasSelection():
-                selection = QtWidgets.QTextEdit.ExtraSelection()
-                fmt = QtGui.QTextCharFormat()
-                fmt.setBackground(self.selection_color.lighter(150))
-                selection.format = fmt
-                selection.cursor = primary.build_cursor(self.editor.document())
+                selection.cursor = state.build_cursor(doc)
                 selections.append(selection)
 
         self.editor.set_selections("multi_cursor", selections)
@@ -119,10 +112,10 @@ class MultiCursorPaint(Behavior):
         if not self.editor.hasFocus():
             if self._blink_state:
                 self._blink_state = False
-                self.editor.viewport().repaint()
+                self.editor.viewport().update()
             return
         self._blink_state = not self._blink_state
-        self.editor.viewport().repaint()
+        self.editor.viewport().update()
 
     def _draw_cursor_at_position(
         self,
@@ -162,5 +155,8 @@ class MultiCursorPaint(Behavior):
 
     def remove(self):
         """Clean up when behavior is removed"""
+        super().remove()
+        self.blink_timer.stop()
+        self.blink_timer.deleteLater()
         self.editor.behaviorPaint.disconnect(self.paintEvent)
         self.editor.clear_selections("multi_cursor")
