@@ -3,9 +3,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from Qt import QtCore, QtGui, QtWidgets
-from tree_sitter import Node
+from tree_sitter import Language, Node, Query, Tree
 
 from ..gutter_widget import GutterWidget
+from ..ts_version_fix import query_byte_range
 from . import Behavior
 
 if TYPE_CHECKING:
@@ -312,9 +313,13 @@ class CodeFolding(Behavior):
         "tuple",
     }
 
+    FOLDABLE_TYPES = HIDE_LAST_LINE_TYPES | KEEP_LAST_LINE_TYPES
+
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
         self.setListen({"font", "colors"})
+        self._query: Query | None = None
+        self._query_language: Language | None = None
 
         # Colors for fold indicators
         # Subtle background for folded lines
@@ -328,10 +333,7 @@ class CodeFolding(Behavior):
         # Connect to tree updates
         if self.editor.tree_manager.tree is not None:
             self._update_foldable_regions()
-        self.editor.textChanged.connect(self._update_foldable_regions)
-
-        # Connect to block count changes to update margins
-        # self.editor.blockCountChanged.connect(self.set_geometry)
+        self.editor.tree_manager.reparsed.connect(self._update_foldable_regions)
 
         if editor.isVisible() and not self.folding_area.isVisible():
             self.folding_area.setVisible(True)
@@ -360,11 +362,7 @@ class CodeFolding(Behavior):
                     key = (region.node.type, region.start_line, region.end_line)
                     old_fold_states[key] = True
 
-        regions = []
-        root_node = self.editor.tree_manager.tree.root_node
-
-        # Recursively find foldable nodes
-        self._find_foldable_nodes(root_node, regions, 0)
+        regions = self._find_foldable_regions(self.editor.tree_manager.tree)
 
         # Restore fold states for matching AST nodes
         for region in regions:
@@ -383,35 +381,54 @@ class CodeFolding(Behavior):
 
         self.folding_area.set_regions(regions)
 
-    def _find_foldable_nodes(
-        self, node: Node, regions: list[FoldableRegion], depth: int = 0
-    ):
-        """Recursively find foldable nodes in the AST
+    def _foldable_query(self, language: Language) -> Query | None:
+        """Build a query that captures every foldable node type in the language"""
+        if language != self._query_language:
+            self._query_language = language
+            types = [
+                t for t in sorted(self.FOLDABLE_TYPES)
+                if language.id_for_node_kind(t, True)
+            ]
+            source = "[{}] @fold".format(" ".join(f"({t})" for t in types))
+            self._query = Query(language, source) if types else None
+        return self._query
 
-        Args:
-            node: Tree-sitter node to examine
-            regions: List to append foldable regions to
-            depth: Current nesting depth (0 = top level)
+    def _find_foldable_regions(self, tree: Tree) -> list[FoldableRegion]:
+        """Find the foldable regions in the AST
+
+        This runs on every reparse, so use a query instead of walking
+        the whole tree in python
         """
-        # Check if this node is foldable
-        is_foldable = node.type in self.HIDE_LAST_LINE_TYPES | self.KEEP_LAST_LINE_TYPES
+        query = self._foldable_query(tree.language)
+        if query is None:
+            return []
+        root = tree.root_node
+        captures = query_byte_range(query, root, 0, root.end_byte)
+        if not captures:
+            return []
 
-        if is_foldable:
+        # Nodes in document order, with parents before their children
+        nodes = sorted(captures["fold"], key=lambda n: (n.start_byte, -n.end_byte))
+
+        # The end bytes of the foldable nodes that contain the current node
+        # The depth counts single line nodes too
+        parent_ends: list[int] = []
+        regions = []
+        for node in nodes:
+            while parent_ends and parent_ends[-1] <= node.start_byte:
+                parent_ends.pop()
+            depth = len(parent_ends)
+            parent_ends.append(node.end_byte)
+
             # Only fold if the node spans multiple lines
             start_line = node.start_point.row
             end_line = node.end_point.row
-
             if end_line > start_line:
-                # Determine if last line should be hidden based on node type
                 hide_last = node.type in self.HIDE_LAST_LINE_TYPES
                 regions.append(
                     FoldableRegion(start_line, end_line, node, hide_last, depth)
                 )
-
-        # Recurse into children with incremented depth if this was a foldable node
-        next_depth = depth + 1 if is_foldable else depth
-        for child in node.children:
-            self._find_foldable_nodes(child, regions, next_depth)
+        return regions
 
     def fold_to_level(self, max_depth: int):
         """Fold all regions at or deeper than the specified depth level
@@ -523,16 +540,16 @@ class CodeFolding(Behavior):
             QtGui.QColor(val["gutter_fg"]), QtGui.QColor(val["gutter"])
         )
 
-        self.fold_line_bg_color = QtGui.QColor(val["bg_dim"])
-        self.fold_ellipsis_bg_color = QtGui.QColor(val["hl_dim"])
-        self.fold_ellipsis_fg_color = QtGui.QColor(val["fg_dim"])
+        self.folding_area.fold_line_bg_color = QtGui.QColor(val["bg_dim"])
+        self.folding_area.fold_ellipsis_bg_color = QtGui.QColor(val["hl_dim"])
+        self.folding_area.fold_ellipsis_fg_color = QtGui.QColor(val["fg_dim"])
 
     colors = property(None, _colors)
 
     def remove(self):
         """Clean up when behavior is removed"""
-        # Remove event filter
-        self.editor.viewport().removeEventFilter(self)
+        self.editor.tree_manager.reparsed.disconnect(self._update_foldable_regions)
+        self.editor.viewport().removeEventFilter(self.folding_area)
 
         # Restore all folded regions
         for region in self.folding_area.regions:
@@ -546,8 +563,6 @@ class CodeFolding(Behavior):
 
     def getHotkeys(self) -> list[QtWidgets.QAction]:
         """Return keyboard shortcut actions for code folding operations"""
-        from Qt import QtWidgets
-
         actions = []
 
         def _action(name, shortcut, method):

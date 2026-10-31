@@ -129,8 +129,6 @@ class SmartIndent(Behavior):
         line_num = block.blockNumber()
         col = cursor.positionInBlock()
 
-        stripped = line_text.lstrip()
-
         # Special case: if the current line is empty/whitespace-only, just copy the indentation
         if stripped == "":
             return indent, 0

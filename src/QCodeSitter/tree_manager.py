@@ -24,26 +24,34 @@ class TreeManager(QtCore.QObject):
     def __init__(
         self,
         editor: QtWidgets.QPlainTextEdit,
-        language: Language | None,
+        language: Language | None = None,
     ):
         """Initialize the tree manager
 
         Args:
+            editor: The editor whose document provides the source text
             language: The tree-sitter Language to use for parsing
-            source_callback: Callback function to provide source bytes to the parser.
-                Signature: (byte_offset: int, point: Point) -> bytes
-                Note: bytes should be UTF-16LE encoded
         """
         super().__init__()
         self.editor = editor
         self.parser: Parser | None = None
-        if language is not None:
-            self.parser = Parser(language)
-
         self.tree: Tree | None = None
-        self._source_callback = self.treesitter_source_callback
         self._paused = False
         self._pause_edit = False
+
+        # The (first, last) rows touched by edits since the last parse
+        self._edit_rows: tuple[int, int] | None = None
+        # The (first, last) row ranges that changed in the last parse
+        # None means the whole document changed
+        self.changed_rows: list[tuple[int, int]] | None = None
+
+        self.setLanguage(language)
+
+    def setLanguage(self, language: Language | None):
+        self.parser = Parser(language) if language is not None else None
+        self.tree = None
+        self._edit_rows = None
+        self.changed_rows = None
 
     def treesitter_source_callback(self, _byte_offset: int, ts_point: Point) -> bytes:
         """Provide source bytes to tree-sitter parser
@@ -52,39 +60,29 @@ class TreeManager(QtCore.QObject):
 
         Args:
             byte_offset: The byte offset in UTF-16LE encoding where data is requested
-            ts_point: The (row, column) point in code units where data is requested
+            ts_point: The (row, column) point where data is requested
 
         Returns:
-            UTF-16LE encoded bytes from the requested position to end of document
+            UTF-16LE encoded bytes from the requested position to end of the line
         """
-        try:
-            curblock = self.editor.document().findBlockByNumber(ts_point.row)
-        except IndexError:
-            return b""
-
-        # Check if block is valid (can be invalid after undo)
+        curblock = self.editor.document().findBlockByNumber(ts_point.row)
+        # The block can be invalid after an undo
         if not curblock.isValid():
             return b""
 
-        # Validate cached block still refers to the expected row
-        if curblock.blockNumber() != ts_point.row:
-            curblock = self.editor.document().findBlockByNumber(ts_point.row)
-            if not curblock.isValid():
-                return b""
-
-        nxt = curblock.next()
-        suffix = "\n" if nxt.isValid() else ""
+        suffix = "\n" if curblock.next().isValid() else ""
         linetext = curblock.text() + suffix
 
-        # Return UTF-16LE encoded bytes starting from the column offset
         # When using encoding='utf16', ts_point.column is in BYTES, not code units
-        # So we need to divide by 2 to get the character position
         return linetext.encode(ENC)[ts_point.column :]
 
     def fullUpdate(self):
         if self.parser is not None:
-            # Clear the block cache before reparsing
-            self.tree = self.parser.parse(self._source_callback, encoding="utf16")
+            self.tree = self.parser.parse(
+                self.treesitter_source_callback, encoding="utf16"
+            )
+            self._edit_rows = None
+            self.changed_rows = None
             self.reparsed.emit()
 
     def pause(self):
@@ -97,6 +95,22 @@ class TreeManager(QtCore.QObject):
         self._paused = False
         if self._pause_edit:
             self.reparse()
+
+    def _track_edit_rows(self, start_row: int, old_end_row: int, new_end_row: int):
+        """Grow the span of edited rows to include this edit
+
+        The span is kept in the current document's rows, so rows after
+        the edit shift by the number of lines it added or removed
+        """
+        if self._edit_rows is None:
+            self._edit_rows = (start_row, new_end_row)
+            return
+        lo, hi = self._edit_rows
+        if hi > old_end_row:
+            hi += new_end_row - old_end_row
+        else:
+            hi = new_end_row
+        self._edit_rows = (min(lo, start_row), hi)
 
     def update(
         self,
@@ -126,6 +140,7 @@ class TreeManager(QtCore.QObject):
                 old_end_point=old_end_point,
                 new_end_point=new_end_point,
             )
+        self._track_edit_rows(start_point.row, old_end_point.row, new_end_point.row)
         return self.reparse()
 
     def reparse(self) -> Tree | None:
@@ -134,16 +149,30 @@ class TreeManager(QtCore.QObject):
             return self.tree
 
         old_tree = self.tree
-        if self.parser is not None:
-            # Clear the block cache before reparsing
-            if self.tree is not None:
-                self.tree = self.parser.parse(
-                    self._source_callback, self.tree, encoding="utf16"
-                )
-            else:
-                # First parse - no old tree to pass
-                self.tree = self.parser.parse(self._source_callback, encoding="utf16")
-            self.reparsed.emit()
+        if self.parser is None:
+            self._edit_rows = None
+            return old_tree
+
+        if old_tree is None:
+            self.tree = self.parser.parse(
+                self.treesitter_source_callback, encoding="utf16"
+            )
+            self.changed_rows = None
+        else:
+            self.tree = self.parser.parse(
+                self.treesitter_source_callback, old_tree, encoding="utf16"
+            )
+            # The rows that need rehighlighting are the ones whose syntax changed
+            # plus the ones that were edited, because predicates check the text
+            rows = [
+                (r.start_point.row, r.end_point.row)
+                for r in old_tree.changed_ranges(self.tree)
+            ]
+            if self._edit_rows is not None:
+                rows.append(self._edit_rows)
+            self.changed_rows = rows
+        self._edit_rows = None
+        self.reparsed.emit()
         return old_tree
 
     def get_node_at_point(self, byte_offset: int) -> Node | None:

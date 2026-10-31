@@ -79,19 +79,19 @@ class AutoBracket(Behavior):
             text = block.text()
             col = min(cursor.positionInBlock(), len(text))
 
-            # Check for triple-quote deletion
-            if col >= 3 and col + 3 <= len(text):
-                trips = [i * 3 for i in self._common]
-                before_triple = text[col - 3 : col]
-                after_triple = text[col : col + 3]
-                # Check if we're between triple-quotes
-                if before_triple in trips and before_triple == after_triple:
-                    pos = cursor.position()
-                    cursor.setPosition(pos - 3)
-                    cursor.setPosition(pos + 3, MM.KeepAnchor)
-                    cursor.removeSelectedText()
-                    citer.update_offset(-6)
-                    citer.cursor_completed()
+            # Check if we're between triple-quotes
+            before_triple = text[col - 3 : col] if col >= 3 else ""
+            if (
+                before_triple
+                and before_triple == text[col : col + 3]
+                and before_triple in [i * 3 for i in self._common]
+            ):
+                pos = cursor.position()
+                cursor.setPosition(pos - 3)
+                cursor.setPosition(pos + 3, MM.KeepAnchor)
+                cursor.removeSelectedText()
+                citer.update_offset(-6)
+                citer.cursor_completed()
 
             # Check if we're between a pair
             elif col > 0 and col < len(text):
@@ -110,10 +110,7 @@ class AutoBracket(Behavior):
     def _should_skip_quote(self, quote: str, line: str, col: int) -> bool:
         """Determine if we should skip over a quote instead of inserting a pair"""
         # If next character is the same quote, skip over it
-        if col < len(line) and line[col] == quote:
-            return True
-
-        return False
+        return bool(col < len(line) and line[col] == quote)
 
     def _should_skip_triple_quote(self, quote: str, line: str, col: int) -> bool:
         """Handle triple-quote insertion and skipping for Python docstrings
@@ -124,9 +121,7 @@ class AutoBracket(Behavior):
             None if we shouldn't handle this event at all
         """
         # Check if we're about to skip over triple-quotes
-        if col + 2 < len(line) and line[col : col + 3] == quote * 3:
-            return True
-        return False
+        return bool(col + 2 < len(line) and line[col:col + 3] == quote * 3)
 
     def _handle_triple_quote(
         self, cursor: QtGui.QTextCursor, quote: str, line: str, col: int

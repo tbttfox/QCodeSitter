@@ -5,6 +5,7 @@ import tree_sitter_python as tspython
 from Qt import QtGui, QtWidgets
 from tree_sitter import Language
 
+from QCodeSitter.behaviors.auto_bracket import AutoBracket  # noqa: F401
 from QCodeSitter.behaviors.code_folding import CodeFolding
 from QCodeSitter.behaviors.comment_toggle import CommentToggle
 from QCodeSitter.behaviors.highlight_matching_brackets import HighlightMatchingBrackets

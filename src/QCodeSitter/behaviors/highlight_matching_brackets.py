@@ -260,9 +260,7 @@ class HighlightMatchingBrackets(Behavior):
         # Search siblings for the matching bracket
         for sibling in parent.children:
             if sibling.type == matching_bracket_type:
-                if is_opening and sibling.start_byte > node.start_byte:
-                    return sibling
-                elif not is_opening and sibling.start_byte < node.start_byte:
+                if is_opening and sibling.start_byte > node.start_byte or not is_opening and sibling.start_byte < node.start_byte:
                     return sibling
 
         return None

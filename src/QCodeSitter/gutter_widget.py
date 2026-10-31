@@ -27,8 +27,11 @@ class GutterWidget(QtWidgets.QWidget):
         raise NotImplementedError("width_hint must be defined")
 
     def update_width(self):
-        # Preserve existing margins (especially bottom margin from Overscroll)
-        self.editor.gutterWidths[self.name] = self.width_hint()
+        # This gets called on every full-viewport update, so skip it if nothing changed
+        width = self.width_hint()
+        if self.editor.gutterWidths[self.name] == width:
+            return
+        self.editor.gutterWidths[self.name] = width
         self.editor.updateGutter()
 
     def clear_width(self):

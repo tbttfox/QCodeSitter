@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 from Qt import QtGui, QtWidgets
 
-from ..code_editor import CursorIterator
 from ..utils import len16
 from . import Behavior
 
@@ -41,8 +40,8 @@ class CommentToggle(Behavior):
     def toggle_comment(self):
         self.editor.tree_manager.pause()
         try:
-            self.editor.citer = CursorIterator(self.editor)
             citer = self.editor.citer
+            citer.get()
             for cursor in citer.iterate_cursors():
                 self._toggle_for_cursor(cursor, citer)
         finally:

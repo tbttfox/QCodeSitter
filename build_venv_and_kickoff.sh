@@ -7,7 +7,7 @@ VENV_DIR="$SCRIPT_DIR/.venv"
 
 # Pick a Python executable. Default to the py launcher
 if command -v py >/dev/null 2>&1; then
-    PYTHON="py -3.11"
+    PYTHON="py -3.13"
 elif command -v python3 >/dev/null 2>&1; then
     PYTHON=python3
 elif command -v python >/dev/null 2>&1; then

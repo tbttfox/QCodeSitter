@@ -22,8 +22,6 @@ class TrackedDocument(QtGui.QTextDocument):
         super().__init__(*args, **kwargs)
         self.lay = QtWidgets.QPlainTextDocumentLayout(self)
         self.setDocumentLayout(self.lay)
-        self._prev_line_count = 0
-        self._prev_char_count = 0
 
     def point_to_char(self, point: Point) -> int:
         """Get the document-global character offset from a tree-sitter Point
