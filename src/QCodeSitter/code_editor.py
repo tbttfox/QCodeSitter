@@ -175,11 +175,9 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         super().__init__(parent=parent)
         self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._doc: TrackedDocument = TrackedDocument()
-        self._clipboard_cursor_counts: list[int] = []
         self._selections: dict[str, list[QtWidgets.QTextEdit.ExtraSelection]] = {}
         self._behaviors: list[Behavior] = []
         self._keypressBehaviors: list[Behavior] = []
-        self._updatingMargins = False
         self.citer: CursorIterator = CursorIterator(self)
 
         self.gutterWidths: dict[str, int] = {}
@@ -192,10 +190,12 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self._loaded = False
         self._can_join = False
 
-        self.tree_manager: TreeManager = TreeManager(self, None)
+        self.tree_manager: TreeManager = TreeManager(self)
         self.syntax_analyzer: SyntaxAnalyzer = SyntaxAnalyzer(
             self.tree_manager, self._doc
         )
+        self._doc.byteContentsChange.connect(self.tree_manager.update)
+        self._doc.fullUpdateRequest.connect(self.tree_manager.fullUpdate)
 
         # TODO: Get this data from options
         self.space_indent_width: int = 4
@@ -312,10 +312,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.setAutoFillBackground(True)
 
     def setLanguage(self, lang: Language):
-        self.tree_manager = TreeManager(self, lang)
-        self.syntax_analyzer = SyntaxAnalyzer(self.tree_manager, self._doc)
-        self._doc.byteContentsChange.connect(self.tree_manager.update)
-        self._doc.fullUpdateRequest.connect(self.tree_manager.fullUpdate)
+        self.tree_manager.setLanguage(lang)
         self.tree_manager.fullUpdate()
 
     def addBehavior(
@@ -480,6 +477,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def setPlainText(self, text):
         self.exit_multi_cursor_mode()
         super().setPlainText(text)
+        # This doesn't go through a TrackedCursor, so the tree has to be rebuilt
+        self.tree_manager.fullUpdate()
 
     def undo(self):
         """Override undo to exit multi-cursor mode first"""
@@ -535,20 +534,19 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         all_cursors, _primary_index = self.get_all_cursors()
         search_start = all_cursors[-1].selectionEnd()
 
+        search_len = len16(search_text)
         next_pos = self._find_next(search_text, search_start)
         if next_pos >= 0:
             # Add new secondary cursor at match
-            new_cursor = CursorState(next_pos, next_pos + len(search_text))
+            new_cursor = CursorState(next_pos, next_pos + search_len)
             self._set_all_cursors(all_cursors + [new_cursor])
-            self._update_visual()
             return
 
         # Wrap around to beginning
         next_pos = self._find_next(search_text, 0)
         if next_pos >= 0 and next_pos < all_cursors[0].selectionStart():
-            new_cursor = CursorState(next_pos, next_pos + len(search_text))
+            new_cursor = CursorState(next_pos, next_pos + search_len)
             self._set_all_cursors(all_cursors + [new_cursor])
-            self._update_visual()
 
     def _find_next(self, search_text: str, start_pos: int) -> int:
         """Find next occurrence of search_text starting from start_pos
@@ -611,10 +609,9 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             return True
         self._can_join = False
 
-        if modifiers == ctrl:
-            if key == KEY.Key_A:
-                self.exit_multi_cursor_mode()
-                return False
+        if modifiers == ctrl and key == KEY.Key_A:
+            self.exit_multi_cursor_mode()
+            return False
 
         # Handle special keys
         if key == KEY.Key_Backspace:
@@ -849,9 +846,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         mimeData.setText(clipboard_text)
         clipboard.setMimeData(mimeData)
 
-        # Store the length of the copy value per selection
-        self._clipboard_cursor_counts = list(map(len, selected_texts))
-
     def cut(self):
         """Cut text from all cursors to clipboard"""
         self.copy()
@@ -989,8 +983,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         new_primary = CursorState(new_primary_pos, new_primary_pos)
         self._set_all_cursors([new_primary] + self.secondary_cursors + [new_secondary])
 
-        self._update_visual()
-
     def add_cursor_above(self):
         """Add a new cursor on the line above the primary cursor (primary moves up, leaves cursor behind)"""
         # Get current cursor position - use primary cursor
@@ -1047,8 +1039,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         new_cursor = CursorState(position, position)
         all_cursors, _primary_index = self.get_all_cursors()
         all_cursors.append(new_cursor)
-        all_cursors = self._merge_overlapping_cursors(all_cursors)
-
         self._set_all_cursors(all_cursors)
 
         return True

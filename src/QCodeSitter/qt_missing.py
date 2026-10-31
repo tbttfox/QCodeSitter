@@ -4,11 +4,5 @@ import Qt
 # When Qt.py updates to >2.0 this should be unnecessary
 if Qt.IsPyQt4 or Qt.IsPySide:
     raise RuntimeError("QCodeSitter doesn't work with Qt4")
-elif Qt.IsPyQt5:
-    pass
-elif Qt.IsPyQt6:
-    pass
-elif Qt.IsPySide2:
-    pass
-elif Qt.IsPySide6:
+elif Qt.IsPyQt5 or Qt.IsPyQt6 or Qt.IsPySide2 or Qt.IsPySide6:
     pass

@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING, Any
 from Qt import QtGui
 from tree_sitter import Query
 
-from ..constants import ENC
 from ..hl_groups import resolve_capture
 from ..query_predicates import QueryPredicates, document_node_text, prepare_query_source
 from ..ts_version_fix import query_byte_range
+from ..utils import len16
 from . import Behavior
 
 if TYPE_CHECKING:
@@ -42,7 +42,6 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
         if lang is None:
             raise RuntimeError("The tree language must be properly set")
 
-        # highlights_query_source = tspython.HIGHLIGHTS_QUERY,
         # The tree is parsed from a callback, so tree-sitter can't read the node text
         # for predicates like #eq? and #match?. We evaluate those ourselves
         self.query = Query(lang, prepare_query_source(highlights_query_source))
@@ -106,7 +105,7 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
         block_num = block.blockNumber()
         # Qt positions are UTF-16 code units, but python's len counts code points
         # so they differ when the text contains characters outside the BMP
-        text_len = len(text.encode(ENC)) // 2
+        text_len = len16(text)
 
         # Get document bounds safely
         try:
@@ -246,8 +245,28 @@ class SyntaxHighlighting(Behavior):
         self.highlighter = None
 
     def _on_reparsed(self):
-        if self.highlighter:
+        if self.highlighter is None:
+            return
+        changed_rows = self.editor.tree_manager.changed_rows
+        if changed_rows is None:
             self.highlighter.rehighlight()
+            return
+
+        # Only rehighlight the rows that changed instead of the whole document
+        # Qt already highlighted the edited blocks with the old tree when the text
+        # changed. That goes one block past the edit when text is removed, so
+        # include that block too
+        doc = self.editor.document()
+        done: set[int] = set()
+        for first, last in changed_rows:
+            block = doc.findBlockByNumber(first)
+            for row in range(first, last + 2):
+                if not block.isValid():
+                    break
+                if row not in done:
+                    done.add(row)
+                    self.highlighter.rehighlightBlock(block)
+                block = block.next()
 
     def remove(self):
         self.editor.behaviorPrepareUndo.disconnect(self.prepareUndo)

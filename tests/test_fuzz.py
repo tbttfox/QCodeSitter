@@ -13,12 +13,15 @@ from __future__ import annotations
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+
 from Qt import QtCore
 
-from QCodeSitter.behaviors.auto_bracket import AutoBracket
-from QCodeSitter.behaviors.code_folding import CodeFolding
-from QCodeSitter.behaviors.comment_toggle import CommentToggle
-from QCodeSitter.behaviors.highlight_matching_brackets import HighlightMatchingBrackets
+from QCodeSitter.code_editor import CodeEditor
+from QCodeSitter.utils import len16
+
+from QCodeSitter.behaviors.smart_indent import SmartIndent
+from QCodeSitter.behaviors.line_numbers import LineNumber
+from QCodeSitter.behaviors.overscroll import Overscroll
 from QCodeSitter.behaviors.highlight_matching_selection import (
     HighlightMatchingSelection,
 )

@@ -19,16 +19,20 @@ class TrackedCursor(QtGui.QTextCursor):
         super().__init__(cursor)
 
     def deleteChar(self):
+        if self.hasSelection():
+            return self.removeSelectedText()
         ttc = QtGui.QTextCursor(self)
-        ttc.movePosition(ttc.MoveOperation.PreviousCharacter, ttc.MoveMode.KeepAnchor)
+        ttc.movePosition(ttc.MoveOperation.NextCharacter, ttc.MoveMode.KeepAnchor)
         bytes_removed = ttc.selectedText().encode(ENC)
         position = self.position()
         super().deleteChar()
         self._doc.manual_contents_change(position, bytes_removed, b"")
 
     def deletePreviousChar(self):
+        if self.hasSelection():
+            return self.removeSelectedText()
         ttc = QtGui.QTextCursor(self)
-        ttc.movePosition(ttc.MoveOperation.NextCharacter, ttc.MoveMode.KeepAnchor)
+        ttc.movePosition(ttc.MoveOperation.PreviousCharacter, ttc.MoveMode.KeepAnchor)
         bytes_removed = ttc.selectedText().encode(ENC)
         position = ttc.position()
         super().deletePreviousChar()

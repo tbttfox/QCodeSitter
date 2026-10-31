@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from Qt import QtCore
 
-from QCodeSitter.behaviors.code_folding import CodeFolding
-from QCodeSitter.behaviors.line_numbers import LineNumber
 from QCodeSitter.behaviors.smart_indent import SmartIndent
 from tests.helpers import (
     set_cursor_position,
@@ -284,10 +282,10 @@ class TestCodeFolding:
         """Test that foldable regions are detected in Python code."""
         editor = editor_with_text
         folding = editor.getBehavior(CodeFolding)
-        # Give the tree manager time to parse
-        qtbot.wait(50)
         # The sample code has functions and classes that should be foldable
-        # This tests that the behavior initializes and processes the document
+        regions = {(r.node.type, r.start_line) for r in folding.folding_area.regions}
+        assert ("function_definition", 0) in regions
+        assert ("class_definition", 7) in regions
 
 
 class TestAutoBracketWithMultiCursor:

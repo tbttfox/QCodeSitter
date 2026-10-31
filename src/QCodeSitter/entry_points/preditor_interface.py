@@ -7,6 +7,7 @@ from preditor.gui.workbox_mixin import WorkboxMixin
 from Qt import QtCore, QtGui
 from tree_sitter import Language
 
+from ..behaviors.auto_bracket import AutoBracket  # noqa: F401
 from ..behaviors.code_folding import CodeFolding
 from ..behaviors.comment_toggle import CommentToggle
 from ..behaviors.highlight_matching_brackets import HighlightMatchingBrackets
@@ -216,7 +217,6 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         """The WorkboxMixin assumes a QTextEdit, not a QPlainTextEdit
         So I have to reroute setText to setPlainText"""
         self.setPlainText(text)
-        self.tree_manager.fullUpdate()
 
     def __num_lines__(self):
         return self.document().blockCount()
@@ -231,7 +231,7 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
             lines = []
             for _ in range(start, end):
                 lines.append(block.text())
-                block.next()
+                block = block.next()
                 if not block.isValid():
                     break
             return "\n".join(lines)

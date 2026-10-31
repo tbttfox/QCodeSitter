@@ -20,14 +20,6 @@ T_Provider = TypeVar("T_Provider", bound=Provider)
 
 
 @dataclass
-class IdentifierInfo:
-    """Information about an identifier in the source code"""
-
-    text: str
-    kind: str  # "function", "class", "variable", etc.
-
-
-@dataclass
 class Completion:
     """A single completion result"""
 
@@ -344,10 +336,7 @@ class TabCompletion(Behavior):
             return False
 
         # Don't trigger if prefix isn't a valid identifier start
-        if not (context.prefix[0].isalpha() or context.prefix[0] == "_"):
-            return False
-
-        return True
+        return context.prefix[0].isalpha() or context.prefix[0] == "_"
 
     def do_completion(self):
         """Actually perform completion (called after debounce timer expires)"""
@@ -486,9 +475,7 @@ class TabCompletion(Behavior):
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> bool:
         KEY = QtCore.Qt.Key
         key = event.key()
-        if key == KEY.Key_Return:
-            return self.acceptItem()
-        elif key == KEY.Key_Tab:
+        if key == KEY.Key_Return or key == KEY.Key_Tab:
             return self.acceptItem()
         elif key == KEY.Key_Up:
             return self.offset_up()
