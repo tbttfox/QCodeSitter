@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from Qt import QtCore, QtGui
 
+from ..utils import len16
 from . import Behavior
 
 if TYPE_CHECKING:
@@ -13,42 +14,36 @@ MM = QtGui.QTextCursor.MoveMode
 MO = QtGui.QTextCursor.MoveOperation
 
 
-def _build_pair_from_str(pair_str):
-    pairs = {pair_str[i]: pair_str[i + 1] for i in range(0, len(pair_str), 2)}
-    common = {k for k, v in pairs.items() if k == v}
-    return pairs, common
-
-
 class AutoBracket(Behavior):
     """Automatically inserts closing brackets, quotes, and other paired characters"""
 
-    # Map of opening characters to their closing pairs
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
-        self.enabled = True
-        self._pairs, self._common = _build_pair_from_str("()[]{}\"\"''``")
+        self.auto_bracket_enabled = True
+        self.auto_bracket_pairs = "()[]{}\"\"''``"
         self.setListen({"auto_bracket_enabled", "auto_bracket_pairs"})
         # TODO: Add an option to enable/disable triple quotes
         self.updateAll()
 
     @property
-    def pairs(self):
-        return self._pairs
+    def auto_bracket_pairs(self) -> str:
+        return self._pair_str
 
-    @pairs.setter
-    def pairs(self, pair_str):
-        self._pairs, self._common = _build_pair_from_str(pair_str)
-
-    def updateOptions(self, keys):
-        super().updateOptions(keys)
-        if "auto_bracket_enabled" in keys:
-            self.enabled = self.options.get("auto_bracket_enabled", True)
+    @auto_bracket_pairs.setter
+    def auto_bracket_pairs(self, pair_str: str):
+        """Set the pairs from a string of opening and closing characters. ie: "()[]" """
+        self._pair_str = pair_str
+        # Map of opening characters to their closing pairs
+        self.pairs = {pair_str[i]: pair_str[i + 1] for i in range(0, len(pair_str), 2)}
+        self._closing = set(self.pairs.values())
+        # Characters that open and close themselves, like quotes
+        self._common = {k for k, v in self.pairs.items() if k == v}
 
     def hasKeyPress(self) -> bool:
         return True
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> bool:
-        if not self.enabled:
+        if not self.auto_bracket_enabled:
             return False
 
         if event.key() == QtCore.Qt.Key.Key_Backspace:
@@ -60,8 +55,7 @@ class AutoBracket(Behavior):
             return False
 
         # Handle skipping over closing character
-        skip_chars = set(self.pairs.values())
-        if text in skip_chars:
+        if text in self._closing:
             self.skip_closing(text)
 
         # Handle inserting opening character with its pair
@@ -107,83 +101,26 @@ class AutoBracket(Behavior):
                     citer.update_offset(-2)
                     citer.cursor_completed()
 
-    def _should_skip_quote(self, quote: str, line: str, col: int) -> bool:
-        """Determine if we should skip over a quote instead of inserting a pair"""
-        # If next character is the same quote, skip over it
-        return bool(col < len(line) and line[col] == quote)
-
-    def _should_skip_triple_quote(self, quote: str, line: str, col: int) -> bool:
-        """Handle triple-quote insertion and skipping for Python docstrings
-
-        Returns:
-            True if triple-quote was handled (inserted or skipped)
-            False if we should fall through to normal quote handling
-            None if we shouldn't handle this event at all
-        """
-        # Check if we're about to skip over triple-quotes
-        return bool(col + 2 < len(line) and line[col:col + 3] == quote * 3)
-
-    def _handle_triple_quote(
+    def _insert_triple_quote(
         self, cursor: QtGui.QTextCursor, quote: str, line: str, col: int
-    ) -> tuple[bool, int]:
-        """Handle triple-quote insertion and skipping for Python docstrings
+    ) -> bool:
+        """When typing the third quote of a docstring, insert the closing triple-quote
 
         Returns:
             bool: If this was handled
-            int: The character delta for this edit
         """
-        # Check if we're about to skip over triple-quotes
-        if col + 2 < len(line) and line[col : col + 3] == quote * 3:
-            # Next three characters are the same quote - skip all three
-            cursor.movePosition(MO.Right, MM.MoveAnchor, 3)
-            return True, 0
-
-        # Check if we already have two quotes before cursor
-        # Two cases:
-        # 1. User typed two quotes manually: line[col-2:col] == quote*2
-        # 2. User typed one quote, auto-pair inserted second: line[col-1] == quote and line[col] == quote
-        before_two = col >= 2 and line[col - 2 : col] == quote * 2
-        before_one_after_one = (
-            col >= 1
-            and col < len(line)
-            and line[col - 1] == quote
-            and line[col] == quote
-        )
-
-        if before_two and not before_one_after_one:
-            # Case 1: User typed two quotes, now typing third
-            # Insert the opening third quote and three closing quotes
-            cursor.beginEditBlock()
-            cursor.insertText(quote + quote * 3)
-            cursor.movePosition(MO.Left, MM.MoveAnchor, 3)
-            cursor.endEditBlock()
-            return True, 4
-
-        elif before_one_after_one:
-            # Case 2: User typed one quote (auto-paired to two), now typing second
-            # Check if there's another quote before the auto-paired quotes
-            if col >= 2 and line[col - 2] == quote:
-                # We have: qq|q (where | is cursor, q is quote)
-                # User is typing the third quote
-                # Delete the auto-paired closing quote and insert triple-quote pair
-                cursor.beginEditBlock()
-                cursor.deleteChar()  # Remove the auto-paired quote
-                cursor.insertText(
-                    quote + quote * 3
-                )  # Add opening third + closing three
-                cursor.movePosition(MO.Left, MM.MoveAnchor, 3)
-                cursor.endEditBlock()
-                return True, 4
-
-        # Not a triple-quote situation
-        return False, 0
+        if col < 2 or line[col - 2 : col] != quote * 2:
+            return False
+        # Insert the opening third quote and three closing quotes
+        cursor.insertText(quote * 4)
+        cursor.movePosition(MO.Left, MM.MoveAnchor, 3)
+        return True
 
     def insert_pair(self, open_char: str):
         """Insert opening character and its closing pair
 
-        Returns:
-            bool: Whether this was handled
-            int: The number of characters added/removed for this insertion
+        This runs after skip_closing, so any cursor right before a matching
+        closing character has already been handled
         """
         close_char = self.pairs[open_char]
         citer = self.editor.citer
@@ -191,33 +128,22 @@ class AutoBracket(Behavior):
             # Check if there's a selection - if so, wrap it
             if cursor.hasSelection():
                 selected_text = cursor.selectedText()
-
+                sel_len = len16(selected_text)
                 cursor.insertText(open_char + selected_text + close_char)
 
-                # Move cursor to after the opening character and keep the selection
-                cursor.setPosition(cursor.position() - len(selected_text) - 1)
-                cursor.movePosition(MO.Right, MM.KeepAnchor, len(selected_text))
+                # Keep the selection, now inside the pair
+                start = cursor.position() - sel_len - 1
+                cursor.setPosition(start)
+                cursor.setPosition(start + sel_len, MM.KeepAnchor)
                 citer.update_offset(2)
                 citer.cursor_completed()
                 continue
 
-            elif open_char in self._common:
+            if open_char in self._common:
                 line = cursor.block().text()
                 col = min(cursor.positionInBlock(), len(line))
-
-                if self._should_skip_triple_quote(open_char, line, col):
-                    cursor.movePosition(MO.Right, MM.MoveAnchor, 3)
-                    continue
-
-                if self._should_skip_quote(open_char, line, col):
-                    cursor.movePosition(MO.Right, MM.MoveAnchor, 1)
-                    continue
-
-                tc_handle, delta = self._handle_triple_quote(
-                    cursor, open_char, line, col
-                )
-                if tc_handle:
-                    citer.update_offset(delta)
+                if self._insert_triple_quote(cursor, open_char, line, col):
+                    citer.update_offset(4)
                     citer.cursor_completed()
                     continue
 
@@ -227,14 +153,15 @@ class AutoBracket(Behavior):
             citer.update_offset(2)
             citer.cursor_completed()
 
-    def skip_closing(self, open_char: str):
+    def skip_closing(self, close_char: str):
         """Skip over a closing character if it's already there"""
-
         citer = self.editor.citer
         for cursor in citer.iterate_cursors():
+            # Typing over a selection replaces or wraps it instead
+            if cursor.hasSelection():
+                continue
             cursor.movePosition(MO.Right, MM.KeepAnchor, 1)
-            text = cursor.selectedText()
-            if text == open_char:
+            if cursor.selectedText() == close_char:
                 cursor.setPosition(cursor.position())
                 citer.cursor_completed()
             else:

@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Collection
 
 from Qt import QtGui, QtWidgets
-from tree_sitter import Point
 
 from . import Behavior
 
@@ -14,9 +13,7 @@ if TYPE_CHECKING:
 class HighlightMatchingBrackets(Behavior):
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
-        self.setListen(
-            {"colors", "highlight_bracket_pairs", "highlight_quote_pairs"}
-        )
+        self.setListen({"colors", "highlight_bracket_pairs", "highlight_quote_pairs"})
 
         self._pair_hl: QtGui.QColor
         self.highlight_quote_chars: str = "`'\""
@@ -42,6 +39,11 @@ class HighlightMatchingBrackets(Behavior):
         self.bracket_pairs.update({p[1]: p[0] for p in self.ordered_pairs})
 
     highlight_bracket_pairs = property(None, update_pairs)
+
+    def remove(self):
+        super().remove()
+        self.editor.cursorPositionChanged.disconnect(self.highlight_matching_brackets)
+        self.editor.clear_selections("bracket_matching")
 
     def highlight_matching_brackets(self):
         """Highlight matching brackets/parens/braces using tree-sitter"""
@@ -108,18 +110,8 @@ class HighlightMatchingBrackets(Behavior):
         Returns:
             Tree-sitter node or None
         """
-        try:
-            match_block = self.editor._doc.findBlock(pos)
-            match_block_start = match_block.position()
-            match_char_col = pos - match_block_start
-            match_row = match_block.blockNumber()
-
-            match_byte = self.editor._doc.point_to_byte(
-                Point(match_row, match_char_col)
-            )
-            return self.editor.tree_manager.get_node_at_point(match_byte)
-        except (IndexError, ValueError):
-            return None
+        # Each UTF-16 code unit is 2 bytes
+        return self.editor.tree_manager.get_node_at_point(pos * 2)
 
     def _highlight_matching_quotes(self, node, match_pos: int) -> list:
         """Highlight matching quotes for strings
@@ -165,9 +157,7 @@ class HighlightMatchingBrackets(Behavior):
         )
         string_text = string_cursor.selectedText()
 
-        quote_len = (
-            3 if string_text.startswith(('"""', "'''")) else 1
-        )
+        quote_len = 3 if string_text.startswith(('"""', "'''")) else 1
 
         # Determine which quotes to highlight
         opening_end = string_start_char + quote_len
@@ -260,7 +250,8 @@ class HighlightMatchingBrackets(Behavior):
         # Search siblings for the matching bracket
         for sibling in parent.children:
             if sibling.type == matching_bracket_type:
-                if is_opening and sibling.start_byte > node.start_byte or not is_opening and sibling.start_byte < node.start_byte:
+                # Opening brackets match forwards, and closing brackets match backwards
+                if (sibling.start_byte > node.start_byte) == is_opening:
                     return sibling
 
         return None

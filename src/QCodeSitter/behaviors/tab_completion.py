@@ -4,10 +4,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Collection, TypeVar
 
 from Qt import QtCore, QtGui, QtWidgets
-from tree_sitter import Node, Point, Tree
+from tree_sitter import Node, Tree
 
-# QGuiApplication is not re-exported by Qt.py, so import directly
-from ..qt_missing import QGuiApplication
+from ..utils import len16
 from . import Behavior
 from .providers import Provider
 
@@ -195,11 +194,11 @@ class CompletionPopup(QtWidgets.QListWidget):
 
         # Check if popup fits below cursor, otherwise show above
         # Qt 6 compatible: use screen() instead of deprecated desktop()
-        screen = QGuiApplication.screenAt(
+        screen = QtGui.QGuiApplication.screenAt(
             self.editor.mapToGlobal(self.editor.rect().center())
         )
         if screen is None:
-            screen = QGuiApplication.primaryScreen()
+            screen = QtGui.QGuiApplication.primaryScreen()
         screen_geom = screen.availableGeometry()
 
         if popup_pos.y() + self.height() > screen_geom.bottom():
@@ -220,7 +219,7 @@ class CompletionPopup(QtWidgets.QListWidget):
         cursor = self.editor.textCursor()
 
         # Calculate how many characters to remove (the prefix length)
-        prefix_len = len(self.current_prefix)
+        prefix_len = len16(self.current_prefix)
 
         # Select the prefix and replace it with the completion text in one operation
         # Using a single operation prevents multiple tree-sitter edit notifications
@@ -279,6 +278,14 @@ class TabCompletion(Behavior):
         ret = providercls(self)
         self._providers.append(ret)
         return ret
+
+    def remove(self):
+        super().remove()
+        self.editor.cursorPositionChanged.disconnect(self.on_cursor_changed)
+        self.editor.textChanged.disconnect(self.on_text_changed)
+        self.debounce_timer.stop()
+        self.completion_popup.hide()
+        self.completion_popup.deleteLater()
 
     def on_text_changed(self):
         """Called when text changes - indicates typing is happening"""
@@ -390,16 +397,10 @@ class TabCompletion(Behavior):
         # Extract prefix (word before cursor)
         start, prefix = self._extract_prefix(full_line, char_col)
 
-        # Get tree-sitter node at cursor position
-        node = None
-        if self.editor.tree_manager.tree:
-            try:
-                # With UTF-16, character column IS the code unit column
-                pt = Point(line_num, char_col)
-                byte_offset = self.editor.document().point_to_byte(pt)
-                node = self.editor.tree_manager.get_node_at_point(byte_offset)
-            except (IndexError, ValueError):
-                pass
+        # Get tree-sitter node at cursor position. Each UTF-16 code unit is 2 bytes
+        node = self.editor.tree_manager.get_node_at_point(
+            (block.position() + char_col) * 2
+        )
 
         return CompletionContext(
             line_num=line_num,

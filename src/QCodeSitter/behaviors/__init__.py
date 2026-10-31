@@ -27,10 +27,13 @@ class Behavior:
     def updateOptions(self, keys: Collection[str]):
         carekeys = set(keys) & self.listen
         for key in carekeys:
-            setattr(self, key, self.options[key])
+            # Keep the behavior's default for any option that isn't set
+            if key in self.options:
+                setattr(self, key, self.options[key])
 
     def remove(self):
-        pass
+        """Disconnect from the editor. Subclasses should call this too"""
+        self.options.optionsUpdated.disconnect(self.updateOptions)
 
     def getHotkeys(self) -> list[QtWidgets.QAction]:
         return []

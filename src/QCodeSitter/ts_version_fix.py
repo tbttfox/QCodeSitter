@@ -9,6 +9,7 @@ def _predicate_kwargs(predicate: Callable | None) -> dict:
     # Tree-sitter doesn't accept predicate=None
     return {} if predicate is None else {"predicate": predicate}
 
+
 if TYPE_CHECKING:
     from tree_sitter import Node
 

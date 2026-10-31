@@ -65,15 +65,11 @@ class GutterWidget(QtWidgets.QWidget):
         if dy:
             self.scroll(0, dy)
         else:
-            xpos = 0
-            for name in self.editor.gutterOrder:
-                if name == self.name:
-                    break
-                xpos += self.editor.gutterWidths[name]
-            self.update(xpos, rect.y(), self.width(), rect.height())
+            # Repaint the rows of the gutter that changed in the viewport
+            self.update(0, rect.y(), self.width(), rect.height())
 
         if rect.contains(self.editor.viewport().rect()):
             self.update_width()
 
     def paintEvent(self, event: QtGui.QPaintEvent):
-        raise NotImplementedError("width_hint must be defined")
+        raise NotImplementedError("paintEvent must be defined")

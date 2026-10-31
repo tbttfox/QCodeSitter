@@ -102,24 +102,18 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
         if not block.isValid():
             return
 
-        block_num = block.blockNumber()
         # Qt positions are UTF-16 code units, but python's len counts code points
         # so they differ when the text contains characters outside the BMP
         text_len = len16(text)
 
-        # Get document bounds safely
-        try:
-            block_start_char = block.position()
-            block_start_byte = self._doc.line_to_byte(block_num)
-
-            # Calculate end UTF-16 offset including newline if not last line
-            if block.next().isValid():
-                block_end_byte = self._doc.line_to_byte(block_num + 1)
-            else:
-                block_end_byte = block_start_byte + text_len * 2
-        except (IndexError, RuntimeError):
-            # Block number is out of range - document changed during highlighting
-            return
+        # Each UTF-16 code unit is 2 bytes. The end includes the newline if there is one
+        block_start_char = block.position()
+        block_start_byte = block_start_char * 2
+        next_block = block.next()
+        if next_block.isValid():
+            block_end_byte = next_block.position() * 2
+        else:
+            block_end_byte = block_start_byte + text_len * 2
 
         # Skip highlighting for empty blocks (can happen during undo to empty document)
         if block_start_byte >= block_end_byte:
@@ -148,31 +142,11 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
                 if node.start_byte > block_end_byte:
                     continue
 
-                try:
-                    # With UTF-16, byte offsets ARE character indexes
-                    start_char = self._doc.byte_to_char(node.start_byte)
-                    end_char = self._doc.byte_to_char(node.end_byte)
-                except (IndexError, ValueError):
-                    # Position is beyond current document bounds
-                    continue
-
-                # Convert to block-local and clamp to boundaries
-                local_start = start_char - block_start_char
-                local_end = end_char - block_start_char
-
-                # Clamp to [0, text_len]
-                local_start = max(0, local_start)
-                local_end = min(text_len, local_end)
-                local_len = local_end - local_start
-
-                # Apply format if valid range
-                if local_len > 0:
-                    self.setFormat(local_start, local_len, fmt)
-
-
-class DummyHighlighter(QtGui.QSyntaxHighlighter):
-    def highlightBlock(self, text):
-        return
+                # Convert to block-local UTF-16 positions, clamped to [0, text_len]
+                local_start = max(0, node.start_byte // 2 - block_start_char)
+                local_end = min(text_len, node.end_byte // 2 - block_start_char)
+                if local_end > local_start:
+                    self.setFormat(local_start, local_end - local_start, fmt)
 
 
 class SyntaxHighlighting(Behavior):
@@ -181,18 +155,13 @@ class SyntaxHighlighting(Behavior):
         self.setListen({"highlights"})
         self._highlights = None
         self.highlighter: TreeSitterHighlighter | None = None
-        self.editor.behaviorPrepareUndo.connect(self.prepareUndo)
-        self.editor.behaviorPrepareRedo.connect(self.prepareRedo)
+        self.editor.behaviorPrepareUndo.connect(self.prepareUndoRedo)
+        self.editor.behaviorPrepareRedo.connect(self.prepareUndoRedo)
         self.editor.behaviorAfterUndoRedo.connect(self.afterUndoRedo)
         self.updateAll()
 
-    def prepareUndo(self):
-        """Disable highlighting before undo to prevent stale tree issues"""
-        if self.highlighter:
-            self.highlighter._enabled = False
-
-    def prepareRedo(self):
-        """Disable highlighting before redo to prevent stale tree issues"""
+    def prepareUndoRedo(self):
+        """Disable highlighting before undo/redo to prevent stale tree issues"""
         if self.highlighter:
             self.highlighter._enabled = False
 
@@ -269,11 +238,9 @@ class SyntaxHighlighting(Behavior):
                 block = block.next()
 
     def remove(self):
-        self.editor.behaviorPrepareUndo.disconnect(self.prepareUndo)
-        self.editor.behaviorPrepareRedo.disconnect(self.prepareRedo)
+        super().remove()
+        self.editor.behaviorPrepareUndo.disconnect(self.prepareUndoRedo)
+        self.editor.behaviorPrepareRedo.disconnect(self.prepareUndoRedo)
         self.editor.behaviorAfterUndoRedo.disconnect(self.afterUndoRedo)
+        # Detaching the highlighter from the document also clears its formats
         self._detachHighlighter()
-
-        mydoc = self.editor.document()
-        newHigh = DummyHighlighter(mydoc)
-        newHigh.rehighlight()

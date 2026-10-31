@@ -42,7 +42,7 @@ def python_language():
 
 
 @pytest.fixture
-def default_options(python_language):
+def default_options(qapp, python_language):
     """Create default editor options for testing."""
 
     col, syn = read_theme(DARK_THEME)
@@ -68,7 +68,7 @@ def default_options(python_language):
 
 
 @pytest.fixture
-def minimal_options(python_language):
+def minimal_options(qapp, python_language):
     """Create minimal editor options (no behaviors)."""
     col, _syn = read_theme(DARK_THEME)
     return EditorOptions(

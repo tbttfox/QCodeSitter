@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from Qt import QtGui, QtWidgets
 
-from ..utils import len16
+from ..utils import expand_to_lines, len16
 from . import Behavior
 
 if TYPE_CHECKING:
@@ -19,7 +19,6 @@ COMMENT_PREFIXES: dict[str, str] = {
     "bash": "# ",
 }
 
-MO = QtGui.QTextCursor.MoveOperation
 MM = QtGui.QTextCursor.MoveMode
 
 
@@ -38,30 +37,14 @@ class CommentToggle(Behavior):
         return [action]
 
     def toggle_comment(self):
-        self.editor.tree_manager.pause()
-        try:
-            citer = self.editor.citer
-            citer.get()
+        citer = self.editor.citer
+        with self.editor.edit_session():
             for cursor in citer.iterate_cursors():
                 self._toggle_for_cursor(cursor, citer)
-        finally:
-            self.editor.tree_manager.unpause()
 
     def _toggle_for_cursor(self, cursor: QtGui.QTextCursor, citer):
         prefix = self._comment_prefix
-
-        # Expand to full lines
-        if cursor.hasSelection():
-            start = cursor.selectionStart()
-            end = cursor.selectionEnd()
-        else:
-            start = cursor.position()
-            end = start
-
-        cursor.setPosition(start)
-        cursor.movePosition(MO.StartOfLine)
-        cursor.setPosition(end, MM.KeepAnchor)
-        cursor.movePosition(MO.EndOfLine, MM.KeepAnchor)
+        expand_to_lines(cursor)
 
         start_pos = cursor.selectionStart()
         end_pos = cursor.selectionEnd()

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from Qt import QtCore, QtGui, QtWidgets
 
-from ..utils import dedent_string, len16
+from ..utils import dedent_string, expand_to_lines, len16
 from . import Behavior
 
 if TYPE_CHECKING:
@@ -21,9 +21,7 @@ class SmartIndent(Behavior):
         self.indent_using_tabs: bool = False
         self.indent_bracket_pairs: list[str] = ["()", "{}", "[]"]
 
-        super().__init__(
-            editor,
-        )
+        super().__init__(editor)
 
         self.uiRetabAction = QtWidgets.QAction("Retab", self.editor)
         self.uiRetabAction.triggered.connect(self.retab)
@@ -50,16 +48,16 @@ class SmartIndent(Behavior):
     @tab_indent_width.setter
     def tab_indent_width(self, val: int):
         self._tab_indent_width = val
+        self._update_tab_stop()
+
+    def _update_tab_stop(self):
         metrics = QtGui.QFontMetrics(self.editor.font())
         self.editor.setTabStopDistance(
             self.tab_indent_width * metrics.horizontalAdvance(" ")
         )
 
     def _font(self, _val: QtGui.QFont):
-        metrics = QtGui.QFontMetrics(self.editor.font())
-        self.editor.setTabStopDistance(
-            self.tab_indent_width * metrics.horizontalAdvance(" ")
-        )
+        self._update_tab_stop()
 
     font = property(None, _font)
 
@@ -83,22 +81,6 @@ class SmartIndent(Behavior):
                 self.smartClosingBracket(text)
         return False
 
-    def expandCursorToLines(self, cursor: QtGui.QTextCursor):
-        """Expand a cursor selection to whole lines
-        If there is no selection, expand to the current line
-        """
-        if cursor.hasSelection():
-            start = cursor.selectionStart()
-            end = cursor.selectionEnd()
-        else:
-            start = cursor.position()
-            end = start
-
-        cursor.setPosition(start)
-        cursor.movePosition(MO.StartOfLine)
-        cursor.setPosition(end, MM.KeepAnchor)
-        cursor.movePosition(MO.EndOfLine, MM.KeepAnchor)
-
     def _get_one_indent(self):
         if self.indent_using_tabs:
             return "\t"
@@ -110,14 +92,9 @@ class SmartIndent(Behavior):
         This is a pure calculation function with no side effects - it just determines
         what indent string should be inserted based on the syntax and cursor position.
 
-        Args:
-            line_num: The line number (0-indexed)
-            col: The column position in the line
-            line_text: The text of the current line
-            indent: The current indentation of the line
-
         Returns:
             The complete indentation string to insert (may include extra indent or dedent)
+            How far to move the cursor after inserting it
         """
         # Get current line text and indentation
         block = cursor.block()
@@ -155,7 +132,7 @@ class SmartIndent(Behavior):
             return indent + extra_indent + "\n" + indent, -(len(indent) + 1)
 
         # Look at the position just before the cursor to find the statement we just finished
-        lookup_col = max(0, col - 1) if col > 0 else 0
+        lookup_col = col - 1
 
         # Determine indent action based on syntax analysis
         saz = self.editor.syntax_analyzer
@@ -206,50 +183,47 @@ class SmartIndent(Behavior):
                 if self.indent_using_tabs:
                     indent = "\t"
                 else:
+                    # Indent to the next tab stop
                     pos = cursor.positionInBlock()
-                    indentCount = pos % self.space_indent_width
-                    if indentCount == 0:
-                        indentCount = self.space_indent_width
-                    indent = " " * indentCount
+                    width = self.space_indent_width
+                    indent = " " * (width - pos % width)
                 cursor.insertText(indent)
                 citer.update_offset(len16(indent))
                 citer.cursor_completed()
                 continue
-            else:
-                self.expandCursorToLines(cursor)
-                start_pos = cursor.selectionStart()
-                end_pos = cursor.selectionEnd()
-                text = cursor.selection().toPlainText()
-                lines = text.split("\n")
-                if self.indent_using_tabs:
-                    indent = "\t"
-                else:
-                    indent = " " * self.space_indent_width
-                lines = [
-                    indent + line if line.strip() != "" else line for line in lines
-                ]
-                ins = "\n".join(lines)
-                old_size = end_pos - start_pos
-                ins_size = len16(ins)
-                cursor.insertText(ins)
-                citer.update_offset(ins_size - old_size)
 
-                # Restore selection, adjusting for the added indent
-                cursor.setPosition(start_pos)
-                cursor.setPosition(start_pos + ins_size, MM.KeepAnchor)
-                citer.cursor_completed()
+            expand_to_lines(cursor)
+            start_pos = cursor.selectionStart()
+            end_pos = cursor.selectionEnd()
+            text = cursor.selection().toPlainText()
+            indent = self._get_one_indent()
+            lines = [
+                indent + line if line.strip() else line for line in text.split("\n")
+            ]
+            ins = "\n".join(lines)
+            old_size = end_pos - start_pos
+            ins_size = len16(ins)
+            cursor.insertText(ins)
+            citer.update_offset(ins_size - old_size)
+
+            # Restore selection, adjusting for the added indent
+            cursor.setPosition(start_pos)
+            cursor.setPosition(start_pos + ins_size, MM.KeepAnchor)
+            citer.cursor_completed()
 
     def unindent(self):
         """Unindent the given cursor, either a single line or all the lines in a selection"""
         citer = self.editor.citer
         for cursor in citer.iterate_cursors():
-            self.expandCursorToLines(cursor)
+            expand_to_lines(cursor)
             start_pos = cursor.selectionStart()
             end_pos = cursor.selectionEnd()
             text = cursor.selection().toPlainText()
             lines = text.split("\n")
             if self.indent_using_tabs:
-                newlines = [line[1:] if line[0] == "\t" else line for line in lines]
+                newlines = [
+                    line[1:] if line.startswith("\t") else line for line in lines
+                ]
             else:
                 newlines = [
                     line[: self.space_indent_width].lstrip(" ")
@@ -284,10 +258,7 @@ class SmartIndent(Behavior):
             # Check if all preceding characters are spaces
             # This is only dealing with whitespace, so we don't have to worry about encoding
             text = cursor.block().text()
-            lset = set(text[:col])
-            if len(lset) != 1:
-                continue
-            if lset.pop() != " ":
+            if set(text[:col]) != {" "}:
                 continue
 
             # Delete up to the tabstop
@@ -303,7 +274,6 @@ class SmartIndent(Behavior):
         """Auto-dedent when typing a closing bracket if the line only contains whitespace
 
         Args:
-            cursor: The text cursor
             bracket: The closing bracket character (']', ')', or '}')
         """
         citer = self.editor.citer
@@ -345,7 +315,7 @@ class SmartIndent(Behavior):
             oldlen = cursor.selectionEnd() - cursor.selectionStart()
             newtxt = dedented_indent + bracket
             newlen = len16(newtxt)
-            cursor.insertText(dedented_indent + bracket)
+            cursor.insertText(newtxt)
 
             citer.update_offset(newlen - oldlen)
             citer.cursor_completed()

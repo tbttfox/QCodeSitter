@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from Qt import QtCore, QtGui, QtWidgets
 from tree_sitter import Language, Node, Query, Tree
@@ -50,6 +50,8 @@ class FoldingGutterArea(GutterWidget):
         self.fold_ellipsis_fg_color = QtGui.QColor(120, 120, 120, 200)
 
         self.regions: list[FoldableRegion] = []
+        # The outermost region starting on each line, for painting and clicking
+        self._region_starts: dict[int, FoldableRegion] = {}
 
         # Size of the fold icon (smaller for less width)
         self.icon_size = 9
@@ -71,8 +73,11 @@ class FoldingGutterArea(GutterWidget):
         return 10 + self.fontMetrics().horizontalAdvance("9") * digits
 
     def set_regions(self, regions: list[FoldableRegion]):
-        """Update the list of foldable regions"""
+        """Update the list of foldable regions, sorted by start line"""
         self.regions = regions
+        self._region_starts = {}
+        for region in regions:
+            self._region_starts.setdefault(region.start_line, region)
         self.update()
 
     def paintEvent(self, event: QtGui.QPaintEvent):
@@ -104,10 +109,7 @@ class FoldingGutterArea(GutterWidget):
 
     def _get_region_starting_at(self, line: int) -> FoldableRegion | None:
         """Get the foldable region that starts at the given line"""
-        for region in self.regions:
-            if region.start_line == line:
-                return region
-        return None
+        return self._region_starts.get(line)
 
     def _draw_fold_indicator(
         self, painter: QtGui.QPainter, top: float, region: FoldableRegion
@@ -259,14 +261,10 @@ class FoldingGutterArea(GutterWidget):
             ellipsis_x = text_width + self.editor.fontMetrics().horizontalAdvance(" ")
             ellipsis_y = int(block_geom.top() + self.editor.fontMetrics().ascent())
 
-            # Calculate line count
+            # The lines after the start line are hidden, maybe excluding the last one
             num_hidden = region.end_line - region.start_line
-            if region.hide_last_line:
-                num_hidden += 1
-            else:
+            if not region.hide_last_line:
                 num_hidden -= 1
-
-            num_hidden -= 1
             plural = "s" if num_hidden > 1 else ""
 
             # Draw ellipsis and line count
@@ -376,7 +374,7 @@ class CodeFolding(Behavior):
         # Add back manual folds
         regions.extend(manual_folds)
 
-        # Sort regions by start line
+        # Sort regions by start line. The sort is stable, so parents stay first
         regions.sort(key=lambda r: r.start_line)
 
         self.folding_area.set_regions(regions)
@@ -386,7 +384,8 @@ class CodeFolding(Behavior):
         if language != self._query_language:
             self._query_language = language
             types = [
-                t for t in sorted(self.FOLDABLE_TYPES)
+                t
+                for t in sorted(self.FOLDABLE_TYPES)
                 if language.id_for_node_kind(t, True)
             ]
             source = "[{}] @fold".format(" ".join(f"({t})" for t in types))
@@ -430,20 +429,28 @@ class CodeFolding(Behavior):
                 )
         return regions
 
+    def _set_folded(self, should_fold: Callable[[FoldableRegion], bool | None]):
+        """Fold or unfold every region
+
+        Args:
+            should_fold: Whether to fold a region, or None to leave it as is
+        """
+        for region in self.folding_area.regions:
+            fold = should_fold(region)
+            if fold is not None and region.is_folded != fold:
+                region.is_folded = fold
+                self.folding_area._apply_folding(region)
+
+        self.folding_area.update()
+        self.editor.viewport().update()
+
     def fold_to_level(self, max_depth: int):
         """Fold all regions at or deeper than the specified depth level
 
         Args:
             max_depth: Maximum depth to keep unfolded (0 = fold everything, 1 = keep top level visible, etc.)
         """
-        for region in self.folding_area.regions:
-            should_fold = region.depth >= max_depth
-            if region.is_folded != should_fold:
-                region.is_folded = should_fold
-                self.folding_area._apply_folding(region)
-
-        self.folding_area.update()
-        self.editor.viewport().update()
+        self._set_folded(lambda r: r.depth >= max_depth)
 
     def unfold_to_level(self, max_depth: int):
         """Unfold all regions up to and including the specified depth level
@@ -451,34 +458,15 @@ class CodeFolding(Behavior):
         Args:
             max_depth: Maximum depth to unfold (0 = unfold top level only, 1 = unfold top and next level, etc.)
         """
-        for region in self.folding_area.regions:
-            should_unfold = region.depth <= max_depth
-            if should_unfold and region.is_folded:
-                region.is_folded = False
-                self.folding_area._apply_folding(region)
-
-        self.folding_area.update()
-        self.editor.viewport().update()
+        self._set_folded(lambda r: False if r.depth <= max_depth else None)
 
     def fold_all(self):
         """Fold all foldable regions"""
-        for region in self.folding_area.regions:
-            if not region.is_folded:
-                region.is_folded = True
-                self.folding_area._apply_folding(region)
-
-        self.folding_area.update()
-        self.editor.viewport().update()
+        self._set_folded(lambda r: True)
 
     def unfold_all(self):
         """Unfold all foldable regions"""
-        for region in self.folding_area.regions:
-            if region.is_folded:
-                region.is_folded = False
-                self.folding_area._apply_folding(region)
-
-        self.folding_area.update()
-        self.editor.viewport().update()
+        self._set_folded(lambda r: False)
 
     def create_manual_fold(self):
         """Create a manual fold from the current selection
@@ -516,11 +504,9 @@ class CodeFolding(Behavior):
             depth=0,  # Manual folds are always depth 0
         )
 
-        # Add to regions list
-        self.folding_area.regions.append(new_region)
-
-        # Sort regions by start line
-        self.folding_area.regions.sort(key=lambda r: r.start_line)
+        regions = [*self.folding_area.regions, new_region]
+        regions.sort(key=lambda r: r.start_line)
+        self.folding_area.set_regions(regions)
 
         # Immediately fold it
         new_region.is_folded = True
@@ -548,6 +534,7 @@ class CodeFolding(Behavior):
 
     def remove(self):
         """Clean up when behavior is removed"""
+        super().remove()
         self.editor.tree_manager.reparsed.disconnect(self._update_foldable_regions)
         self.editor.viewport().removeEventFilter(self.folding_area)
 
@@ -576,10 +563,11 @@ class CodeFolding(Behavior):
         _action("Create Manual Fold", "Ctrl+Shift+.", self.create_manual_fold)
 
         for i in range(10):
+            # triggered passes a `checked` bool, so take that before the level
             _action(
                 f"Fold to Level {i}",
                 f"Ctrl+{i}",
-                lambda level=i: self.fold_to_level(level),
+                lambda _checked=False, level=i: self.fold_to_level(level),
             )
 
         return actions

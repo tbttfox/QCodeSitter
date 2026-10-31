@@ -32,16 +32,6 @@ class TrackedDocument(QtGui.QTextDocument):
         block = self.findBlockByNumber(point.row)
         return block.position() + point.column
 
-    def line_to_byte(self, line: int) -> int:
-        """Get the document-global UTF-16 byte offset for the start of a line
-
-        Returns:
-            Byte offset in UTF-16LE encoding (for tree-sitter)
-        """
-        block = self.findBlockByNumber(line)
-        # Convert code unit position to byte offset (2 bytes per code unit)
-        return block.position() * 2
-
     def point_to_byte(self, point: Point) -> int:
         """Get the document-global UTF-16 byte offset from a tree-sitter Point
 
@@ -66,9 +56,7 @@ class TrackedDocument(QtGui.QTextDocument):
         # Tree-sitter returns byte offsets. In UTF-16LE, each code unit is 2 bytes
         return byteidx // 2
 
-    def manual_contents_change(
-        self, position: int, bytes_removed: bytes, bytes_added: bytes
-    ):
+    def manual_contents_change(self, position: int, removed: str, added: str):
         """Handle document content changes incrementally.
 
         Emits a byteContentsChange Signal containing this data:
@@ -81,32 +69,32 @@ class TrackedDocument(QtGui.QTextDocument):
 
         Args:
             position: UTF-16 code unit position where change occurred
-            bytes_removed: The bytestring removed from the document if any
-            bytes_added: The bytestring added to the document if any
+            removed: The text removed from the document if any
+            added: The text added to the document if any
         """
         start_block = self.findBlock(position)
         start_line = start_block.blockNumber()
-        bytenewline = "\n".encode(ENC)
+        start_col = (position - start_block.position()) * 2
+        start_byte = position * 2
 
-        lines_removed = bytes_removed.count(bytenewline)
-        lines_added = bytes_added.count(bytenewline)
+        def end_point(text: str) -> tuple[int, Point]:
+            """Get the end byte and end point of text inserted at position"""
+            # QTextCursor.selectedText uses the paragraph separator for newlines
+            text = text.replace(" ", "\n")
+            lines = text.count("\n")
+            if lines == 0:
+                col = start_col + len(text.encode(ENC))
+            else:
+                col = len(text[text.rfind("\n") + 1 :].encode(ENC))
+            return start_byte + len(text.encode(ENC)), Point(start_line + lines, col)
 
-        pos_in_block = position - start_block.position()
-        if lines_removed == 0:
-            old_end_pib = (pos_in_block * 2) + len(bytes_removed)
-        else:
-            old_end_pib = len(bytes_removed.rsplit(bytenewline)[-1])
-
-        if lines_added == 0:
-            new_end_pib = (pos_in_block * 2) + len(bytes_added)
-        else:
-            new_end_pib = len(bytes_added.rsplit(bytenewline)[-1])
-
+        old_end_byte, old_end_point = end_point(removed)
+        new_end_byte, new_end_point = end_point(added)
         self.byteContentsChange.emit(
-            position * 2,
-            position * 2 + len(bytes_removed),
-            position * 2 + len(bytes_added),
-            Point(start_line, pos_in_block * 2),
-            Point(start_line + lines_removed, old_end_pib),
-            Point(start_line + lines_added, new_end_pib),
+            start_byte,
+            old_end_byte,
+            new_end_byte,
+            Point(start_line, start_col),
+            old_end_point,
+            new_end_point,
         )

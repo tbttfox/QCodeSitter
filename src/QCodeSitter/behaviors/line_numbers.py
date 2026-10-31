@@ -90,6 +90,7 @@ class LineNumber(Behavior):
     colors = property(None, _colors)
 
     def remove(self):
+        super().remove()
         self.line_number_area.clear_width()
         self.line_number_area.deleteLater()
         self.line_number_area = None  # type: ignore
