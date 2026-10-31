@@ -1,5 +1,7 @@
 from __future__ import annotations
-from typing import Collection, TYPE_CHECKING
+
+from typing import TYPE_CHECKING, Collection
+
 from Qt import QtGui, QtWidgets
 
 if TYPE_CHECKING:

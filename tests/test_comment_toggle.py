@@ -7,12 +7,8 @@ multi-cursor, and edge cases.
 
 from __future__ import annotations
 
-import pytest
-from Qt import QtCore, QtGui
-
-from QCodeSitter.code_editor import CursorState
 from QCodeSitter.behaviors.comment_toggle import CommentToggle
-
+from QCodeSitter.code_editor import CursorState
 from tests.helpers import (
     set_cursor_position,
     set_cursor_selection,

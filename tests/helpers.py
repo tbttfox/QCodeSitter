@@ -4,7 +4,7 @@ Helper functions for QCodeSitter tests.
 
 from __future__ import annotations
 
-from Qt import QtGui, QtCore
+from Qt import QtCore, QtGui
 
 from QCodeSitter.code_editor import CodeEditor
 

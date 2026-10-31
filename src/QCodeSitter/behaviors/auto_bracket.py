@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
-from Qt import QtGui, QtCore
+
+from Qt import QtCore, QtGui
 
 from . import Behavior
 
@@ -13,7 +15,7 @@ MO = QtGui.QTextCursor.MoveOperation
 
 def _build_pair_from_str(pair_str):
     pairs = {pair_str[i]: pair_str[i + 1] for i in range(0, len(pair_str), 2)}
-    common = set(k for k, v in pairs.items() if k == v)
+    common = {k for k, v in pairs.items() if k == v}
     return pairs, common
 
 

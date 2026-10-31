@@ -29,3 +29,6 @@ addopts = "-v --ignore=tests/test_fuzz.py"
 markers = [
     "fuzz: slow fuzz tests (run with: tox -e fuzz)",
 ]
+
+[tool.ruff.lint]
+ignore = ["SIM", "RUF012", "N999"]

@@ -1,8 +1,11 @@
 from __future__ import annotations
-from . import Behavior
+
 from typing import TYPE_CHECKING
-from Qt import QtGui, QtCore
+
+from Qt import QtCore, QtGui
+
 from ..gutter_widget import GutterWidget
+from . import Behavior
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor

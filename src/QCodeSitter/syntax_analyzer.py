@@ -1,6 +1,6 @@
 from __future__ import annotations
-from tree_sitter import Point, Node
-from typing import Optional
+
+from tree_sitter import Node, Point
 
 from .line_tracker import TrackedDocument
 from .tree_manager import TreeManager
@@ -174,7 +174,7 @@ class SyntaxAnalyzer:
 
         return False
 
-    def _find_child_by_type(self, node: Node, type_name: str) -> Optional[Node]:
+    def _find_child_by_type(self, node: Node, type_name: str) -> Node | None:
         """Find a direct child node with the given type
 
         Args:

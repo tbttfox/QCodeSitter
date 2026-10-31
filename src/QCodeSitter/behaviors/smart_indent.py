@@ -1,11 +1,11 @@
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
-from Qt import QtWidgets, QtGui, QtCore
+from Qt import QtCore, QtGui, QtWidgets
 
-
-from . import Behavior
 from ..utils import dedent_string, len16
+from . import Behavior
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor
@@ -164,7 +164,6 @@ class SmartIndent(Behavior):
 
         # Check if we should add indent (opening block)
         extra_indent = ""
-        dedent = False
         if saz.should_indent_after_position(line_num, lookup_col):
             extra_indent = self._get_one_indent()
 

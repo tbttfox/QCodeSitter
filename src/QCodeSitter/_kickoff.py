@@ -1,25 +1,28 @@
 # fmt: off
 import sys
-import tree_sitter_python as tspython
-from tree_sitter import Language
-from Qt import QtWidgets, QtGui
 
-from QCodeSitter.code_editor import CodeEditor
-from QCodeSitter.behaviors.smart_indent import SmartIndent
-from QCodeSitter.behaviors.line_numbers import LineNumber
-from QCodeSitter.behaviors.overscroll import Overscroll
-from QCodeSitter.behaviors.highlight_matching_selection import HighlightMatchingSelection
-from QCodeSitter.behaviors.highlight_matching_brackets import HighlightMatchingBrackets
-from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
-from QCodeSitter.behaviors.auto_bracket import AutoBracket
-from QCodeSitter.behaviors.tab_completion import TabCompletion
-from QCodeSitter.behaviors.providers.identifiers import IdentifierProvider
+import tree_sitter_python as tspython
+from Qt import QtGui, QtWidgets
+from tree_sitter import Language
+
 from QCodeSitter.behaviors.code_folding import CodeFolding
 from QCodeSitter.behaviors.comment_toggle import CommentToggle
+from QCodeSitter.behaviors.highlight_matching_brackets import HighlightMatchingBrackets
+from QCodeSitter.behaviors.highlight_matching_selection import (
+    HighlightMatchingSelection,
+)
+from QCodeSitter.behaviors.line_numbers import LineNumber
 from QCodeSitter.behaviors.multi_cursor_paint import MultiCursorPaint
+from QCodeSitter.behaviors.overscroll import Overscroll
+from QCodeSitter.behaviors.providers.identifiers import IdentifierProvider
+from QCodeSitter.behaviors.smart_indent import SmartIndent
+from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
+from QCodeSitter.behaviors.tab_completion import TabCompletion
+from QCodeSitter.code_editor import CodeEditor
 from QCodeSitter.editor_options import EditorOptions
-from QCodeSitter.hl_groups import DARK_THEME, LIGHT_THEME, read_theme
 from QCodeSitter.highlight_query import HIGHLIGHT_QUERY
+from QCodeSitter.hl_groups import DARK_THEME, read_theme
+
 # fmt: on
 
 

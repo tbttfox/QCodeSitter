@@ -1,11 +1,12 @@
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from Qt import QtGui, QtWidgets
 
-from . import Behavior
-from ..utils import len16
 from ..code_editor import CursorIterator
+from ..utils import len16
+from . import Behavior
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor
@@ -95,7 +96,7 @@ class CommentToggle(Behavior):
     def _line_is_commented(line: str, prefix: str) -> bool:
         stripped = line.lstrip()
         stripped_prefix = prefix.rstrip()
-        return stripped.startswith(prefix) or stripped.startswith(stripped_prefix)
+        return stripped.startswith((prefix, stripped_prefix))
 
     @staticmethod
     def _min_indent(lines: list[str]) -> int:

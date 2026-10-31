@@ -7,13 +7,12 @@ Tests TreeManager, SyntaxAnalyzer, TrackedDocument, and syntax highlighting.
 from __future__ import annotations
 
 import pytest
-from Qt import QtCore, QtGui
+from Qt import QtCore
 
-from QCodeSitter.line_tracker import TrackedDocument
-from QCodeSitter.tree_manager import TreeManager
-from QCodeSitter.syntax_analyzer import SyntaxAnalyzer
 from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
-
+from QCodeSitter.line_tracker import TrackedDocument
+from QCodeSitter.syntax_analyzer import SyntaxAnalyzer
+from QCodeSitter.tree_manager import TreeManager
 from tests.helpers import set_cursor_position, simulate_keypress
 
 

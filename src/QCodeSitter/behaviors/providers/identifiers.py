@@ -1,10 +1,11 @@
 from __future__ import annotations
+
 from tree_sitter import Query
-from typing import Optional
-from ..tab_completion import Completion, TabCompletion
+
 from ...constants import ENC
-from . import Provider
 from ...ts_version_fix import query_byte_range
+from ..tab_completion import Completion, TabCompletion
+from . import Provider
 
 
 class IdentifierProvider(Provider):
@@ -23,7 +24,7 @@ class IdentifierProvider(Provider):
 
     def __init__(self, tabcomplete: TabCompletion):
         super().__init__(tabcomplete)
-        self.query: Optional[Query] = None
+        self.query: Query | None = None
 
         tree = self.tabcomplete.last_tree
         if tree is None:
