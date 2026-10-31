@@ -1,10 +1,9 @@
 from __future__ import annotations
-import inspect
-from . import Provider
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from ..tab_completion import Completion
+import inspect
+
+from ..tab_completion import Completion
+from . import Provider
 
 
 class MainPythonProvider(Provider):

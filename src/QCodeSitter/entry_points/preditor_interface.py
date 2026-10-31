@@ -1,30 +1,33 @@
-import logging
+from __future__ import annotations
 
 from functools import partial
+
 import tree_sitter_python as tspython
-from tree_sitter import Language
-from Qt import QtGui, QtCore
-
-from ..code_editor import CodeEditor
-from ..behaviors.smart_indent import SmartIndent
-from ..behaviors.line_numbers import LineNumber
-from ..behaviors.overscroll import Overscroll
-from ..behaviors.highlight_matching_selection import HighlightMatchingSelection
-from ..behaviors.highlight_matching_brackets import HighlightMatchingBrackets
-from ..behaviors.comment_toggle import CommentToggle
-from ..behaviors.syntax_highlighting import SyntaxHighlighting
-from ..behaviors.auto_bracket import AutoBracket
-from ..behaviors.tab_completion import TabCompletion
-from ..behaviors.providers.identifiers import IdentifierProvider
-from ..behaviors.code_folding import CodeFolding
-from ..behaviors.multi_cursor_paint import MultiCursorPaint
-from ..editor_options import EditorOptions
-from ..hl_groups import DARK_THEME, LIGHT_THEME, read_theme, overlay_syntax, resolve_capture
-from ..highlight_query import HIGHLIGHT_QUERY
-
-
 from preditor.gui.workbox_mixin import WorkboxMixin
+from Qt import QtCore, QtGui
+from tree_sitter import Language
 
+from ..behaviors.code_folding import CodeFolding
+from ..behaviors.comment_toggle import CommentToggle
+from ..behaviors.highlight_matching_brackets import HighlightMatchingBrackets
+from ..behaviors.highlight_matching_selection import HighlightMatchingSelection
+from ..behaviors.line_numbers import LineNumber
+from ..behaviors.multi_cursor_paint import MultiCursorPaint
+from ..behaviors.overscroll import Overscroll
+from ..behaviors.providers.identifiers import IdentifierProvider
+from ..behaviors.smart_indent import SmartIndent
+from ..behaviors.syntax_highlighting import SyntaxHighlighting
+from ..behaviors.tab_completion import TabCompletion
+from ..code_editor import CodeEditor
+from ..editor_options import EditorOptions
+from ..highlight_query import HIGHLIGHT_QUERY
+from ..hl_groups import (
+    DARK_THEME,
+    LIGHT_THEME,
+    overlay_syntax,
+    read_theme,
+    resolve_capture,
+)
 
 _col, _syn = read_theme(LIGHT_THEME)
 DEFAULT_OPTIONS = EditorOptions(
@@ -335,7 +338,7 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         if self.process_shortcut(event):
             return
         else:
-            super(CodeSitterTextEdit, self).keyPressEvent(event)
+            super().keyPressEvent(event)
 
     def _set_theme_value(self, attrName, value):
         if self._theme_values.get(attrName) == value:

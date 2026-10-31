@@ -1,6 +1,9 @@
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from Qt import QtGui
-from typing import TYPE_CHECKING, Optional
+
 from .constants import ENC
 
 if TYPE_CHECKING:
@@ -43,7 +46,7 @@ class TrackedCursor(QtGui.QTextCursor):
         super().insertBlock(*args, **kwargs)
         self._doc.manual_contents_change(position, b"", bytes_added)
 
-    def insertText(self, text, format: Optional[QtGui.QTextCharFormat] = None):
+    def insertText(self, text, format: QtGui.QTextCharFormat | None = None):
         bytes_added = text.encode(ENC)
         if self.hasSelection():
             position = self.selectionStart()

@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
-from Qt import QtGui, QtCore, QtWidgets
+
+from Qt import QtCore, QtGui, QtWidgets
 
 if TYPE_CHECKING:
     from .code_editor import CodeEditor

@@ -1,12 +1,12 @@
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
-from Qt import QtGui, QtCore, QtWidgets
+from Qt import QtCore, QtGui, QtWidgets
 from tree_sitter import Node
 
 from ..gutter_widget import GutterWidget
 from . import Behavior
-
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor

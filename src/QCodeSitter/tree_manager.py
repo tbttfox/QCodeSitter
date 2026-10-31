@@ -1,11 +1,14 @@
 from __future__ import annotations
-from tree_sitter import Language, Parser, Tree, Point, Node
-from typing import Optional, TYPE_CHECKING
-from .constants import ENC
+
+from typing import TYPE_CHECKING
+
 from Qt import QtCore
+from tree_sitter import Language, Node, Parser, Point, Tree
+
+from .constants import ENC
 
 if TYPE_CHECKING:
-    from Qt import QtWidgets, QtGui
+    from Qt import QtWidgets
 
 
 class TreeManager(QtCore.QObject):
@@ -21,7 +24,7 @@ class TreeManager(QtCore.QObject):
     def __init__(
         self,
         editor: QtWidgets.QPlainTextEdit,
-        language: Optional[Language],
+        language: Language | None,
     ):
         """Initialize the tree manager
 
@@ -33,11 +36,11 @@ class TreeManager(QtCore.QObject):
         """
         super().__init__()
         self.editor = editor
-        self.parser: Optional[Parser] = None
+        self.parser: Parser | None = None
         if language is not None:
             self.parser = Parser(language)
 
-        self.tree: Optional[Tree] = None
+        self.tree: Tree | None = None
         self._source_callback = self.treesitter_source_callback
         self._paused = False
         self._pause_edit = False
@@ -103,7 +106,7 @@ class TreeManager(QtCore.QObject):
         start_point: Point,
         old_end_point: Point,
         new_end_point: Point,
-    ) -> Optional[Tree]:
+    ) -> Tree | None:
         """Incrementally update the parse tree after document changes
 
         Args:
@@ -125,7 +128,7 @@ class TreeManager(QtCore.QObject):
             )
         return self.reparse()
 
-    def reparse(self) -> Optional[Tree]:
+    def reparse(self) -> Tree | None:
         if self._paused:
             self._pause_edit = True
             return self.tree
@@ -143,7 +146,7 @@ class TreeManager(QtCore.QObject):
             self.reparsed.emit()
         return old_tree
 
-    def get_node_at_point(self, byte_offset: int) -> Optional[Node]:
+    def get_node_at_point(self, byte_offset: int) -> Node | None:
         """Get the AST node at a specific UTF-16 code unit offset
 
         Args:
@@ -157,7 +160,7 @@ class TreeManager(QtCore.QObject):
         return self.tree.root_node.descendant_for_byte_range(byte_offset, byte_offset)
 
     @property
-    def root_node(self) -> Optional[Node]:
+    def root_node(self) -> Node | None:
         """Get the root node of the parse tree
 
         Returns:

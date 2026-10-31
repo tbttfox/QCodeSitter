@@ -1,8 +1,11 @@
 from __future__ import annotations
-from . import Behavior
+
 from typing import TYPE_CHECKING, Collection
+
 from Qt import QtGui, QtWidgets
 from tree_sitter import Point
+
+from . import Behavior
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor
@@ -12,7 +15,7 @@ class HighlightMatchingBrackets(Behavior):
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
         self.setListen(
-            set(["colors", "highlight_bracket_pairs", "highlight_quote_pairs"])
+            {"colors", "highlight_bracket_pairs", "highlight_quote_pairs"}
         )
 
         self._pair_hl: QtGui.QColor
@@ -163,7 +166,7 @@ class HighlightMatchingBrackets(Behavior):
         string_text = string_cursor.selectedText()
 
         quote_len = (
-            3 if string_text.startswith('"""') or string_text.startswith("'''") else 1
+            3 if string_text.startswith(('"""', "'''")) else 1
         )
 
         # Determine which quotes to highlight

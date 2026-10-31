@@ -1,7 +1,10 @@
 from __future__ import annotations
-from . import Behavior
+
 from typing import TYPE_CHECKING
+
 from Qt import QtGui, QtWidgets
+
+from . import Behavior
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor
@@ -10,7 +13,7 @@ if TYPE_CHECKING:
 class HighlightMatchingSelection(Behavior):
     def __init__(self, editor: CodeEditor):
         super().__init__(editor)
-        self.setListen(set(["colors"]))
+        self.setListen({"colors"})
         self.editor.selectionChanged.connect(self.highlight_occurrences)
         self._match_hl: QtGui.QColor
         self.updateAll()

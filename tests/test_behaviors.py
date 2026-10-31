@@ -6,14 +6,11 @@ Tests AutoBracket, SmartIndent, and other pluggable behaviors.
 
 from __future__ import annotations
 
-import pytest
-from Qt import QtCore, QtGui
+from Qt import QtCore
 
-from QCodeSitter.behaviors.auto_bracket import AutoBracket
-from QCodeSitter.behaviors.smart_indent import SmartIndent
-from QCodeSitter.behaviors.line_numbers import LineNumber
 from QCodeSitter.behaviors.code_folding import CodeFolding
-
+from QCodeSitter.behaviors.line_numbers import LineNumber
+from QCodeSitter.behaviors.smart_indent import SmartIndent
 from tests.helpers import (
     set_cursor_position,
     set_cursor_selection,

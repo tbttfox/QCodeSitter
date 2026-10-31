@@ -1,17 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Collection, TypeVar
+
 from Qt import QtCore, QtGui, QtWidgets
+from tree_sitter import Node, Point, Tree
 
 # QGuiApplication is not re-exported by Qt.py, so import directly
 from ..qt_missing import QGuiApplication
-
-from dataclasses import dataclass
-from tree_sitter import Node, Point, Tree
-from typing import Optional, TYPE_CHECKING, Collection, Type, TypeVar
 from . import Behavior
-
 from .providers import Provider
-
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor
@@ -53,7 +51,7 @@ class CompletionContext:
     prefix: str  # Text being completed (e.g., "os.pat")
     start: int  # The start index of the prefix
     full_line: str  # Complete line text
-    node: Optional[Node]  # Tree-sitter node at cursor
+    node: Node | None  # Tree-sitter node at cursor
 
 
 class CompletionPopup(QtWidgets.QListWidget):
@@ -266,7 +264,7 @@ class TabCompletion(Behavior):
 
         self._providers: list[Provider] = []
 
-        self.last_tree: Optional[Tree] = None
+        self.last_tree: Tree | None = None
         self._last_context: CompletionContext = CompletionContext(0, 0, "", 0, "", None)
         self._typing_mode: bool = False  # Track if we're in active typing session
 
@@ -285,7 +283,7 @@ class TabCompletion(Behavior):
             self.last_tree = editor.tree_manager.tree
         self.updateAll()
 
-    def addProvider(self, providercls: Type[T_Provider]) -> T_Provider:
+    def addProvider(self, providercls: type[T_Provider]) -> T_Provider:
         ret = providercls(self)
         self._providers.append(ret)
         return ret

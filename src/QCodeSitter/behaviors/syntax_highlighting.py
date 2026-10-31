@@ -1,18 +1,20 @@
 from __future__ import annotations
 
-from . import Behavior
-from typing import TYPE_CHECKING, Optional, Any
+from typing import TYPE_CHECKING, Any
+
 from Qt import QtGui
 from tree_sitter import Query
-from ..ts_version_fix import query_byte_range
+
 from ..constants import ENC
 from ..hl_groups import resolve_capture
 from ..query_predicates import QueryPredicates, document_node_text, prepare_query_source
+from ..ts_version_fix import query_byte_range
+from . import Behavior
 
 if TYPE_CHECKING:
-    from ..tree_manager import TreeManager
-    from ..line_tracker import TrackedDocument
     from ..code_editor import CodeEditor
+    from ..line_tracker import TrackedDocument
+    from ..tree_manager import TreeManager
 
 
 class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
@@ -151,7 +153,7 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
                     # With UTF-16, byte offsets ARE character indexes
                     start_char = self._doc.byte_to_char(node.start_byte)
                     end_char = self._doc.byte_to_char(node.end_byte)
-                except (IndexError, ValueError) as e:
+                except (IndexError, ValueError):
                     # Position is beyond current document bounds
                     continue
 
@@ -179,7 +181,7 @@ class SyntaxHighlighting(Behavior):
         super().__init__(editor)
         self.setListen({"highlights"})
         self._highlights = None
-        self.highlighter: Optional[TreeSitterHighlighter] = None
+        self.highlighter: TreeSitterHighlighter | None = None
         self.editor.behaviorPrepareUndo.connect(self.prepareUndo)
         self.editor.behaviorPrepareRedo.connect(self.prepareRedo)
         self.editor.behaviorAfterUndoRedo.connect(self.afterUndoRedo)

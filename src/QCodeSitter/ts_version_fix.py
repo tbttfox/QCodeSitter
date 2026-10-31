@@ -1,9 +1,11 @@
 from __future__ import annotations
+
+from typing import TYPE_CHECKING, Callable
+
 from tree_sitter import Query
-from typing import TYPE_CHECKING, Callable, Optional
 
 
-def _predicate_kwargs(predicate: Optional[Callable]) -> dict:
+def _predicate_kwargs(predicate: Callable | None) -> dict:
     # Tree-sitter doesn't accept predicate=None
     return {} if predicate is None else {"predicate": predicate}
 
@@ -20,8 +22,8 @@ try:
         root: Node,
         start_byte: int,
         end_byte: int,
-        predicate: Optional[Callable] = None,
-    ) -> Optional[dict[str, list[Node]]]:
+        predicate: Callable | None = None,
+    ) -> dict[str, list[Node]] | None:
         try:
             cursor = QueryCursor(query)
             cursor.set_byte_range(start_byte, end_byte)
@@ -38,8 +40,8 @@ except ImportError:
         root: Node,
         start_byte: int,
         end_byte: int,
-        predicate: Optional[Callable] = None,
-    ) -> Optional[dict[str, list[Node]]]:
+        predicate: Callable | None = None,
+    ) -> dict[str, list[Node]] | None:
         try:
             query.set_byte_range((start_byte, end_byte))
             return query.captures(root, **_predicate_kwargs(predicate))

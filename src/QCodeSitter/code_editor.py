@@ -1,23 +1,21 @@
 from __future__ import annotations
-from typing import Union, Optional, Collection, Type, TypeVar
+
 import re
-
 from dataclasses import dataclass
-from Qt import QtGui
-from Qt import QtCore
-from Qt import QtWidgets
+from typing import Collection, TypeVar
 
+from Qt import QtCore, QtGui, QtWidgets
 from tree_sitter import Language
 
-from .constants import MIME
-from .utils import len16
 from .behaviors import Behavior
-from .line_tracker import TrackedDocument
-from .tree_manager import TreeManager
-from .syntax_analyzer import SyntaxAnalyzer
-from .editor_options import EditorOptions
-from .tracked_cursor import TrackedCursor
 from .behaviors.multi_cursor_paint import MultiCursorPaint
+from .constants import MIME
+from .editor_options import EditorOptions
+from .line_tracker import TrackedDocument
+from .syntax_analyzer import SyntaxAnalyzer
+from .tracked_cursor import TrackedCursor
+from .tree_manager import TreeManager
+from .utils import len16
 
 T_Behavior = TypeVar("T_Behavior", bound=Behavior)
 
@@ -321,8 +319,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.tree_manager.fullUpdate()
 
     def addBehavior(
-        self, behaviorCls: Type[T_Behavior]
-    ) -> tuple[Optional[T_Behavior], T_Behavior]:
+        self, behaviorCls: type[T_Behavior]
+    ) -> tuple[T_Behavior | None, T_Behavior]:
         """Set the given behavior to the class. If a behavior of the given type already exists, remove it
         Return both the old and newly instantiated behaviors.
         """
@@ -334,7 +332,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self._add_behavior_shortcuts(behavior)
         return old_bh, behavior
 
-    def removeBehavior(self, behaviorCls: Type[T_Behavior]) -> Optional[T_Behavior]:
+    def removeBehavior(self, behaviorCls: type[T_Behavior]) -> T_Behavior | None:
         """Remove all existing behaviors of the given type"""
         ridxs = []
         torem = []
@@ -354,7 +352,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             print("Warning: Multiple behaviors of the same type found to remove")
         return torem[0]
 
-    def getBehavior(self, behaviorCls: Type[T_Behavior]) -> Optional[T_Behavior]:
+    def getBehavior(self, behaviorCls: type[T_Behavior]) -> T_Behavior | None:
         for bh in self._behaviors:
             if type(bh) is behaviorCls:
                 return bh
@@ -363,7 +361,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def document(self) -> TrackedDocument:
         doc = super().document()
         if not isinstance(doc, TrackedDocument):
-            raise ValueError("This syntax highlighter only works with TrackedDocument")
+            raise TypeError("This syntax highlighter only works with TrackedDocument")
         return doc
 
     def mousePressEvent(self, e: QtGui.QMouseEvent):
@@ -751,7 +749,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def move_cursors(
         self,
-        direction: Union[QtCore.Qt.Key, int],
+        direction: QtCore.Qt.Key | int,
         select: bool = False,
         word_mode: bool = False,
     ):

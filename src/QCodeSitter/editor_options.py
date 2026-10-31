@@ -1,12 +1,14 @@
 from __future__ import annotations
+
+from typing import Any
+
 from Qt import QtCore
-from typing import Optional, Any
 
 
 class EditorOptions(QtCore.QObject):
     optionsUpdated = QtCore.Signal(list)  # list of str
 
-    def __init__(self, opts: Optional[dict[str, Any]] = None):
+    def __init__(self, opts: dict[str, Any] | None = None):
         super().__init__()
         if opts is None:
             opts = {}

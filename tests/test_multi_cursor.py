@@ -7,11 +7,9 @@ cursor merging, and multi-cursor clipboard operations.
 
 from __future__ import annotations
 
-import pytest
 from Qt import QtCore, QtGui
 
 from QCodeSitter.code_editor import CursorState
-
 from tests.helpers import (
     get_cursor_positions,
     set_cursor_position,

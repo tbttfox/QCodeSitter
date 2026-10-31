@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from Qt import QtWidgets, QtCore, QtGui
+from Qt import QtCore, QtGui, QtWidgets
 from tree_sitter import Point
+
 from .constants import ENC
 
 

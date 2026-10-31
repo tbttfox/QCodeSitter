@@ -7,11 +7,9 @@ and document management.
 
 from __future__ import annotations
 
-import pytest
-from Qt import QtCore, QtGui
+from Qt import QtCore
 
 from QCodeSitter.code_editor import CursorState
-
 from tests.helpers import (
     set_cursor_position,
     set_cursor_selection,

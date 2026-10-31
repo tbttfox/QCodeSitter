@@ -11,32 +11,27 @@ hangs, crashes, and invariant violations. Run with:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings, HealthCheck
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+from Qt import QtCore
 
-from Qt import QtCore, QtGui
-
-from QCodeSitter.code_editor import CodeEditor, CursorState
-from QCodeSitter.editor_options import EditorOptions
-from QCodeSitter.utils import len16
-
-from QCodeSitter.behaviors.smart_indent import SmartIndent
-from QCodeSitter.behaviors.line_numbers import LineNumber
-from QCodeSitter.behaviors.overscroll import Overscroll
+from QCodeSitter.behaviors.auto_bracket import AutoBracket
+from QCodeSitter.behaviors.code_folding import CodeFolding
+from QCodeSitter.behaviors.comment_toggle import CommentToggle
+from QCodeSitter.behaviors.highlight_matching_brackets import HighlightMatchingBrackets
 from QCodeSitter.behaviors.highlight_matching_selection import (
     HighlightMatchingSelection,
 )
-from QCodeSitter.behaviors.highlight_matching_brackets import HighlightMatchingBrackets
-from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
-from QCodeSitter.behaviors.auto_bracket import AutoBracket
-from QCodeSitter.behaviors.tab_completion import TabCompletion
-from QCodeSitter.behaviors.providers.identifiers import IdentifierProvider
-from QCodeSitter.behaviors.code_folding import CodeFolding
+from QCodeSitter.behaviors.line_numbers import LineNumber
 from QCodeSitter.behaviors.multi_cursor_paint import MultiCursorPaint
-from QCodeSitter.behaviors.comment_toggle import CommentToggle
-
+from QCodeSitter.behaviors.overscroll import Overscroll
+from QCodeSitter.behaviors.providers.identifiers import IdentifierProvider
+from QCodeSitter.behaviors.smart_indent import SmartIndent
+from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
+from QCodeSitter.behaviors.tab_completion import TabCompletion
+from QCodeSitter.code_editor import CodeEditor
+from QCodeSitter.utils import len16
 from tests.helpers import simulate_keypress
-
 
 # ---------------------------------------------------------------------------
 # Strategies

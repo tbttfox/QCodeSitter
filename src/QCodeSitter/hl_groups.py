@@ -10,6 +10,8 @@
 
 # This colorscheme is pulled from the nvim Dracula theme
 # https://github.com/Mofiqul/dracula.nvim
+from __future__ import annotations
+
 DARK_THEME = {
     "palette": {
         "red":             "#FF5555",
