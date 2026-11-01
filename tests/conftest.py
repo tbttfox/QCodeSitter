@@ -13,26 +13,9 @@ import tree_sitter_python as tspython
 from Qt import QtGui
 from tree_sitter import Language
 
-from QCodeSitter.behaviors.auto_bracket import AutoBracket
-from QCodeSitter.behaviors.code_folding import CodeFolding
-from QCodeSitter.behaviors.comment_toggle import CommentToggle
-from QCodeSitter.behaviors.highlight_matching_brackets import HighlightMatchingBrackets
-from QCodeSitter.behaviors.highlight_matching_selection import (
-    HighlightMatchingSelection,
-)
-from QCodeSitter.behaviors.line_numbers import LineNumber
-from QCodeSitter.behaviors.multi_cursor_paint import MultiCursorPaint
-from QCodeSitter.behaviors.overscroll import Overscroll
-from QCodeSitter.behaviors.providers.identifiers import IdentifierProvider
-
-# Import behaviors
-from QCodeSitter.behaviors.smart_indent import SmartIndent
-from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
-from QCodeSitter.behaviors.tab_completion import TabCompletion
-from QCodeSitter.code_editor import CodeEditor, CursorState
-from QCodeSitter.editor_options import EditorOptions
-from QCodeSitter.highlight_query import HIGHLIGHT_QUERY
-from QCodeSitter.hl_groups import DARK_THEME, read_theme
+from QCodeSitter import CodeEditor, EditorOptions, defaults
+from QCodeSitter.cursors.state import CursorState
+from QCodeSitter.highlighting.themes import DARK_THEME, read_theme
 
 
 @pytest.fixture(scope="session")
@@ -41,30 +24,24 @@ def python_language():
     return Language(tspython.language())
 
 
+def make_test_options(python_language: Language) -> EditorOptions:
+    """The default options, with a fixed font and no completion delay"""
+    options = defaults.default_options(
+        DARK_THEME, python_language, QtGui.QFont("Monospace", pointSize=10)
+    )
+    options.update({"vim_completion_keys": False, "debounce_delay": 0})
+    return options
+
+
+def install_test_behaviors(editor: CodeEditor):
+    """Every built-in behavior, including the ones that are off by default"""
+    defaults.install_default_behaviors(editor, optional=True)
+
+
 @pytest.fixture
 def default_options(qapp, python_language):
     """Create default editor options for testing."""
-
-    col, syn = read_theme(DARK_THEME)
-    return EditorOptions(
-        {
-            "space_indent_width": 4,
-            "tab_indent_width": 8,
-            "indent_using_tabs": False,
-            "language_name": "python",
-            "language": python_language,
-            "highlights": (HIGHLIGHT_QUERY, syn),
-            "colors": col,
-            "font": QtGui.QFont("Monospace", pointSize=10),
-            "vim_completion_keys": False,
-            "debounce_delay": 0,  # No debounce for tests
-            "auto_bracket_enabled": True,
-            "auto_bracket_pairs": "()[]{}\"\"''``",
-            "indent_bracket_pairs": ["()", "[]", "{}"],
-            "highlight_bracket_pairs": ["()", "[]", "{}"],
-            "highlight_quote_pairs": "\"'`",
-        }
-    )
+    return make_test_options(python_language)
 
 
 @pytest.fixture
@@ -88,22 +65,7 @@ def editor(qtbot, default_options):
     """Create a CodeEditor instance with default options and all behaviors."""
     editor = CodeEditor(default_options)
     qtbot.addWidget(editor)
-
-    # Add all standard behaviors
-    _, tab_completion = editor.addBehavior(TabCompletion)
-    tab_completion.addProvider(IdentifierProvider)
-
-    editor.addBehavior(SyntaxHighlighting)
-    editor.addBehavior(SmartIndent)
-    editor.addBehavior(HighlightMatchingBrackets)
-    editor.addBehavior(HighlightMatchingSelection)
-    editor.addBehavior(LineNumber)
-    editor.addBehavior(Overscroll)
-    editor.addBehavior(MultiCursorPaint)
-    editor.addBehavior(AutoBracket)
-    editor.addBehavior(CodeFolding)
-    editor.addBehavior(CommentToggle)
-
+    install_test_behaviors(editor)
     editor.show()
     qtbot.waitExposed(editor)
     return editor
@@ -148,13 +110,7 @@ class Greeter:
 def editor_with_multicursor(editor):
     """Create an editor with multiple cursors set up."""
     editor.setPlainText("foo\nfoo\nfoo\nbar\nbar")
-    # Position primary cursor at start
-    cursor = editor.textCursor()
-    cursor.setPosition(0)
-    editor.setTextCursor(cursor)
-    # Add secondary cursors at start of lines 2 and 3
-    editor.secondary_cursors = [
-        CursorState(4, 4),  # Start of line 2
-        CursorState(8, 8),  # Start of line 3
-    ]
+    editor.cursors.replace_all(
+        [CursorState(0, 0), CursorState(4, 4), CursorState(8, 8)]
+    )
     return editor

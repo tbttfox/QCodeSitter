@@ -10,30 +10,22 @@ hangs, crashes, and invariant violations. Run with:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-from Qt import QtCore
+from Qt import QtCore, QtWidgets
 
-from QCodeSitter.behaviors.auto_bracket import AutoBracket
-from QCodeSitter.behaviors.code_folding import CodeFolding
-from QCodeSitter.behaviors.comment_toggle import CommentToggle
-from QCodeSitter.behaviors.highlight_matching_brackets import (
-    HighlightMatchingBrackets,
-)
-from QCodeSitter.behaviors.highlight_matching_selection import (
-    HighlightMatchingSelection,
-)
-from QCodeSitter.behaviors.line_numbers import LineNumber
-from QCodeSitter.behaviors.multi_cursor_paint import MultiCursorPaint
-from QCodeSitter.behaviors.overscroll import Overscroll
-from QCodeSitter.behaviors.providers.identifiers import IdentifierProvider
-from QCodeSitter.behaviors.smart_indent import SmartIndent
+from QCodeSitter import CodeEditor, EditorOptions
 from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
-from QCodeSitter.behaviors.tab_completion import TabCompletion
-from QCodeSitter.code_editor import CodeEditor
-from QCodeSitter.utils import len16
-from tests.helpers import simulate_keypress
+from QCodeSitter.utils import MO, len16
+from tests.conftest import install_test_behaviors, make_test_options
+from tests.helpers import (
+    assert_matches_full_highlight,
+    assert_tree_matches_fresh_parse,
+    simulate_keypress,
+)
 
 # ---------------------------------------------------------------------------
 # Strategies
@@ -189,14 +181,14 @@ def apply_operation(editor, op):
         editor.insert_text(op[1])
 
     elif kind == "set_cursor":
-        pos = min(op[1], len(editor.toPlainText()))
+        pos = min(op[1], len16(editor.toPlainText()))
         cursor = editor.textCursor()
         cursor.setPosition(pos)
         editor.setTextCursor(cursor)
 
     elif kind == "add_secondary_cursor":
-        pos = min(op[1], len(editor.toPlainText()))
-        editor.add_cursor_at_position(pos)
+        pos = min(op[1], len16(editor.toPlainText()))
+        editor.cursors.add_at(pos)
 
     elif kind == "undo":
         editor.undo()
@@ -213,69 +205,65 @@ def apply_operation(editor, op):
         editor.paste()
 
     elif kind == "select_next_occurrence":
-        editor.add_next_occurrence()
+        editor.cursors.add_next_occurrence()
 
     elif kind == "add_cursor_above":
-        editor.add_cursor_above()
+        editor.cursors.add_above()
 
     elif kind == "add_cursor_below":
-        editor.add_cursor_below()
+        editor.cursors.add_below()
 
     elif kind == "move_cursors":
         _, direction, select, word_mode = op
-        editor.move_cursors(direction, select, word_mode)
+        editor.cursors.move(direction, select, word_mode)
 
 
-def make_bare_editor(minimal_options):
-    """Create a fresh bare editor (no behaviors)."""
-    editor = CodeEditor(minimal_options)
+@contextmanager
+def fuzz_editor(python_language, full: bool):
+    """A fresh shown editor with its own options, closed and deleted afterwards
+
+    Hypothesis runs many examples in one test, so editors must not pile up
+    """
+    if full:
+        editor = CodeEditor(make_test_options(python_language))
+        install_test_behaviors(editor)
+    else:
+        editor = CodeEditor(EditorOptions({"language": python_language}))
     editor.show()
-    return editor
-
-
-def make_full_editor(default_options):
-    """Create a fresh editor with all behaviors."""
-    editor = CodeEditor(default_options)
-
-    _, tab_completion = editor.addBehavior(TabCompletion)
-    tab_completion.addProvider(IdentifierProvider)
-
-    editor.addBehavior(SyntaxHighlighting)
-    editor.addBehavior(SmartIndent)
-    editor.addBehavior(HighlightMatchingBrackets)
-    editor.addBehavior(HighlightMatchingSelection)
-    editor.addBehavior(LineNumber)
-    editor.addBehavior(Overscroll)
-    editor.addBehavior(MultiCursorPaint)
-    editor.addBehavior(AutoBracket)
-    editor.addBehavior(CodeFolding)
-    editor.addBehavior(CommentToggle)
-
-    editor.show()
-    return editor
+    try:
+        yield editor
+    finally:
+        editor.close()
+        editor.deleteLater()
+        QtWidgets.QApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
 
 
 def check_invariants(editor):
     """Verify editor invariants that must always hold."""
+    # Let any reparse scheduled by an undo or redo run
+    QtWidgets.QApplication.processEvents()
     doc_len = len16(editor.toPlainText())
 
-    # Primary cursor must be within document bounds
     cursor = editor.textCursor()
-    assert 0 <= cursor.position() <= doc_len, (
-        f"Primary cursor position {cursor.position()} out of bounds (doc_len={doc_len})"
-    )
-    assert 0 <= cursor.anchor() <= doc_len, (
-        f"Primary cursor anchor {cursor.anchor()} out of bounds (doc_len={doc_len})"
-    )
+    for name, state in [("primary", cursor), *enumerate(editor.cursors.secondary)]:
+        position = state.position() if name == "primary" else state.position
+        anchor = state.anchor() if name == "primary" else state.anchor
+        assert 0 <= position <= doc_len, (
+            f"cursor {name} position {position} > {doc_len}"
+        )
+        assert 0 <= anchor <= doc_len, f"cursor {name} anchor {anchor} > {doc_len}"
 
-    # All secondary cursors must be within document bounds
-    for i, sc in enumerate(editor.secondary_cursors):
-        assert 0 <= sc.position <= doc_len, (
-            f"Secondary cursor {i} position {sc.position} out of bounds (doc_len={doc_len})"
-        )
-        assert 0 <= sc.anchor <= doc_len, (
-            f"Secondary cursor {i} anchor {sc.anchor} out of bounds (doc_len={doc_len})"
-        )
+    # The incremental tree and highlighting match doing them from scratch
+    assert_tree_matches_fresh_parse(editor)
+    if editor.get_behavior(SyntaxHighlighting) is not None:
+        assert_matches_full_highlight(editor)
+
+
+FUZZ_SETTINGS = settings(
+    max_examples=200,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -288,88 +276,55 @@ class TestFuzz:
     """Fuzz tests — only run under the 'fuzz' tox env or via -m fuzz."""
 
     @given(ops=st.lists(operation(), min_size=1, max_size=80))
-    @settings(
-        max_examples=200,
-        deadline=None,
-        suppress_health_check=[
-            HealthCheck.too_slow,
-            HealthCheck.function_scoped_fixture,
-        ],
-    )
-    def test_random_operations_bare(self, minimal_options, ops):
+    @FUZZ_SETTINGS
+    def test_random_operations_bare(self, qapp, python_language, ops):
         """Random operations on a bare editor (no behaviors) should not crash."""
-        editor = make_bare_editor(minimal_options)
-        for op in ops:
-            apply_operation(editor, op)
-        check_invariants(editor)
+        with fuzz_editor(python_language, full=False) as editor:
+            for op in ops:
+                apply_operation(editor, op)
+            check_invariants(editor)
 
     @given(ops=st.lists(operation(), min_size=1, max_size=80))
-    @settings(
-        max_examples=200,
-        deadline=None,
-        suppress_health_check=[
-            HealthCheck.too_slow,
-            HealthCheck.function_scoped_fixture,
-        ],
-    )
-    def test_random_operations_full(self, default_options, ops):
+    @FUZZ_SETTINGS
+    def test_random_operations_full(self, qapp, python_language, ops):
         """Random operations on a fully-loaded editor should not crash."""
-        editor = make_full_editor(default_options)
-        for op in ops:
-            apply_operation(editor, op)
-        check_invariants(editor)
+        with fuzz_editor(python_language, full=True) as editor:
+            for op in ops:
+                apply_operation(editor, op)
+            check_invariants(editor)
 
     @given(
         n_cursors=st.integers(min_value=2, max_value=20),
         ops=st.lists(operation(), min_size=1, max_size=40),
     )
-    @settings(
-        max_examples=200,
-        deadline=None,
-        suppress_health_check=[
-            HealthCheck.too_slow,
-            HealthCheck.function_scoped_fixture,
-        ],
-    )
-    def test_multicursor_stress(self, default_options, n_cursors, ops):
+    @FUZZ_SETTINGS
+    def test_multicursor_stress(self, qapp, python_language, n_cursors, ops):
         """Multi-cursor editing under stress should not crash."""
-        editor = make_full_editor(default_options)
-        # Set up some text to work with
-        editor.insert_text("line one\nline two\nline three\nline four\nline five\n")
-
-        # Add several cursors
-        doc_len = len(editor.toPlainText())
-        if doc_len > 0:
+        with fuzz_editor(python_language, full=True) as editor:
+            editor.insert_text("line one\nline two\nline three\nline four\nline five\n")
+            doc_len = len16(editor.toPlainText())
             step = max(1, doc_len // n_cursors)
             for i in range(1, n_cursors):
-                pos = min(i * step, doc_len)
-                editor.add_cursor_at_position(pos)
+                editor.cursors.add_at(min(i * step, doc_len))
 
-        for op in ops:
-            apply_operation(editor, op)
-        check_invariants(editor)
+            for op in ops:
+                apply_operation(editor, op)
+            check_invariants(editor)
 
     @given(ops=st.lists(st.sampled_from(["undo", "redo"]), min_size=1, max_size=50))
-    @settings(
-        max_examples=200,
-        deadline=None,
-        suppress_health_check=[
-            HealthCheck.too_slow,
-            HealthCheck.function_scoped_fixture,
-        ],
-    )
-    def test_undo_redo_stress(self, default_options, ops):
+    @FUZZ_SETTINGS
+    def test_undo_redo_stress(self, qapp, python_language, ops):
         """Rapid undo/redo should not crash or corrupt state."""
-        editor = make_full_editor(default_options)
-        # Build up some undo history
-        editor.insert_text("hello world\n")
-        editor.insert_text("foo bar baz\n")
-        editor.backspace()
-        editor.insert_text("end")
+        with fuzz_editor(python_language, full=True) as editor:
+            # Build up some undo history
+            editor.insert_text("hello world\n")
+            editor.insert_text("foo bar baz\n")
+            editor.delete(MO.PreviousCharacter)
+            editor.insert_text("end")
 
-        for op_name in ops:
-            if op_name == "undo":
-                editor.undo()
-            else:
-                editor.redo()
-        check_invariants(editor)
+            for op_name in ops:
+                if op_name == "undo":
+                    editor.undo()
+                else:
+                    editor.redo()
+            check_invariants(editor)

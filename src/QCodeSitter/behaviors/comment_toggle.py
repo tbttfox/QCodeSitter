@@ -2,91 +2,52 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from Qt import QtGui, QtWidgets
-
-from ..utils import expand_to_lines, len16
+from ..languages import language_spec
+from ..utils import leading_whitespace, make_shortcut_action, replace_lines
 from . import Behavior
 
 if TYPE_CHECKING:
-    from ..code_editor import CodeEditor
-
-# Map tree-sitter language names to their line comment prefix
-COMMENT_PREFIXES: dict[str, str] = {
-    "python": "# ",
-    "cpp": "// ",
-    "c": "// ",
-    "lua": "-- ",
-    "bash": "# ",
-}
-
-MM = QtGui.QTextCursor.MoveMode
+    from Qt import QtWidgets
 
 
 class CommentToggle(Behavior):
-    """Toggle line comments for the current line or selection."""
+    """Toggle line comments for the current line or selection (Ctrl+/)
 
-    def __init__(self, editor: CodeEditor):
-        super().__init__(editor)
-        lang_name = self.options["language_name"]
-        self._comment_prefix = COMMENT_PREFIXES.get(lang_name, "# ")
+    The comment prefix comes from the editor language's LanguageSpec
+    """
 
-    def getHotkeys(self) -> list[QtWidgets.QAction]:
-        action = QtWidgets.QAction("Toggle Comment", self.editor)
-        action.setShortcut(QtGui.QKeySequence("Ctrl+/"))
-        action.triggered.connect(self.toggle_comment)
-        return [action]
+    @property
+    def comment_prefix(self) -> str:
+        return language_spec(self.editor.tree_manager.language).comment_prefix
 
-    def toggle_comment(self):
+    def get_hotkeys(self) -> list[QtWidgets.QAction]:
+        return [
+            make_shortcut_action(
+                self.editor, "Ctrl+/", self.toggle_comment, "Toggle Comment"
+            )
+        ]
+
+    def toggle_comment(self) -> None:
+        prefix = self.comment_prefix
         citer = self.editor.citer
         with self.editor.edit_session():
             for cursor in citer.iterate_cursors():
-                self._toggle_for_cursor(cursor, citer)
+                replace_lines(cursor, lambda lines: self.toggle_lines(lines, prefix))
+                citer.cursor_completed()
 
-    def _toggle_for_cursor(self, cursor: QtGui.QTextCursor, citer):
-        prefix = self._comment_prefix
-        expand_to_lines(cursor)
-
-        start_pos = cursor.selectionStart()
-        end_pos = cursor.selectionEnd()
-        text = cursor.selection().toPlainText()
-        lines = text.split("\n")
-
-        # Determine direction: uncomment if ALL non-empty lines are commented
-        should_uncomment = all(
-            self._line_is_commented(line, prefix) for line in lines if line.strip()
-        )
-
-        if should_uncomment:
-            new_lines = [self._uncomment_line(line, prefix) for line in lines]
-        else:
-            # Find minimum indentation of non-empty lines
-            min_indent = self._min_indent(lines)
-            new_lines = [self._comment_line(line, prefix, min_indent) for line in lines]
-
-        ins = "\n".join(new_lines)
-        old_size = end_pos - start_pos
-        ins_size = len16(ins)
-        cursor.insertText(ins)
-        citer.update_offset(ins_size - old_size)
-
-        # Restore selection
-        cursor.setPosition(start_pos)
-        cursor.setPosition(start_pos + ins_size, MM.KeepAnchor)
-        citer.cursor_completed()
+    @classmethod
+    def toggle_lines(cls, lines: list[str], prefix: str) -> list[str]:
+        """Uncomment the lines if every non-blank one is commented, otherwise comment them"""
+        filled = [line for line in lines if line.strip()]
+        if all(cls._line_is_commented(line, prefix) for line in filled):
+            return [cls._uncomment_line(line, prefix) for line in lines]
+        # Line the comments up at the smallest indent
+        min_indent = min((len(leading_whitespace(line)) for line in filled), default=0)
+        return [cls._comment_line(line, prefix, min_indent) for line in lines]
 
     @staticmethod
     def _line_is_commented(line: str, prefix: str) -> bool:
-        stripped = line.lstrip()
-        stripped_prefix = prefix.rstrip()
-        return stripped.startswith((prefix, stripped_prefix))
-
-    @staticmethod
-    def _min_indent(lines: list[str]) -> int:
-        indents = []
-        for line in lines:
-            if line.strip():
-                indents.append(len(line) - len(line.lstrip()))
-        return min(indents) if indents else 0
+        return line.lstrip().startswith((prefix, prefix.rstrip()))
 
     @staticmethod
     def _comment_line(line: str, prefix: str, min_indent: int) -> str:
@@ -96,14 +57,10 @@ class CommentToggle(Behavior):
 
     @staticmethod
     def _uncomment_line(line: str, prefix: str) -> str:
-        if not line.strip():
-            return line
-        indent = len(line) - len(line.lstrip())
+        indent = len(leading_whitespace(line))
         rest = line[indent:]
-        if rest.startswith(prefix):
-            return line[:indent] + rest[len(prefix) :]
-        # Handle prefix without trailing space (e.g. "#foo")
-        stripped_prefix = prefix.rstrip()
-        if rest.startswith(stripped_prefix):
-            return line[:indent] + rest[len(stripped_prefix) :]
+        # Also handle the prefix without its trailing space, like "#foo"
+        for p in (prefix, prefix.rstrip()):
+            if rest.startswith(p):
+                return line[:indent] + rest[len(p) :]
         return line

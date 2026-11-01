@@ -1,68 +1,53 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from Qt import QtGui
-from tree_sitter import Query
 
-from ..hl_groups import resolve_capture
-from ..query_predicates import QueryPredicates, document_node_text, prepare_query_source
-from ..ts_version_fix import query_byte_range
+from ..highlighting.predicates import QueryPredicates
+from ..highlighting.themes import SyntaxSpecs, resolve_capture
+from ..languages import highlight_query
+from ..tree_manager import query_byte_range
 from ..utils import len16
 from . import Behavior
 
 if TYPE_CHECKING:
+    from tree_sitter import Query
+
     from ..code_editor import CodeEditor
-    from ..line_tracker import TrackedDocument
+    from ..tracked_document import TrackedDocument
     from ..tree_manager import TreeManager
 
 
 class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
-    """
-    Tree-sitter based syntax highlighter using incremental rehighlighting
-    restricted to changed byte ranges.
+    """Highlights each block with a tree-sitter query over the block's bytes
+
+    The SyntaxHighlighting behavior only rehighlights the rows that changed
     """
 
     def __init__(
         self,
         document: TrackedDocument,
         tree_manager: TreeManager,
-        highlights_query_source: str,
-        format_specs: dict[str, dict[str, Any]],
-    ):
+        query: Query,
+        format_specs: SyntaxSpecs,
+    ) -> None:
         super().__init__(document)
         self.tree_manager = tree_manager
-        self._doc: TrackedDocument = document
-        self._enabled = True  # Flag to temporarily disable highlighting
-
-        parser = self.tree_manager.parser
-        if parser is None:
-            raise RuntimeError("The tree parser must be properly set")
-        lang = parser.language
-        if lang is None:
-            raise RuntimeError("The tree language must be properly set")
-
-        # The tree is parsed from a callback, so tree-sitter can't read the node text
-        # for predicates like #eq? and #match?. We evaluate those ourselves
-        self.query = Query(lang, prepare_query_source(highlights_query_source))
-        self.predicates = QueryPredicates(
-            lambda node: document_node_text(self._doc, node)
-        )
+        self._doc = document
+        # Turned off while the tree doesn't match the document
+        self.enabled = True
+        self.query = query
+        # Tree-sitter can't evaluate text predicates like #eq? and #match? on our
+        # UTF-16 trees, so they are evaluated against the document text instead
+        self.predicates = QueryPredicates(self._doc.node_text)
         self.formats = self._compile_formats(format_specs)
 
-    def setDocument(self, doc: TrackedDocument):
-        self._doc = doc
-        super().setDocument(doc)
-
-    # ------------------------------------------------------------------
-    # Text formats
-    # ------------------------------------------------------------------
-
     def _compile_formats(
-        self, format_specs: dict[str, dict[str, Any]]
+        self, format_specs: SyntaxSpecs
     ) -> dict[str, QtGui.QTextCharFormat]:
-        """Convert user style specs -> QtGui.QTextCharFormat instances."""
-        out = {}
+        """Convert the syntax specs into text formats, keyed by capture name"""
+        out: dict[str, QtGui.QTextCharFormat] = {}
 
         for name, spec in format_specs.items():
             fmt = QtGui.QTextCharFormat()
@@ -87,117 +72,92 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
     def query_capture_names(self) -> list[str]:
         return [self.query.capture_name(i) for i in range(self.query.capture_count)]
 
-    # ------------------------------------------------------------------
-    # QtGui.QSyntaxHighlighter entry point
-    # ------------------------------------------------------------------
-    def highlightBlock(self, text: str):
-        # Quick exit if highlighting is disabled
-        if not self._enabled:
-            return
+    def _block_byte_range(
+        self, block: QtGui.QTextBlock, text_len: int
+    ) -> tuple[int, int]:
+        """Get the UTF-16LE byte range of a block, including its newline"""
+        start = self._doc.char_to_byte(block.position())
+        next_block = block.next()
+        if next_block.isValid():
+            return start, self._doc.char_to_byte(next_block.position())
+        return start, start + self._doc.char_to_byte(text_len)
 
-        if self.tree_manager.tree is None:
-            return
-
+    def highlightBlock(self, text: str) -> None:
+        tree = self.tree_manager.tree
         block = self.currentBlock()
-        if not block.isValid():
+        if not self.enabled or tree is None or not block.isValid():
             return
 
         # Qt positions are UTF-16 code units, but python's len counts code points
         # so they differ when the text contains characters outside the BMP
         text_len = len16(text)
-
-        # Each UTF-16 code unit is 2 bytes. The end includes the newline if there is one
-        block_start_char = block.position()
-        block_start_byte = block_start_char * 2
-        next_block = block.next()
-        if next_block.isValid():
-            block_end_byte = next_block.position() * 2
-        else:
-            block_end_byte = block_start_byte + text_len * 2
-
-        # Skip highlighting for empty blocks (can happen during undo to empty document)
-        if block_start_byte >= block_end_byte:
-            return
-
-        # Validate that tree is still valid for this document state
-        # If the tree's byte range doesn't cover our block, skip highlighting
-        root = self.tree_manager.tree.root_node
-        if root is None or block_end_byte > root.end_byte:
-            # Tree is stale, skip highlighting until tree updates
+        start_byte, end_byte = self._block_byte_range(block, text_len)
+        # Skip empty blocks, and blocks past the end of a tree that is out of date
+        root = tree.root_node
+        if start_byte >= end_byte or end_byte > root.end_byte:
             return
 
         captures = query_byte_range(
-            self.query, root, block_start_byte, block_end_byte, self.predicates
+            self.query, root, start_byte, end_byte, self.predicates
         )
-        if captures is None:
-            return
-
+        block_start = block.position()
         for capture_name, nodes in captures.items():
             fmt = self.formats.get(capture_name)
             if fmt is None:
                 continue
             for node in nodes:
-                # Skip nodes that are beyond the current document
-                # (can happen during undo when tree has stale nodes)
-                if node.start_byte > block_end_byte:
-                    continue
-
-                # Convert to block-local UTF-16 positions, clamped to [0, text_len]
-                local_start = max(0, node.start_byte // 2 - block_start_char)
-                local_end = min(text_len, node.end_byte // 2 - block_start_char)
+                # Block-local UTF-16 positions, clamped to the block
+                local_start = self._doc.byte_to_char(node.start_byte) - block_start
+                local_end = self._doc.byte_to_char(node.end_byte) - block_start
+                local_start, local_end = max(0, local_start), min(text_len, local_end)
                 if local_end > local_start:
                     self.setFormat(local_start, local_end - local_start, fmt)
 
 
 class SyntaxHighlighting(Behavior):
-    def __init__(self, editor: CodeEditor):
+    """Tree-sitter syntax highlighting
+
+    The query comes from the editor language's LanguageSpec, and the formats
+    of its captures from the "syntax" option
+    """
+
+    def __init__(self, editor: CodeEditor) -> None:
         super().__init__(editor)
-        self.setListen({"highlights"})
-        self._highlights = None
+        self._syntax: SyntaxSpecs = {}
         self.highlighter: TreeSitterHighlighter | None = None
-        self.editor.behaviorPrepareUndo.connect(self.prepareUndoRedo)
-        self.editor.behaviorPrepareRedo.connect(self.prepareUndoRedo)
-        self.editor.behaviorAfterUndoRedo.connect(self.afterUndoRedo)
-        self.updateAll()
+        self.editor.aboutToUndoRedo.connect(self._on_about_to_undo_redo)
+        self.editor.undoRedoFinished.connect(self._on_undo_redo_finished)
+        self.editor.tree_manager.languageChanged.connect(self._rebuild_highlighter)
+        self.watch_options({"syntax": self._set_syntax})
+        self.apply_all_options()
 
-    def prepareUndoRedo(self):
-        """Disable highlighting before undo/redo to prevent stale tree issues"""
+    def _on_about_to_undo_redo(self) -> None:
+        # The tree is out of date until the editor reparses after the undo
         if self.highlighter:
-            self.highlighter._enabled = False
+            self.highlighter.enabled = False
 
-    def afterUndoRedo(self):
-        """Update tree and rehighlight after undo/redo completes"""
+    def _on_undo_redo_finished(self) -> None:
         if self.highlighter:
-            # Update the tree first
-            self.editor.tree_manager.fullUpdate()
-            # Re-enable highlighting and rehighlight
-            self.highlighter._enabled = True
+            self.highlighter.enabled = True
             self.highlighter.rehighlight()
 
-    @property
-    def highlights(self):
-        return self._highlights
+    def _set_syntax(self, syntax: SyntaxSpecs) -> None:
+        self._syntax = syntax
+        self._rebuild_highlighter()
 
-    @highlights.setter
-    def highlights(self, value):
-        self._highlights = value
-        self._detachHighlighter()
-        if not value:
+    def _rebuild_highlighter(self) -> None:
+        """Highlight with the current language's query and the syntax formats"""
+        self._detach_highlighter()
+        language = self.editor.tree_manager.language
+        query = highlight_query(language) if language is not None else None
+        if query is None or not self._syntax:
             return
-
-        if self.editor.tree_manager.parser is None:
-            return
-
-        if self.editor.tree_manager.parser.language is None:
-            return
-
-        hlquery, fmts = value
         self.highlighter = TreeSitterHighlighter(
-            self.editor._doc, self.editor.tree_manager, hlquery, fmts
+            self.editor.document(), self.editor.tree_manager, query, self._syntax
         )
         self.editor.tree_manager.reparsed.connect(self._on_reparsed)
 
-    def _detachHighlighter(self):
+    def _detach_highlighter(self) -> None:
         """Stop the current highlighter from formatting the document
 
         The QSyntaxHighlighter is parented to the document, so dropping our
@@ -205,16 +165,13 @@ class SyntaxHighlighting(Behavior):
         """
         if self.highlighter is None:
             return
-        try:
-            self.editor.tree_manager.reparsed.disconnect(self._on_reparsed)
-        except (RuntimeError, TypeError):
-            pass
+        self.editor.tree_manager.reparsed.disconnect(self._on_reparsed)
         self.highlighter.setDocument(None)
         self.highlighter.deleteLater()
         self.highlighter = None
 
-    def _on_reparsed(self):
-        if self.highlighter is None:
+    def _on_reparsed(self) -> None:
+        if self.highlighter is None or not self.highlighter.enabled:
             return
         changed_rows = self.editor.tree_manager.changed_rows
         if changed_rows is None:
@@ -237,10 +194,10 @@ class SyntaxHighlighting(Behavior):
                     self.highlighter.rehighlightBlock(block)
                 block = block.next()
 
-    def remove(self):
+    def remove(self) -> None:
         super().remove()
-        self.editor.behaviorPrepareUndo.disconnect(self.prepareUndoRedo)
-        self.editor.behaviorPrepareRedo.disconnect(self.prepareUndoRedo)
-        self.editor.behaviorAfterUndoRedo.disconnect(self.afterUndoRedo)
+        self.editor.aboutToUndoRedo.disconnect(self._on_about_to_undo_redo)
+        self.editor.undoRedoFinished.disconnect(self._on_undo_redo_finished)
+        self.editor.tree_manager.languageChanged.disconnect(self._rebuild_highlighter)
         # Detaching the highlighter from the document also clears its formats
-        self._detachHighlighter()
+        self._detach_highlighter()

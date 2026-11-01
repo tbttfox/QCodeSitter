@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from Qt import QtGui, QtWidgets
 
+from ..gui_colors import GuiColors, gui_color
 from . import Behavior
 
 if TYPE_CHECKING:
@@ -11,40 +12,37 @@ if TYPE_CHECKING:
 
 
 class HighlightMatchingSelection(Behavior):
-    def __init__(self, editor: CodeEditor):
+    """Highlight the other occurrences of the selected text"""
+
+    SOURCE = "selection_highlight"
+    MIN_LENGTH = 2
+    MAX_LENGTH = 100
+
+    def __init__(self, editor: CodeEditor) -> None:
         super().__init__(editor)
-        self.setListen({"colors"})
+        self._set_colors({})
         self.editor.selectionChanged.connect(self.highlight_occurrences)
-        self._match_hl: QtGui.QColor
-        self.updateAll()
+        self.watch_options({"colors": self._set_colors})
+        self.apply_all_options()
 
-    def _colors(self, val):
-        """Update colors when color options change"""
-        self._match_hl = QtGui.QColor(val.get("match_hl", "#FFFF0050"))
+    def _set_colors(self, colors: GuiColors) -> None:
+        self._match_hl = gui_color(colors, "match_hl")
 
-    colors = property(None, _colors)
-
-    def remove(self):
+    def remove(self) -> None:
         super().remove()
         self.editor.selectionChanged.disconnect(self.highlight_occurrences)
-        self.editor.clear_selections("selection_highlight")
+        self.editor.clear_selections(self.SOURCE)
 
-    def highlight_occurrences(self):
-        """Highlight all occurrences of the currently selected text"""
+    def highlight_occurrences(self) -> None:
+        """Highlight all occurrences of the selected text"""
         extra_selections = []
-
-        # Get current selection
         cursor = self.editor.textCursor()
         selected_text = cursor.selectedText()
 
-        # Only highlight if there's a selection and it's not too long
-        # Also require at least 2 characters to avoid highlighting single chars
-        if selected_text and len(selected_text) >= 2 and len(selected_text) <= 100:
-            # Create format for highlighting occurrences
-            format = QtGui.QTextCharFormat()
-            format.setBackground(self._match_hl)
-
-            # Find all occurrences
+        # Single characters would match everywhere
+        if self.MIN_LENGTH <= len(selected_text) <= self.MAX_LENGTH:
+            fmt = QtGui.QTextCharFormat()
+            fmt.setBackground(self._match_hl)
             doc = self.editor.document()
             search_cursor = QtGui.QTextCursor(doc)
 
@@ -53,14 +51,14 @@ class HighlightMatchingSelection(Behavior):
                 if search_cursor.isNull():
                     break
 
-                # Don't highlight the current selection itself
+                # Qt already highlights the selection itself
                 if (
                     search_cursor.position() != cursor.position()
                     or search_cursor.anchor() != cursor.anchor()
                 ):
                     selection = QtWidgets.QTextEdit.ExtraSelection()
                     selection.cursor = search_cursor
-                    selection.format = format
+                    selection.format = fmt
                     extra_selections.append(selection)
 
-        self.editor.set_selections("selection_highlight", extra_selections)
+        self.editor.set_selections(self.SOURCE, extra_selections)

@@ -38,11 +38,10 @@ if [[ ! -d "$VENV_DIR" ]]; then
     activate_venv
     # Upgrade pip and install PySide6
     python -m pip install --upgrade pip
-    # pip install Qt.py stransi tree-sitter tree-sitter-python PySide6
     pip install PySide6 Preditor[cli]
-    pip install -e ${SCRIPT_DIR}
+    pip install -e "${SCRIPT_DIR}[preditor]"
 else
     activate_venv
 fi
 
-python ${SCRIPT_DIR}/src/QCodeSitter/_kickoff.py
+python "${SCRIPT_DIR}/examples/demo.py"

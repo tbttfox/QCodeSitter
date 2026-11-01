@@ -1,0 +1,166 @@
+"""Tests for the PrEditor workbox plugin"""
+
+from __future__ import annotations
+
+import pytest
+from Qt import QtGui, QtWidgets
+
+pytest.importorskip("preditor")
+
+from QCodeSitter.behaviors.tab_completion import TabCompletion
+from QCodeSitter.highlighting.themes import DARK_THEME, LIGHT_THEME, read_theme
+from QCodeSitter.integrations.preditor_interface import (
+    CodeSitterTextEdit,
+)
+from tests.helpers import assert_tree_matches_fresh_parse, set_cursor_selection
+
+TEXT = "first line\n    second line\nthird line\n"
+
+
+class _TabBar(QtWidgets.QTabBar):
+    """The parts of PrEditor's tab bar that a workbox connects to"""
+
+    def updateColorsAndToolTips(self, *_args):
+        pass
+
+
+class _TabWidget(QtWidgets.QTabWidget):
+    def __init__(self):
+        super().__init__()
+        self.setTabBar(_TabBar())
+
+
+@pytest.fixture
+def tabs(qtbot):
+    widget = _TabWidget()
+    qtbot.addWidget(widget)
+    return widget
+
+
+@pytest.fixture
+def workbox(qtbot, tabs):
+    # Giving it an id stops PrEditor from making a backup file for it
+    box = CodeSitterTextEdit(parent=tabs, workbox_id="qcodesitter_test")
+    tabs.addTab(box, "test")
+    tabs.show()
+    qtbot.waitExposed(tabs)
+    box.setText(TEXT)
+    return box
+
+
+class TestWorkboxText:
+    def test_text(self, workbox):
+        assert workbox.__text__() == TEXT
+        assert workbox.__num_lines__() == 4
+
+    def test_text_part(self, workbox):
+        assert workbox.__text_part__(lineNum=1) == "    second line"
+        assert workbox.__text_part__(start=0, end=2) == "first line\n    second line"
+        assert workbox.__text_part__() == TEXT
+        with pytest.raises(ValueError):
+            workbox.__text_part__(start=1)
+
+    def test_selected_text(self, workbox):
+        # Without a selection, it's the cursor's line
+        set_cursor_selection(workbox, 15, 15)
+        assert workbox.__selected_text__() == ("    second line", 1)
+
+        set_cursor_selection(workbox, 15, 21)
+        assert workbox.__selected_text__() == ("second", 1)
+        assert workbox.__selected_text__(start_of_line=True) == ("    second", 1)
+
+    def test_selected_text_line_counts_wrapped_lines_once(self, workbox):
+        long_line = "word " * 200
+        workbox.setText(long_line + "\nnext")
+        # Laying out the long line wraps it, so the next block starts on a later line
+        workbox.blockBoundingRect(workbox.document().firstBlock())
+        assert workbox.document().findBlockByNumber(1).firstLineNumber() > 1
+        set_cursor_selection(workbox, len(long_line) + 1, len(long_line) + 1)
+        assert workbox.__selected_text__() == ("next", 1)
+
+    def test_cursor_position_and_goto(self, workbox):
+        workbox.__goto_line__(3)
+        assert workbox.__cursor_position__() == (2, 0)
+
+    def test_clear(self, workbox):
+        workbox.__clear__()
+        assert workbox.__text__() == ""
+        assert_tree_matches_fresh_parse(workbox)
+
+
+class TestWorkboxSettings:
+    def test_options_are_per_editor(self, tabs, workbox):
+        """Changing one workbox's settings doesn't change another's"""
+        other = CodeSitterTextEdit(parent=tabs, workbox_id="qcodesitter_other")
+        tabs.addTab(other, "other")
+        workbox.__set_indentations_use_tabs__(True)
+        workbox.__set_font__(QtGui.QFont("Courier", 20))
+        assert workbox.__indentations_use_tabs__()
+        assert not other.__indentations_use_tabs__()
+        assert other.__font__().pointSize() != 20
+        assert workbox.options is not other.options
+
+    def test_copy_indents_as_spaces(self, workbox):
+        workbox.__set_copy_indents_as_spaces__(False)
+        assert workbox.__copy_indents_as_spaces__() is False
+        assert workbox.options["copy_indents_as_spaces"] is False
+
+    def test_tab_width(self, workbox):
+        assert workbox.__tab_width__() == 4
+
+    def test_auto_complete_toggle(self, workbox):
+        assert workbox.__auto_complete_enabled__()
+        workbox.__set_auto_complete_enabled__(False)
+        assert workbox.get_behavior(TabCompletion) is None
+        workbox.__set_auto_complete_enabled__(True)
+        assert workbox.get_behavior(TabCompletion) is not None
+
+
+class TestTheme:
+    @pytest.mark.parametrize("name", ["guiBg", "hlKeyword", "hlItalic"])
+    def test_theme_properties_are_qt_properties(self, name):
+        """Stylesheets can only set properties Qt knows about"""
+        meta = CodeSitterTextEdit.staticMetaObject
+        assert meta.indexOfProperty(name) >= 0
+
+    def test_property_setter_round_trip(self, workbox):
+        workbox.setProperty("hlString", QtGui.QColor("#00ff00"))
+        assert workbox.hlString == QtGui.QColor("#00ff00")
+
+    def test_default_theme_is_light(self, workbox):
+        colors, syntax = workbox.build_theme()
+        assert (colors, syntax) == read_theme(LIGHT_THEME)
+
+    def test_dark_stylesheet(self, workbox):
+        workbox.update_color_scheme("Dark")
+        assert workbox.build_theme() == read_theme(DARK_THEME)
+
+    def test_gui_property_overrides_color(self, workbox):
+        workbox.guiFg = QtGui.QColor("#123456")
+        colors, _syntax = workbox.build_theme()
+        assert colors["fg"] == "#123456"
+
+    def test_dark_background_picks_dark_theme(self, workbox):
+        workbox.guiBg = QtGui.QColor("#000000")
+        _colors, syntax = workbox.build_theme()
+        assert syntax["keyword"] == read_theme(DARK_THEME)[1]["keyword"]
+
+    def test_syntax_property_overrides_children(self, workbox):
+        """An override for a group applies to its child captures"""
+        workbox.hlKeyword = QtGui.QColor("#ff0000")
+        _colors, syntax = workbox.build_theme()
+        assert syntax["keyword"]["color"] == "#ff0000"
+        assert syntax["keyword.return"]["color"] == "#ff0000"
+
+    def test_style_lists(self, workbox):
+        workbox.hlItalic = "comment, keyword"
+        _colors, syntax = workbox.build_theme()
+        assert syntax["comment"]["italic"] is True
+        assert syntax["keyword.return"]["italic"] is True
+        assert syntax["string"]["italic"] is False
+
+    def test_rebuild_theme_updates_options(self, qtbot, workbox):
+        workbox.guiBg = QtGui.QColor("#101010")
+        qtbot.waitUntil(lambda: workbox.options["colors"]["bg"] == "#101010")
+        assert "#101010" not in workbox.styleSheet()
+        assert "rgba(16, 16, 16, 255)" in workbox.styleSheet()

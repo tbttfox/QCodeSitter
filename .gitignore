@@ -8,3 +8,4 @@
 .venv
 USEFUL
 __pycache__
+*.egg-info
