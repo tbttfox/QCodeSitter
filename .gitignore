@@ -1,4 +1,10 @@
 .benchmarks
-.venv
+.claude
+.desloppify
+.hypothesis
 .pytest_cache
+.ruff_cache
+.tokensave
+.venv
+USEFUL
 __pycache__
