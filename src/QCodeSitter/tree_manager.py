@@ -1,43 +1,77 @@
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from Qt import QtCore
-from tree_sitter import Language, Node, Parser, Point, Tree
+from tree_sitter import Language, Node, Parser, Point, Query, QueryCursor, Tree
 
 from .constants import ENC
+from .tracked_document import TrackedDocument
 
 if TYPE_CHECKING:
     from Qt import QtWidgets
 
+logger = logging.getLogger(__name__)
+
+# A predicate argument is (value, "capture" or "string")
+PredicateArgs = list[tuple[str, str]]
+# Capture name -> the nodes it captured
+Captures = dict[str, list[Node]]
+# Called with (predicate name, args, pattern index, captures) to filter a match
+QueryPredicate = Callable[[str, PredicateArgs, int, Captures], bool]
+
+
+def query_byte_range(
+    query: Query,
+    root: Node,
+    start_byte: int,
+    end_byte: int,
+    predicate: QueryPredicate | None = None,
+) -> Captures:
+    """Run a query over a byte range of a tree, returning nodes by capture name
+
+    A tree that is mid-update can make the query fail. That returns no captures,
+    because the next reparse will run the query again.
+    """
+    cursor = QueryCursor(query)
+    try:
+        cursor.set_byte_range(start_byte, end_byte)
+        if predicate is None:
+            # Tree-sitter doesn't accept predicate=None
+            return cursor.captures(root)
+        return cursor.captures(root, predicate=predicate)
+    except (ValueError, RuntimeError):
+        logger.debug(
+            "Query failed over bytes %d-%d", start_byte, end_byte, exc_info=True
+        )
+        return {}
+
 
 class TreeManager(QtCore.QObject):
-    """Manages the tree-sitter parse tree with incremental updates
+    """Owns the tree-sitter parse tree of an editor's document
 
-    This class owns the parse tree and provides a shared resource for both
-    syntax highlighting and syntax analysis. It supports incremental updates
-    to efficiently re-parse only the changed portions of the document.
+    Edits are applied incrementally, and every reparse emits `reparsed`.
+    Offsets and Point columns are UTF-16LE bytes, see TrackedDocument.
     """
 
     reparsed = QtCore.Signal()
+    # Emitted after the language changes, before the new tree is parsed
+    languageChanged = QtCore.Signal()
 
     def __init__(
         self,
         editor: QtWidgets.QPlainTextEdit,
         language: Language | None = None,
-    ):
-        """Initialize the tree manager
-
-        Args:
-            editor: The editor whose document provides the source text
-            language: The tree-sitter Language to use for parsing
-        """
+    ) -> None:
         super().__init__()
         self.editor = editor
         self.parser: Parser | None = None
         self.tree: Tree | None = None
         self._paused = False
-        self._pause_edit = False
+        # Whether an edit was made while paused, so unpausing has to reparse
+        self._reparse_pending = False
 
         # The (first, last) rows touched by edits since the last parse
         self._edit_rows: tuple[int, int] | None = None
@@ -45,26 +79,30 @@ class TreeManager(QtCore.QObject):
         # None means the whole document changed
         self.changed_rows: list[tuple[int, int]] | None = None
 
-        self.setLanguage(language)
+        self._set_parser(language)
 
-    def setLanguage(self, language: Language | None):
+    @property
+    def language(self) -> Language | None:
+        return self.parser.language if self.parser is not None else None
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused
+
+    def set_language(self, language: Language | None) -> None:
+        """Change the language, and parse the document again"""
+        self._set_parser(language)
+        self.languageChanged.emit()
+        self.full_update()
+
+    def _set_parser(self, language: Language | None) -> None:
         self.parser = Parser(language) if language is not None else None
         self.tree = None
         self._edit_rows = None
         self.changed_rows = None
 
     def treesitter_source_callback(self, _byte_offset: int, ts_point: Point) -> bytes:
-        """Provide source bytes to tree-sitter parser
-
-        A callback for efficient access to the underlying UTF-16LE encoded data
-
-        Args:
-            byte_offset: The byte offset in UTF-16LE encoding where data is requested
-            ts_point: The (row, column) point where data is requested
-
-        Returns:
-            UTF-16LE encoded bytes from the requested position to end of the line
-        """
+        """Give tree-sitter the UTF-16LE bytes from a Point to the end of its line"""
         curblock = self.editor.document().findBlockByNumber(ts_point.row)
         # The block can be invalid after an undo
         if not curblock.isValid():
@@ -72,31 +110,35 @@ class TreeManager(QtCore.QObject):
 
         suffix = "\n" if curblock.next().isValid() else ""
         linetext = curblock.text() + suffix
-
-        # When using encoding='utf16', ts_point.column is in BYTES, not code units
         return linetext.encode(ENC)[ts_point.column :]
 
-    def fullUpdate(self):
-        if self.parser is not None:
-            self.tree = self.parser.parse(
-                self.treesitter_source_callback, encoding="utf16"
-            )
-            self._edit_rows = None
-            self.changed_rows = None
-            self.reparsed.emit()
+    def _parse(self, parser: Parser, old_tree: Tree | None = None) -> Tree:
+        if old_tree is None:
+            return parser.parse(self.treesitter_source_callback, encoding="utf16")
+        return parser.parse(self.treesitter_source_callback, old_tree, encoding="utf16")
 
-    def pause(self):
+    def full_update(self) -> None:
+        """Parse the whole document from scratch. Without a language there is no tree"""
+        self.tree = self._parse(self.parser) if self.parser is not None else None
+        self._edit_rows = None
+        self.changed_rows = None
+        self.reparsed.emit()
+
+    def pause(self) -> None:
+        """Hold reparses until `unpause`, so a group of edits is parsed once"""
         self._paused = True
-        self._pause_edit = False
+        self._reparse_pending = False
 
-    def unpause(self):
+    def unpause(self) -> None:
         if not self._paused:
             return
         self._paused = False
-        if self._pause_edit:
+        if self._reparse_pending:
             self.reparse()
 
-    def _track_edit_rows(self, start_row: int, old_end_row: int, new_end_row: int):
+    def _track_edit_rows(
+        self, start_row: int, old_end_row: int, new_end_row: int
+    ) -> None:
         """Grow the span of edited rows to include this edit
 
         The span is kept in the current document's rows, so rows after
@@ -112,7 +154,7 @@ class TreeManager(QtCore.QObject):
             hi = new_end_row
         self._edit_rows = (min(lo, start_row), hi)
 
-    def update(
+    def apply_edit(
         self,
         start_byte: int,
         old_end_byte: int,
@@ -120,16 +162,11 @@ class TreeManager(QtCore.QObject):
         start_point: Point,
         old_end_point: Point,
         new_end_point: Point,
-    ) -> Tree | None:
-        """Incrementally update the parse tree after document changes
+    ) -> None:
+        """Apply a document edit to the tree and reparse
 
-        Args:
-            start_byte: UTF-16 code unit offset where the change started
-            old_end_byte: UTF-16 code unit offset where the change ended (before change)
-            new_end_byte: UTF-16 code unit offset where the change ends (after change)
-            start_point: (row, column) where the change started (column in UTF-16 code units)
-            old_end_point: (row, column) where the change ended (before change)
-            new_end_point: (row, column) where the change ends (after change)
+        The arguments match TrackedDocument.byteContentsChange: UTF-16LE byte
+        offsets, and Points whose columns are in bytes
         """
         if self.tree is not None:
             self.tree.edit(
@@ -141,27 +178,23 @@ class TreeManager(QtCore.QObject):
                 new_end_point=new_end_point,
             )
         self._track_edit_rows(start_point.row, old_end_point.row, new_end_point.row)
-        return self.reparse()
+        self.reparse()
 
-    def reparse(self) -> Tree | None:
+    def reparse(self) -> None:
+        """Reparse after edits, recording which rows changed"""
         if self._paused:
-            self._pause_edit = True
-            return self.tree
+            self._reparse_pending = True
+            return
 
-        old_tree = self.tree
         if self.parser is None:
             self._edit_rows = None
-            return old_tree
+            return
 
+        old_tree = self.tree
+        self.tree = self._parse(self.parser, old_tree)
         if old_tree is None:
-            self.tree = self.parser.parse(
-                self.treesitter_source_callback, encoding="utf16"
-            )
             self.changed_rows = None
         else:
-            self.tree = self.parser.parse(
-                self.treesitter_source_callback, old_tree, encoding="utf16"
-            )
             # The rows that need rehighlighting are the ones whose syntax changed
             # plus the ones that were edited, because predicates check the text
             rows = [
@@ -173,26 +206,17 @@ class TreeManager(QtCore.QObject):
             self.changed_rows = rows
         self._edit_rows = None
         self.reparsed.emit()
-        return old_tree
 
-    def get_node_at_point(self, byte_offset: int) -> Node | None:
-        """Get the AST node at a specific UTF-16 code unit offset
-
-        Args:
-            byte_offset: The UTF-16 code unit offset in the document
-
-        Returns:
-            The tree-sitter Node at the given offset, or None if no tree exists
-        """
+    def node_at_byte(self, byte_offset: int) -> Node | None:
+        """Get the smallest node at a UTF-16LE byte offset"""
         if self.tree is None:
             return None
         return self.tree.root_node.descendant_for_byte_range(byte_offset, byte_offset)
 
+    def node_at_char(self, position: int) -> Node | None:
+        """Get the smallest node at a Qt position"""
+        return self.node_at_byte(TrackedDocument.char_to_byte(position))
+
     @property
     def root_node(self) -> Node | None:
-        """Get the root node of the parse tree
-
-        Returns:
-            The root Node of the tree, or None if no tree exists
-        """
         return self.tree.root_node if self.tree else None

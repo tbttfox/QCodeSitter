@@ -1,35 +1,45 @@
 from __future__ import annotations
 
-from Qt import QtGui
+from collections.abc import Callable
+
+from Qt import QtCore, QtGui, QtWidgets
 
 from .constants import ENC
 
 MO = QtGui.QTextCursor.MoveOperation
 MM = QtGui.QTextCursor.MoveMode
+KEY = QtCore.Qt.Key
+MOD = QtCore.Qt.KeyboardModifier
+
+
+def leading_whitespace(text: str) -> str:
+    """The indentation at the start of a line"""
+    return text[: len(text) - len(text.lstrip())]
 
 
 def dedent_string(indent: str, indent_using_tabs: bool, space_indent_width: int) -> str:
     """Remove one level of indentation from the indent string"""
     if indent_using_tabs:
-        if indent.endswith("\t"):
-            return indent[:-1]
-    else:
-        # Remove up to space_indent_width spaces from the end
-        spaces_to_remove = min(space_indent_width, len(indent))
-        # Count trailing spaces
-        trailing_spaces = len(indent) - len(indent.rstrip(" "))
-        actual_remove = min(spaces_to_remove, trailing_spaces)
-        if actual_remove > 0:
-            return indent[:-actual_remove]
-    return indent
+        return indent.removesuffix("\t")
+    trailing_spaces = len(indent) - len(indent.rstrip(" "))
+    remove = min(space_indent_width, trailing_spaces)
+    return indent[:-remove] if remove else indent
 
 
-def len16(val: str):
-    """Get the number of utf16 code points where surrogate pairs count as 2"""
+def len16(val: str) -> int:
+    """Get the number of UTF-16 code units, where surrogate pairs count as 2"""
     return len(val.encode(ENC)) // 2
 
 
-def expand_to_lines(cursor: QtGui.QTextCursor):
+def utf16_to_index(text: str, col: int) -> int:
+    """Convert a UTF-16 column in text (ie: positionInBlock) to a str index
+
+    A column inside a surrogate pair rounds down to the start of the pair
+    """
+    return len(text.encode(ENC)[: col * 2].decode(ENC, errors="ignore"))
+
+
+def expand_to_lines(cursor: QtGui.QTextCursor) -> None:
     """Expand a cursor selection to whole lines
     If there is no selection, expand to the current line
     """
@@ -39,3 +49,35 @@ def expand_to_lines(cursor: QtGui.QTextCursor):
     cursor.movePosition(MO.StartOfLine)
     cursor.setPosition(end, MM.KeepAnchor)
     cursor.movePosition(MO.EndOfLine, MM.KeepAnchor)
+
+
+def replace_lines(
+    cursor: QtGui.QTextCursor, transform: Callable[[list[str]], list[str]]
+) -> None:
+    """Replace the whole lines under the cursor, and select the new lines
+
+    Args:
+        cursor: The cursor whose selection (or current line) to replace
+        transform: Takes the lines, without their newlines, and returns new ones
+    """
+    expand_to_lines(cursor)
+    start = cursor.selectionStart()
+    lines = cursor.selection().toPlainText().split("\n")
+    new_text = "\n".join(transform(lines))
+    cursor.insertText(new_text)
+    cursor.setPosition(start)
+    cursor.setPosition(start + len16(new_text), MM.KeepAnchor)
+
+
+def make_shortcut_action(
+    parent: QtWidgets.QWidget,
+    shortcut: str,
+    slot: Callable[..., object],
+    name: str = "",
+) -> QtWidgets.QAction:
+    """Create an action for a keyboard shortcut that only fires in the parent widget"""
+    action = QtWidgets.QAction(name, parent)
+    action.setShortcut(QtGui.QKeySequence(shortcut))
+    action.setShortcutContext(QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut)
+    action.triggered.connect(slot)
+    return action

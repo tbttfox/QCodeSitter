@@ -1,284 +1,170 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Collection
+from collections.abc import Collection
+from typing import TYPE_CHECKING
 
 from Qt import QtGui, QtWidgets
 
+from ..gui_colors import GuiColors, gui_color
+from ..languages import language_spec
+from ..utils import MM, len16, utf16_to_index
 from . import Behavior
 
 if TYPE_CHECKING:
+    from tree_sitter import Node
+
     from ..code_editor import CodeEditor
 
 
 class HighlightMatchingBrackets(Behavior):
-    def __init__(self, editor: CodeEditor):
+    """Highlight a bracket or quote next to the cursor, and the one it pairs with
+
+    The pairs come from the tree-sitter tree, so brackets in strings and
+    comments don't match the code around them. The brackets and quotes come
+    from the "highlight_bracket_pairs" and "highlight_quote_pairs" options
+    """
+
+    SOURCE = "bracket_matching"
+
+    def __init__(self, editor: CodeEditor) -> None:
         super().__init__(editor)
-        self.setListen({"colors", "highlight_bracket_pairs", "highlight_quote_pairs"})
-
-        self._pair_hl: QtGui.QColor
-        self.highlight_quote_chars: str = "`'\""
-        self.ordered_pairs: tuple[str, ...]
-        self.opening_brackets: str
-        self.bracket_chars: str
-        self.bracket_pairs: dict[str, str]
-
+        self._set_colors({})
+        self._set_bracket_pairs(self.options["highlight_bracket_pairs"])
         self.editor.cursorPositionChanged.connect(self.highlight_matching_brackets)
-        self.updateAll()
+        self.watch_options(
+            {
+                "colors": self._set_colors,
+                "highlight_bracket_pairs": self._set_bracket_pairs,
+            }
+        )
+        self.apply_all_options()
 
-    def _colors(self, val):
-        """Update colors when color options change"""
-        self._pair_hl = QtGui.QColor(val.get("pair_hl", "#C8C8C8"))
+    def _set_colors(self, colors: GuiColors) -> None:
+        self._format = QtGui.QTextCharFormat()
+        self._format.setBackground(gui_color(colors, "pair_hl"))
 
-    colors = property(None, _colors)
+    def _set_bracket_pairs(self, ordered_pairs: Collection[str]) -> None:
+        """Set the brackets from strings of an opening and closing character, ie "()" """
+        self.opening_brackets = "".join(p[0] for p in ordered_pairs)
+        self.bracket_chars = "".join(ordered_pairs)
+        self.bracket_pairs = {p[0]: p[1] for p in ordered_pairs}
+        self.bracket_pairs.update({p[1]: p[0] for p in ordered_pairs})
 
-    def update_pairs(self, ordered_pairs: Collection[str]):
-        self.ordered_pairs = tuple(ordered_pairs)
-        self.bracket_chars = "".join(self.ordered_pairs)
-        self.opening_brackets = "".join(p[0] for p in self.ordered_pairs)
-        self.bracket_pairs = {p[0]: p[1] for p in self.ordered_pairs}
-        self.bracket_pairs.update({p[1]: p[0] for p in self.ordered_pairs})
+    @property
+    def _quote_chars(self) -> str:
+        return self.options["highlight_quote_pairs"]
 
-    highlight_bracket_pairs = property(None, update_pairs)
-
-    def remove(self):
+    def remove(self) -> None:
         super().remove()
         self.editor.cursorPositionChanged.disconnect(self.highlight_matching_brackets)
-        self.editor.clear_selections("bracket_matching")
+        self.editor.clear_selections(self.SOURCE)
 
-    def highlight_matching_brackets(self):
-        """Highlight matching brackets/parens/braces using tree-sitter"""
-        extra_selections = []
+    def highlight_matching_brackets(self) -> None:
+        self.editor.set_selections(self.SOURCE, self._matching_selections())
 
-        if self.editor.tree_manager.tree is None:
-            self.editor.set_selections("bracket_matching", extra_selections)
-            return
-
-        # Find character to match
+    def _matching_selections(self) -> list[QtWidgets.QTextEdit.ExtraSelection]:
         match_info = self._find_character_to_match()
         if match_info is None:
-            self.editor.set_selections("bracket_matching", extra_selections)
-            return
-
+            return []
         match_char, match_pos = match_info
-
-        # Get tree-sitter node at position
-        node = self._get_node_at_position(match_pos)
+        node = self.editor.tree_manager.node_at_char(match_pos)
         if node is None:
-            self.editor.set_selections("bracket_matching", extra_selections)
-            return
+            return []
 
-        # Handle quotes vs brackets differently
-        if match_char in self.highlight_quote_chars:
-            extra_selections = self._highlight_matching_quotes(node, match_pos)
+        if match_char in self._quote_chars:
+            ranges = self._matching_quote_ranges(node, match_pos)
         else:
-            extra_selections = self._highlight_matching_brackets_pair(node, match_char)
-
-        self.editor.set_selections("bracket_matching", extra_selections)
+            ranges = self._matching_bracket_ranges(node, match_char)
+        return [self._create_selection(start, end) for start, end in ranges]
 
     def _find_character_to_match(self) -> tuple[str, int] | None:
-        """Find the character near the cursor that should be matched
+        """Find the bracket or quote next to the cursor, preferring the one before it
 
         Returns:
-            Tuple of (character, position) or None if no matchable character found
+            The character and its position, or None if neither side matches
         """
         cursor = self.editor.textCursor()
         pos = cursor.position()
-        block = cursor.block()
-        block_start = block.position()
-        col = pos - block_start
-        text = block.text()
-        # positionInBlock() returns UTF-16 code units which can exceed
-        # Python str length when surrogate pairs (e.g. emoji) are present
-        col = min(col, len(text))
-
-        # Check character before cursor (preferred)
-        allmatch = self.highlight_quote_chars + self.bracket_chars
-        if col > 0 and text[col - 1] in allmatch:
-            return text[col - 1], pos - 1
-        # Check character after cursor
-        elif col < len(text) and text[col] in allmatch:
-            return text[col], pos
-
+        text = cursor.block().text()
+        index = utf16_to_index(text, cursor.positionInBlock())
+        matchable = self._quote_chars + self.bracket_chars
+        if index > 0 and text[index - 1] in matchable:
+            char = text[index - 1]
+            return char, pos - len16(char)
+        if index < len(text) and text[index] in matchable:
+            return text[index], pos
         return None
 
-    def _get_node_at_position(self, pos: int):
-        """Get the tree-sitter node at the given character position
-
-        Args:
-            pos: Character position in the document
-
-        Returns:
-            Tree-sitter node or None
-        """
-        # Each UTF-16 code unit is 2 bytes
-        return self.editor.tree_manager.get_node_at_point(pos * 2)
-
-    def _highlight_matching_quotes(self, node, match_pos: int) -> list:
-        """Highlight matching quotes for strings
-
-        Args:
-            node: Tree-sitter node at the quote position
-            match_pos: Character position of the quote
-
-        Returns:
-            List of extra selections
-        """
-        extra_selections = []
-
-        # Find the string node (parent of string_start/string_end)
+    def _matching_quote_ranges(
+        self, node: Node, match_pos: int
+    ) -> list[tuple[int, int]]:
+        """Get the ranges of the quote at match_pos, and the other end of its string"""
+        spec = language_spec(self.editor.tree_manager.language)
         string_node = node
-        while string_node:
-            if string_node.type == "string":
-                break
+        while string_node is not None and string_node.type != spec.string_type:
             string_node = string_node.parent
-
         if string_node is None:
-            return extra_selections
+            return []
 
-        # Get string boundaries
-        try:
-            string_start_char = self.editor._doc.byte_to_char(string_node.start_byte)
-            string_end_char = self.editor._doc.byte_to_char(string_node.end_byte)
-        except (IndexError, ValueError):
-            return extra_selections
+        # The delimiter nodes include triple quotes and prefixes like f"
+        delimiters = {child.type: child for child in string_node.children}
+        start_type, end_type = spec.string_delimiter_types
+        start_node = delimiters.get(start_type)
+        end_node = delimiters.get(end_type)
+        if start_node is None or end_node is None:
+            return []
 
-        # Validate positions to prevent "Position out of range" errors
-        doc_length = (
-            self.editor.document().characterCount() - 1
-        )  # -1 for the implicit newline
-        if string_start_char >= doc_length or string_end_char > doc_length:
-            return extra_selections
-
-        # Determine quote length (handle triple quotes)
-        string_cursor = self.editor.textCursor()
-        string_cursor.setPosition(string_start_char)
-        string_cursor.setPosition(
-            string_end_char, QtGui.QTextCursor.MoveMode.KeepAnchor
+        doc = self.editor.document()
+        opening, closing = (
+            (doc.byte_to_char(n.start_byte), doc.byte_to_char(n.end_byte))
+            for n in (start_node, end_node)
         )
-        string_text = string_cursor.selectedText()
+        if opening[0] <= match_pos < opening[1]:
+            return [opening, closing]
+        return [closing, opening]
 
-        quote_len = 3 if string_text.startswith(('"""', "'''")) else 1
+    def _matching_bracket_ranges(
+        self, node: Node, match_char: str
+    ) -> list[tuple[int, int]]:
+        """Get the ranges of a bracket node, and its sibling it pairs with"""
+        if node.type not in self.bracket_chars or node.parent is None:
+            return []
 
-        # Determine which quotes to highlight
-        opening_end = string_start_char + quote_len
-        closing_start = string_end_char - quote_len
-        cursor_at_opening = string_start_char <= match_pos < opening_end
-
-        if cursor_at_opening:
-            cursor_quote_range = (string_start_char, opening_end)
-            match_quote_range = (closing_start, string_end_char)
-        else:
-            cursor_quote_range = (closing_start, string_end_char)
-            match_quote_range = (string_start_char, opening_end)
-
-        # Create selections
-        quote_format = QtGui.QTextCharFormat()
-        quote_format.setBackground(self._pair_hl)
-
-        extra_selections.append(
-            self._create_selection(
-                cursor_quote_range[0], cursor_quote_range[1], quote_format
-            )
+        partner_type = self.bracket_pairs[match_char]
+        is_opening = match_char in self.opening_brackets
+        # Opening brackets match forwards, and closing brackets match backwards
+        partner = next(
+            (
+                sibling
+                for sibling in node.parent.children
+                if sibling.type == partner_type
+                and (sibling.start_byte > node.start_byte) == is_opening
+            ),
+            None,
         )
-        extra_selections.append(
-            self._create_selection(
-                match_quote_range[0], match_quote_range[1], quote_format
-            )
-        )
+        if partner is None:
+            return []
 
-        return extra_selections
+        doc = self.editor.document()
+        return [
+            (doc.byte_to_char(n.start_byte), doc.byte_to_char(n.end_byte))
+            for n in (node, partner)
+        ]
 
-    def _highlight_matching_brackets_pair(self, node, match_char: str) -> list:
-        """Highlight matching bracket pair
+    def _create_selection(
+        self, start: int, end: int
+    ) -> QtWidgets.QTextEdit.ExtraSelection:
+        """Create an ExtraSelection for a range of the document
 
-        Args:
-            node: Tree-sitter node at the bracket position
-            match_char: The bracket character
-
-        Returns:
-            List of extra selections
+        The range is clamped to the document, which it can pass
+        if the tree hasn't caught up with an edit yet
         """
-        extra_selections = []
-
-        if node.type not in self.bracket_chars:
-            return extra_selections
-
-        # Find the matching bracket node
-        matching_node = self._find_matching_bracket_node(node, match_char)
-        if matching_node is None:
-            return extra_selections
-
-        # Convert byte positions to character positions
-        try:
-            node_start_char = self.editor._doc.byte_to_char(node.start_byte)
-            node_end_char = self.editor._doc.byte_to_char(node.end_byte)
-            match_start_char = self.editor._doc.byte_to_char(matching_node.start_byte)
-            match_end_char = self.editor._doc.byte_to_char(matching_node.end_byte)
-        except (IndexError, ValueError):
-            return extra_selections
-
-        # Create selections
-        bracket_format = QtGui.QTextCharFormat()
-        bracket_format.setBackground(self._pair_hl)
-
-        extra_selections.append(
-            self._create_selection(node_start_char, node_end_char, bracket_format)
-        )
-        extra_selections.append(
-            self._create_selection(match_start_char, match_end_char, bracket_format)
-        )
-
-        return extra_selections
-
-    def _find_matching_bracket_node(self, node, bracket_char: str):
-        """Find the matching bracket node in the tree
-
-        Args:
-            node: The bracket node to match
-            bracket_char: The bracket character
-
-        Returns:
-            Matching node or None
-        """
-        parent = node.parent
-        if parent is None:
-            return None
-
-        matching_bracket_type = self.bracket_pairs[bracket_char]
-        is_opening = bracket_char in self.opening_brackets
-
-        # Search siblings for the matching bracket
-        for sibling in parent.children:
-            if sibling.type == matching_bracket_type:
-                # Opening brackets match forwards, and closing brackets match backwards
-                if (sibling.start_byte > node.start_byte) == is_opening:
-                    return sibling
-
-        return None
-
-    def _create_selection(self, start: int, end: int, format: QtGui.QTextCharFormat):
-        """Create an ExtraSelection for the given range
-
-        Args:
-            start: Start character position
-            end: End character position
-            format: Text format to apply
-
-        Returns:
-            ExtraSelection object
-        """
+        # -1 for the paragraph separator at the end of the document
+        doc_length = self.editor.document().characterCount() - 1
         cursor = self.editor.textCursor()
-        # Validate positions to prevent "Position out of range" errors
-        # This can happen if the tree hasn't been updated yet after a document change
-        doc_length = (
-            self.editor.document().characterCount() - 1
-        )  # -1 for the implicit newline
-        start = min(start, doc_length)
-        end = min(end, doc_length)
-
-        cursor.setPosition(start)
-        cursor.setPosition(end, QtGui.QTextCursor.MoveMode.KeepAnchor)
+        cursor.setPosition(min(start, doc_length))
+        cursor.setPosition(min(end, doc_length), MM.KeepAnchor)
         selection = QtWidgets.QTextEdit.ExtraSelection()
         selection.cursor = cursor
-        selection.format = format
+        selection.format = self._format
         return selection

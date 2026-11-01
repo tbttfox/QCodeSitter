@@ -1,230 +1,119 @@
 from __future__ import annotations
 
-import re
+import warnings
+from collections.abc import Callable, Collection, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
-from typing import Collection, TypeVar
+from typing import TypeVar
 
 from Qt import QtCore, QtGui, QtWidgets
-from tree_sitter import Language
 
 from .behaviors import Behavior
-from .behaviors.multi_cursor_paint import MultiCursorPaint
+from .clipboard import encode_multi_copy, split_multi_copy, tabs_to_spaces
 from .constants import MIME
+from .cursors.iterator import CursorIterator
+from .cursors.multi import MultiCursor
+from .cursors.state import CursorState
+from .cursors.tracked import TrackedCursor
 from .editor_options import EditorOptions
-from .line_tracker import TrackedDocument
-from .syntax_analyzer import SyntaxAnalyzer
-from .tracked_cursor import TrackedCursor
+from .gui_colors import GuiColors, gui_color
+from .gutters import GutterLayout
+from .tracked_document import TrackedDocument
 from .tree_manager import TreeManager
-from .utils import len16
+from .utils import KEY, MO, MOD, make_shortcut_action
 
 T_Behavior = TypeVar("T_Behavior", bound=Behavior)
 
-MM = QtGui.QTextCursor.MoveMode
-MO = QtGui.QTextCursor.MoveOperation
-KEY = QtCore.Qt.Key
-MOD = QtCore.Qt.KeyboardModifier
+# Delete key -> (move operation, move operation with Ctrl held)
+_DELETE_OPS: dict[KEY, tuple[MO, MO]] = {
+    KEY.Key_Backspace: (MO.PreviousCharacter, MO.PreviousWord),
+    KEY.Key_Delete: (MO.NextCharacter, MO.NextWord),
+}
 
 
-@dataclass
-class CursorState:
-    """Represents a single cursor's position and selection"""
-
-    anchor: int  # UTF-16 position
-    position: int  # UTF-16 position
-
-    @classmethod
-    def fromQt(cls, cursor: QtGui.QTextCursor) -> CursorState:
-        return cls(cursor.anchor(), cursor.position())
-
-    def setPosition(self, val: int, moveMode=MM.MoveAnchor):
-        if moveMode == MM.MoveAnchor:
-            self.anchor = val
-        self.position = val
-
-    def hasSelection(self) -> bool:
-        """Returns True if this cursor has a selection"""
-        return self.anchor != self.position
-
-    def selectionStart(self) -> int:
-        """Returns the start position of the selection (or cursor position if no selection)"""
-        return min(self.anchor, self.position)
-
-    def selectionEnd(self) -> int:
-        """Returns the end position of the selection (or cursor position if no selection)"""
-        return max(self.anchor, self.position)
-
-    def apply(self, cursor: QtGui.QTextCursor) -> QtGui.QTextCursor:
-        """Apply this state to a QtGui.QTextCursor"""
-        cursor.setPosition(self.anchor)
-        cursor.setPosition(self.position, MM.KeepAnchor)
-        return cursor
-
-    def update(self, cursor: QtGui.QTextCursor):
-        self.anchor = cursor.anchor()
-        self.position = cursor.position()
-
-    def offset(self, offset: int):
-        """Offset this state by a given number of characters"""
-        self.anchor += offset
-        self.position += offset
-
-    def build_cursor(self, document: QtGui.QTextDocument) -> QtGui.QTextCursor:
-        """Build a cursor for a given document"""
-        return self.apply(QtGui.QTextCursor(document))
-
-    def __hash__(self) -> int:
-        return hash((self.anchor, self.position))
-
-
-class CursorIterator:
-    """A class to manage the key press event for multiple cursors
-    Each cursor can be completed separately from the others.
-
-    You can iterate over an instance of this class multiple times,
-    and it will keep track of all the cursors, and updating the
-    position of cursors as previous cursors in the list edit text
-    """
-
-    def __init__(self, editor: CodeEditor):
-        self.editor = editor
-        self._multicursor_offset = 0
-        self._cursor_completed = False
-        self._cursor_cmp_list: list[bool] = []
-        self._cursor_srt_list: list[CursorState] = []
-        self._cursor_primary_idx: int = 0
-        self.handled = False
-        self.active = False
-
-    def get(self):
-        """Snapshot the editor's current cursors"""
-        cursors, primary_index = self.editor.get_all_cursors()
-        self._cursor_srt_list = cursors
-        self._cursor_cmp_list = [False] * len(cursors)
-        self._cursor_primary_idx = primary_index
-
-    @contextmanager
-    def session(self):
-        """Run several iterate_cursors passes as a single operation
-
-        The cursors are snapshot once at the start, and any cursor completed
-        by one pass is skipped by the passes after it
-        """
-        self.get()
-        self.active = True
-        try:
-            yield
-        finally:
-            self.active = False
-
-    def update_offset(self, val):
-        """Keep track of the position delta for the current cursor
-        Only useful inside an iterate_cursors loop
-        """
-        self._multicursor_offset += val
-
-    def cursor_completed(self):
-        """Mark the current cursor as completed
-        Only useful inside an iterate_cursors loop
-        """
-        self._cursor_completed = True
-
-    def iterate_cursors(
-        self, join_edit: bool = False, no_position_update: bool = False
-    ):
-        """Iterate over all non-completed cursor states for editing in a single edit block"""
-        # TODO: Figure out how to combine single insertions
-        if not self.active:
-            # A one-off edit outside of a session works on the current cursors
-            self.get()
-
-        qt_cursor = self.editor.textCursor()
-        if join_edit:
-            qt_cursor.joinPreviousEditBlock()
-        else:
-            qt_cursor.beginEditBlock()
-
-        self._multicursor_offset = 0
-        self.handled = False
-        for i, state in enumerate(self._cursor_srt_list):
-            # Always offset the cursors because a previous
-            # one may have edited the text
-            state.offset(self._multicursor_offset)
-            if self._cursor_cmp_list[i]:
-                # cursor is already completed
-                continue
-
-            state.apply(qt_cursor)
-            self._cursor_completed = False
-            yield qt_cursor
-            if not no_position_update:
-                state.update(qt_cursor)
-            self._cursor_cmp_list[i] = self._cursor_completed
-            self.handled = True
-
-        qt_cursor.endEditBlock()
-        if self.handled:
-            all_cursors = self._cursor_srt_list[:]
-            primary_cursor = all_cursors.pop(self._cursor_primary_idx)
-            all_cursors.insert(0, primary_cursor)
-            self.editor._set_all_cursors(all_cursors)
+def _event_pos(event: QtGui.QMouseEvent | QtGui.QDropEvent) -> QtCore.QPoint:
+    """The event position as a QPoint in both Qt5 and Qt6"""
+    position = getattr(event, "position", None)
+    return position().toPoint() if position is not None else event.pos()
 
 
 class CodeEditor(QtWidgets.QPlainTextEdit):
-    gutterResize = QtCore.Signal()
+    """A multi-cursor plain text editor that keeps a tree-sitter parse tree
+
+    Features beyond plain editing are Behaviors added with `add_behavior`
+    """
+
+    # Emitted with (QPaintEvent, QPainter) to let behaviors paint over the viewport
     behaviorPaint = QtCore.Signal(object, object)
-    behaviorPrepareUndo = QtCore.Signal()
-    behaviorPrepareRedo = QtCore.Signal()
-    behaviorAfterUndoRedo = QtCore.Signal()
+    aboutToUndoRedo = QtCore.Signal()
+    # Emitted after an undo or redo, once the tree has been reparsed
+    undoRedoFinished = QtCore.Signal()
 
     def __init__(
-        self,
-        options: EditorOptions,
-        parent=None,
-        *args,
-        **kwargs,
-    ):
+        self, options: EditorOptions, parent: QtWidgets.QWidget | None = None
+    ) -> None:
         super().__init__(parent=parent)
         self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-        self._doc: TrackedDocument = TrackedDocument()
+        self._doc = TrackedDocument()
+        self.setDocument(self._doc)
         self._selections: dict[str, list[QtWidgets.QTextEdit.ExtraSelection]] = {}
         self._behaviors: list[Behavior] = []
-        self._keypressBehaviors: list[Behavior] = []
-        self.citer: CursorIterator = CursorIterator(self)
-
-        self.gutterWidths: dict[str, int] = {}
-        self.gutterOrder: list[str] = []
-
-        self.setDocument(self._doc)
+        self._keypress_behaviors: list[Behavior] = []
         self.options = options
-        self.secondary_cursors: list[CursorState] = []
+        self.cursors = MultiCursor(self)
+        self.citer = CursorIterator(self)
+        self.gutters = GutterLayout(self)
 
         self._loaded = False
         self._can_join = False
 
-        self.tree_manager: TreeManager = TreeManager(self)
-        self.syntax_analyzer: SyntaxAnalyzer = SyntaxAnalyzer(
-            self.tree_manager, self._doc
-        )
-        self._doc.byteContentsChange.connect(self.tree_manager.update)
-        self._doc.fullUpdateRequest.connect(self.tree_manager.fullUpdate)
+        self.tree_manager = TreeManager(self)
+        self._doc.byteContentsChange.connect(self.tree_manager.apply_edit)
 
-        # Defaults for when these aren't in the options
-        self.space_indent_width: int = 4
-        self.indent_using_tabs: bool = False
-        self.copy_indents_as_spaces: bool = True
+        # The indent and clipboard options are read from self.options when used
+        self._option_handlers = {
+            "font": self._set_font,
+            "language": self.tree_manager.set_language,
+            "colors": self._set_colors,
+            "tab_indent_width": lambda _width: self._update_tab_stop(),
+        }
         self.options.optionsUpdated.connect(self._on_options_updated)
 
-        # Hide the built-in cursor so we can draw it ourselves
-        self.setCursorWidth(0)
+        # (modifier, action) pairs for the keys that run editor commands
+        self._command_keys: dict[KEY, tuple[tuple[MOD, Callable[[], None]], ...]] = {
+            KEY.Key_C: ((MOD.ControlModifier, self.copy),),
+            KEY.Key_Insert: (
+                (MOD.ControlModifier, self.copy),
+                (MOD.ShiftModifier, self.paste),
+            ),
+            KEY.Key_V: ((MOD.ControlModifier, self.paste),),
+            KEY.Key_X: ((MOD.ControlModifier, self.cut),),
+            KEY.Key_Z: ((MOD.ControlModifier, self.undo),),
+            KEY.Key_Y: ((MOD.ControlModifier, self.redo),),
+        }
+        for shortcut, slot in (
+            ("Ctrl+D", self.cursors.add_next_occurrence),
+            ("Ctrl+Alt+Up", self.cursors.add_above),
+            ("Ctrl+Alt+Down", self.cursors.add_below),
+            ("Ctrl+Shift+L", self.cursors.add_to_line_ends),
+        ):
+            self.addAction(make_shortcut_action(self, shortcut, slot))
 
-        self._setup_editor_shortcuts()
+    @property
+    def is_loaded(self) -> bool:
+        """Whether the editor has been shown, and has applied its options"""
+        return self._loaded
 
     def textCursor(self) -> TrackedCursor:
         return TrackedCursor(self._doc, super().textCursor())
 
+    def document(self) -> TrackedDocument:
+        doc = super().document()
+        if not isinstance(doc, TrackedDocument):
+            raise TypeError("CodeEditor only works with a TrackedDocument")
+        return doc
+
     @contextmanager
-    def edit_session(self):
+    def edit_session(self) -> Iterator[None]:
         """Group the edits made by one user action
 
         The cursors are snapshot once for all the citer passes, and the tree
@@ -240,823 +129,335 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         finally:
             self.tree_manager.unpause()
 
-    def updateGutter(self):
-        current_margins = self.viewportMargins()
-        current_margins.setLeft(sum(self.gutterWidths.values()))
-        self.setViewportMargins(current_margins)
+    # ------------------------------------------------------------------
+    # Options
+    # ------------------------------------------------------------------
 
-    def showEvent(self, arg__1: QtGui.QShowEvent):
-        super().showEvent(arg__1)
+    def _on_options_updated(self, keylist: Collection[str]) -> None:
+        # Everything gets applied when the editor is first shown
+        if self._loaded:
+            self.options.apply(self._option_handlers, keylist)
+
+    def _set_font(self, font: QtGui.QFont) -> None:
+        self.setFont(font)
+        self._update_tab_stop()
+
+    def _update_tab_stop(self) -> None:
+        metrics = QtGui.QFontMetrics(self.font())
+        width = self.options["tab_indent_width"]
+        self.setTabStopDistance(width * metrics.horizontalAdvance(" "))
+
+    def _set_colors(self, colors: GuiColors) -> None:
+        palette = self.palette()
+        role = QtGui.QPalette.ColorRole
+        for roles, name in (
+            ((role.Base, role.Window), "bg"),
+            ((role.Text,), "fg"),
+            ((role.Highlight,), "selection"),
+        ):
+            for color_role in roles:
+                palette.setColor(color_role, gui_color(colors, name))
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
+
+    def showEvent(self, event: QtGui.QShowEvent) -> None:
+        super().showEvent(event)
         if not self._loaded:
             self._loaded = True
-            self.updateOptions(list(self.options.keys()))
+            self.options.apply(self._option_handlers, list(self.options.keys()))
             for bh in self._behaviors:
-                bh.updateAll()
+                bh.apply_all_options()
 
-    def resizeEvent(self, e: QtGui.QResizeEvent):
-        super().resizeEvent(e)
-        self.gutterResize.emit()
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self.gutters.place()
+
+    # ------------------------------------------------------------------
+    # Extra selections
+    # ------------------------------------------------------------------
 
     def set_selections(
         self, source: str, selections: list[QtWidgets.QTextEdit.ExtraSelection]
-    ):
-        """Set selections for a specific source (behavior)
+    ) -> None:
+        """Set the extra selections from one source, like a behavior
 
-        Args:
-            source: Identifier for the source behavior (e.g., "bracket_matching", "selection_highlight")
-            selections: List of extra selections to apply
+        Every source's selections are shown together, ordered by source name
         """
         self._selections[source] = selections
         self._update_editor_selections()
 
-    def clear_selections(self, source: str):
-        """Clear selections for a specific source
-
-        Args:
-            source: Identifier for the source behavior
-        """
+    def clear_selections(self, source: str) -> None:
         if source in self._selections:
             del self._selections[source]
             self._update_editor_selections()
 
-    def _update_editor_selections(self):
-        """Merge all selections and update the editor"""
-        merged = []
-        for source in sorted(self._selections.keys()):
-            merged.extend(self._selections[source])
+    def selections(self, source: str) -> list[QtWidgets.QTextEdit.ExtraSelection]:
+        """Get the extra selections set by a source"""
+        return self._selections.get(source, [])
 
+    def _update_editor_selections(self) -> None:
+        merged = []
+        for source in sorted(self._selections):
+            merged.extend(self._selections[source])
         self.setExtraSelections(merged)
 
-    def _make_shortcut(self, shortcut, method):
-        """Create a QAction shortcut and add it to this widget."""
-        action = QtWidgets.QAction(self)
-        action.setShortcut(QtGui.QKeySequence(shortcut))
-        action.setShortcutContext(QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        action.triggered.connect(method)
-        self.addAction(action)
-        return action
+    # ------------------------------------------------------------------
+    # Behaviors
+    # ------------------------------------------------------------------
 
-    def _setup_editor_shortcuts(self):
-        """Create QActions for the editor's own keyboard shortcuts (called once)."""
-        self._make_shortcut("Ctrl+D", self.add_next_occurrence)
-        self._make_shortcut("Ctrl+Alt+Up", self.add_cursor_above)
-        self._make_shortcut("Ctrl+Alt+Down", self.add_cursor_below)
-        self._make_shortcut("Ctrl+Shift+L", self.add_cursors_to_line_ends)
-
-    def _add_behavior_shortcuts(self, behavior):
-        """Add shortcut actions for a behavior"""
-        actions = behavior.getHotkeys()
-        for action in actions:
-            action.setShortcutContext(
-                QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut
-            )
-            self.addAction(action)
-        behavior.shortcut_actions = actions
-
-    def _remove_behavior_shortcuts(self, behavior):
-        """Remove shortcut actions for a behavior"""
-        for action in behavior.shortcut_actions:
-            self.removeAction(action)
-            action.deleteLater()
-
-    def _on_options_updated(self, keylist: Collection[str]):
-        # Everything gets applied when the editor is first shown
-        if self._loaded:
-            self.updateOptions(keylist)
-
-    def updateOptions(self, keylist: Collection[str]):
-        keys = {k for k in keylist if k in self.options}
-        if "font" in keys:
-            self.setFont(self.options["font"])
-        if "language" in keys:
-            self.setLanguage(self.options["language"])
-        if "colors" in keys:
-            self.setColors(self.options["colors"])
-        for key in (
-            "space_indent_width",
-            "indent_using_tabs",
-            "copy_indents_as_spaces",
-        ):
-            if key in keys:
-                setattr(self, key, self.options[key])
-
-    def setColors(self, colors: dict[str, str]):
-        palette = self.palette()
-        bgcolor = QtGui.QColor(colors["bg"])
-        palette.setColor(QtGui.QPalette.ColorRole.Base, bgcolor)  # Background
-        palette.setColor(QtGui.QPalette.ColorRole.Window, bgcolor)  # Window bg
-        palette.setColor(QtGui.QPalette.ColorRole.Text, QtGui.QColor(colors["fg"]))
-        if "selection" in colors:
-            palette.setColor(
-                QtGui.QPalette.ColorRole.Highlight, QtGui.QColor(colors["selection"])
-            )
-        self.setPalette(palette)
-        self.setAutoFillBackground(True)
-
-    def setLanguage(self, lang: Language):
-        self.tree_manager.setLanguage(lang)
-        self.tree_manager.fullUpdate()
-
-    def addBehavior(
-        self, behaviorCls: type[T_Behavior]
-    ) -> tuple[T_Behavior | None, T_Behavior]:
-        """Set the given behavior to the class. If a behavior of the given type already exists, remove it
-        Return both the old and newly instantiated behaviors.
-        """
-        old_bh = self.removeBehavior(behaviorCls)
-        behavior = behaviorCls(self)
+    def add_behavior(self, behavior_cls: type[T_Behavior]) -> T_Behavior:
+        """Add a behavior, replacing any existing behavior of the same type"""
+        self.remove_behavior(behavior_cls)
+        behavior = behavior_cls(self)
         self._behaviors.append(behavior)
-        if behavior.hasKeyPress():
-            self._keypressBehaviors.append(behavior)
-        self._add_behavior_shortcuts(behavior)
-        return old_bh, behavior
+        if behavior.has_key_press():
+            self._keypress_behaviors.append(behavior)
+        behavior.shortcut_actions = behavior.get_hotkeys()
+        self.addActions(behavior.shortcut_actions)
+        return behavior
 
-    def removeBehavior(self, behaviorCls: type[T_Behavior]) -> T_Behavior | None:
-        """Remove all existing behaviors of the given type"""
-        ridxs = []
-        torem = []
-        for i, bh in enumerate(self._behaviors):
-            if type(bh) is behaviorCls:
-                ridxs.append(i)
-                torem.append(bh)
-        for i in reversed(ridxs):
-            self._behaviors.pop(i)
-        self._keypressBehaviors = [b for b in self._keypressBehaviors if b not in torem]
-        for rem in torem:
-            self._remove_behavior_shortcuts(rem)
-            rem.remove()
-        if not torem:
+    def remove_behavior(self, behavior_cls: type[T_Behavior]) -> T_Behavior | None:
+        """Remove the behavior of the given type, and return it if there was one"""
+        removed = [bh for bh in self._behaviors if type(bh) is behavior_cls]
+        if not removed:
             return None
-        if len(torem) > 1:
-            print("Warning: Multiple behaviors of the same type found to remove")
-        return torem[0]
+        if len(removed) > 1:
+            warnings.warn(
+                f"Found {len(removed)} {behavior_cls.__name__} behaviors to remove",
+                stacklevel=2,
+            )
+        self._behaviors = [b for b in self._behaviors if b not in removed]
+        self._keypress_behaviors = [
+            b for b in self._keypress_behaviors if b not in removed
+        ]
+        for bh in removed:
+            for action in bh.shortcut_actions:
+                self.removeAction(action)
+                action.deleteLater()
+            bh.remove()
+        return removed[0]
 
-    def getBehavior(self, behaviorCls: type[T_Behavior]) -> T_Behavior | None:
+    def get_behavior(self, behavior_cls: type[T_Behavior]) -> T_Behavior | None:
         for bh in self._behaviors:
-            if type(bh) is behaviorCls:
+            if type(bh) is behavior_cls:
                 return bh
         return None
 
-    def document(self) -> TrackedDocument:
-        doc = super().document()
-        if not isinstance(doc, TrackedDocument):
-            raise TypeError("This syntax highlighter only works with TrackedDocument")
-        return doc
+    # ------------------------------------------------------------------
+    # Events
+    # ------------------------------------------------------------------
 
-    def mousePressEvent(self, e: QtGui.QMouseEvent):
-        """Handle mouse press events"""
-        if e.modifiers() & QtCore.Qt.KeyboardModifier.AltModifier:
-            # Alt+Click to add cursor at position
-            pos_fn = getattr(e, "position", None)
-            pos = pos_fn().toPoint() if pos_fn is not None else e.pos()
-            cursor = self.cursorForPosition(pos)
-            position = cursor.position()
-            self.add_cursor_at_position(position)
-            e.accept()
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
+        if event.modifiers() & MOD.AltModifier:
+            self.cursors.add_at(self.cursorForPosition(_event_pos(event)).position())
+            event.accept()
             return
+        self.cursors.clear_secondary()
+        super().mousePressEvent(event)
 
-        # Exit multi-cursor mode on normal click
-        self.exit_multi_cursor_mode()
-        super().mousePressEvent(e)
-
-    def paintEvent(self, e: QtGui.QPaintEvent):
-        """Handle paint events to allow behaviors to customize rendering"""
-        super().paintEvent(e)
-
-        # Create a painter on the viewport for behaviors to use
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:
+        super().paintEvent(event)
         painter = QtGui.QPainter(self.viewport())
         try:
-            self.behaviorPaint.emit(e, painter)
+            self.behaviorPaint.emit(event, painter)
         finally:
             painter.end()
 
-    def get_primary_cursor(self) -> CursorState:
-        """Convert Qt's primary cursor to QtGui.QTextCursor"""
-        return CursorState.fromQt(self.textCursor())
-
-    def set_primary_cursor(self, state: CursorState):
-        """Update Qt's primary cursor from CursorState"""
-        self.setTextCursor(state.apply(self.textCursor()))
-
-    def get_all_cursors(self) -> tuple[list[CursorState], int]:
-        """Return primary + all secondary cursors sorted by position
-        And the index of the primary cursor"""
-        primary = self.get_primary_cursor()
-        all_cursors = [primary] + self.secondary_cursors
-        ret = sorted(all_cursors, key=lambda c: c.selectionStart())
-        return ret, ret.index(primary)
-
-    def _set_all_cursors(self, cursors: list[CursorState]):
-        """Update all cursor positions from a list of CursorStates
-
-        The first cursor becomes the primary, the rest become secondaries.
-        Merges overlapping cursors.
-        """
-        if not cursors:
-            self.exit_multi_cursor_mode()
-            return
-
-        # Merge overlapping cursors
-        merged = self._merge_overlapping_cursors(cursors)
-
-        # First cursor is primary
-        self.set_primary_cursor(merged[0])
-
-        # Rest are secondary
-        self.secondary_cursors = merged[1:]
-
-        self._update_visual()
-
-    def _merge_overlapping_cursors(
-        self, cursors: list[CursorState], handle_primary: bool = True
-    ) -> list[CursorState]:
-        """Merge cursors that overlap or are adjacent"""
-        if len(cursors) <= 1:
-            return cursors
-
-        first = cursors[0]
-
-        # Sort by start position
-        cursors = sorted(cursors, key=lambda c: c.selectionStart())
-        merged = [cursors[0]]
-
-        pidx = 0
-        for cursor in cursors[1:]:
-            last = merged[-1]
-
-            # Check for overlap or adjacency
-            if cursor.selectionStart() <= last.selectionEnd():
-                # Merge: extend the last cursor
-                new_anchor = min(last.anchor, cursor.anchor)
-                new_position = max(last.position, cursor.position)
-                merged[-1] = CursorState(new_anchor, new_position)
-            else:
-                merged.append(cursor)
-            if cursor is first:
-                pidx = len(merged) - 1
-
-        if handle_primary:
-            primary = merged.pop(pidx)
-            merged.insert(0, primary)
-
-        return merged
-
-    def _update_visual(self):
-        """Update visual rendering of secondary cursors"""
-
-        behavior = self.getBehavior(MultiCursorPaint)
-        if behavior:
-            if not self.secondary_cursors:
-                behavior.clear_visual()
-            else:
-                behavior.update_visual()
-
-    def exit_multi_cursor_mode(self):
-        """Exit multi-cursor mode, keep only primary cursor"""
-        self.secondary_cursors.clear()
-        self._update_visual()
-
-    def setPlainText(self, text):
-        self.exit_multi_cursor_mode()
-        super().setPlainText(text)
-        # This doesn't go through a TrackedCursor, so the tree has to be rebuilt
-        self.tree_manager.fullUpdate()
-
-    def undo(self):
-        """Override undo to exit multi-cursor mode first"""
-        # Qt's undo system doesn't track our CursorState positions, so we exit
-        # multi-cursor mode to avoid cursor position desync after undo
-        self.exit_multi_cursor_mode()
-
-        self.behaviorPrepareUndo.emit()
-        super().undo()
-
-        # After undo, notify behaviors to update
-        # Use QTimer to let the undo complete and Qt's event loop process
-        QtCore.QTimer.singleShot(0, self._after_undo_redo)
-
-    def redo(self):
-        """Override redo to exit multi-cursor mode first"""
-        # Qt's undo system doesn't track our CursorState positions, so we exit
-        # multi-cursor mode to avoid cursor position desync after redo
-        self.exit_multi_cursor_mode()
-
-        self.behaviorPrepareRedo.emit()
-        super().redo()
-
-        # After redo, notify behaviors to update
-        # Use QTimer to let the redo complete and Qt's event loop process
-        QtCore.QTimer.singleShot(0, self._after_undo_redo)
-
-    def _after_undo_redo(self):
-        self.behaviorAfterUndoRedo.emit()
-
-    def add_next_occurrence(self):
-        """Add cursor at next occurrence of current selection
-
-        Returns True if a cursor was added, False otherwise
-        """
-        primary = self.get_primary_cursor()
-        cursor = self.textCursor()
-
-        # Get search text from primary cursor selection
-        if not primary.hasSelection():
-            # No selection - select word under cursor first
-            cursor.select(QtGui.QTextCursor.SelectionType.WordUnderCursor)
-            if not cursor.hasSelection():
-                return
-            self.setTextCursor(cursor)
-            primary = self.get_primary_cursor()
-
-        search_text = cursor.selectedText()
-        if not search_text:
-            return
-
-        # Find next occurrence after the last cursor
-        all_cursors, _primary_index = self.get_all_cursors()
-        search_start = all_cursors[-1].selectionEnd()
-
-        search_len = len16(search_text)
-        next_pos = self._find_next(search_text, search_start)
-        if next_pos >= 0:
-            # Add new secondary cursor at match
-            new_cursor = CursorState(next_pos, next_pos + search_len)
-            self._set_all_cursors(all_cursors + [new_cursor])
-            return
-
-        # Wrap around to beginning
-        next_pos = self._find_next(search_text, 0)
-        if next_pos >= 0 and next_pos < all_cursors[0].selectionStart():
-            new_cursor = CursorState(next_pos, next_pos + search_len)
-            self._set_all_cursors(all_cursors + [new_cursor])
-
-    def _find_next(self, search_text: str, start_pos: int) -> int:
-        """Find next occurrence of search_text starting from start_pos
-
-        Returns position of match, or -1 if not found
-        """
-        cursor = QtGui.QTextCursor(self.document())
-        cursor.setPosition(start_pos)
-
-        # Use document's find method
-        found = self.document().find(search_text, cursor)
-
-        if not found.isNull():
-            return found.selectionStart()
-        return -1
-
-    def keyPressEvent(self, e: QtGui.QKeyEvent):
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         with self.edit_session():
-            for behavior in self._keypressBehaviors:
-                if behavior.keyPressEvent(e):
+            for behavior in self._keypress_behaviors:
+                if behavior.handle_key_press(event):
+                    # The next typing starts a new undo step
+                    self._can_join = False
                     return
+            if not self._apply_editing_key(event):
+                # Let Qt handle the keys we don't, like Ctrl+A
+                super().keyPressEvent(event)
 
-            if self._handle_key_event(e):
-                return
+    def _apply_editing_key(self, event: QtGui.QKeyEvent) -> bool:
+        """Apply the built-in editing keys to all the cursors
 
-            # I think this is required to handle the rest of the hotkeys
-            super().keyPressEvent(e)
-
-    def _handle_key_event(self, event: QtGui.QKeyEvent) -> bool:
-        """Handle key events for multi-cursor mode
-
-        Returns True if the event was handled, False otherwise
+        Returns whether the key was handled
         """
-        nomod = QtCore.Qt.KeyboardModifier.NoModifier
-        shift = QtCore.Qt.KeyboardModifier.ShiftModifier
-        ctrl = QtCore.Qt.KeyboardModifier.ControlModifier
-        alt = QtCore.Qt.KeyboardModifier.AltModifier
-
         key = event.key()
         modifiers = event.modifiers()
-        text = event.text()
 
-        # Exit on Escape
         if key == KEY.Key_Escape:
-            self.exit_multi_cursor_mode()
+            self.cursors.clear_secondary()
             return True
 
-        # Handle printable characters (normal typing)
-        if text and text.isprintable() and modifiers in (nomod, shift):
-            next_join = text.isalnum() or text == "_"
-            do_join = self._can_join and next_join
-            self._can_join = next_join
-
-            self.insert_text(text, join_edit=do_join)
+        typed = self._type_text(event)
+        # Typing a word is a single undo step, so remember if this can join the next
+        self._can_join = typed and (event.text().isalnum() or event.text() == "_")
+        if typed:
             return True
-        self._can_join = False
 
-        if modifiers == ctrl and key == KEY.Key_A:
-            self.exit_multi_cursor_mode()
+        if modifiers == MOD.ControlModifier and key == KEY.Key_A:
+            self.cursors.clear_secondary()
             return False
 
-        # Handle special keys
-        if key == KEY.Key_Backspace:
-            if modifiers & ctrl:
-                self.delete_word_backward()
-            else:
-                self.backspace()
+        delete_ops = _DELETE_OPS.get(key)
+        if delete_ops is not None:
+            self.delete(delete_ops[bool(modifiers & MOD.ControlModifier)])
             return True
 
-        if key == KEY.Key_Delete:
-            if modifiers & ctrl:
-                self.delete_word_forward()
-            else:
-                self.delete_char()
-            return True
-
-        # Handle arrow keys (but not Ctrl+Alt+Up/Down - those are for adding cursors)
-        if modifiers & alt:
-            # Let Alt+arrow combinations be handled by hotkeys
+        # Alt+arrow combinations are hotkeys, like Ctrl+Alt+Up to add a cursor
+        if modifiers & MOD.AltModifier:
             return False
 
-        select = bool(modifiers & shift)
-        word_mode = bool(modifiers & ctrl)
+        select = bool(modifiers & MOD.ShiftModifier)
+        word_mode = bool(modifiers & MOD.ControlModifier)
+        return self.cursors.move(key, select, word_mode) or self._run_command_key(event)
 
-        moved = self.move_cursors(key, select, word_mode)
-        if moved:
-            return True
+    def _type_text(self, event: QtGui.QKeyEvent) -> bool:
+        """Insert the text of a typing key at every cursor
 
-        # Handle Tab
+        Returns whether the key typed text
+        """
+        text = event.text()
+        if not text or not text.isprintable():
+            return False
+        if event.modifiers() not in (MOD.NoModifier, MOD.ShiftModifier):
+            return False
+        join = self._can_join and (text.isalnum() or text == "_")
+        self.insert_text(text, join_edit=join)
+        return True
+
+    def _run_command_key(self, event: QtGui.QKeyEvent) -> bool:
+        """Run the editor command for Tab, Enter, or a clipboard/undo shortcut"""
+        key = event.key()
         if key == KEY.Key_Tab:
-            if self.indent_using_tabs:
+            if self.options["indent_using_tabs"]:
                 self.insert_text("\t")
             else:
-                self.insert_text(" " * self.space_indent_width)
+                self.insert_text(" " * self.options["space_indent_width"])
             return True
-
         # Key_Enter is the numpad
         if key == KEY.Key_Return:
             self.insert_text("\n")
             return True
-
-        if key == KEY.Key_C and modifiers & ctrl:
-            self.copy()
-            return True
-
-        if key == KEY.Key_Insert and modifiers & ctrl:
-            self.copy()
-            return True
-
-        if key == KEY.Key_V and modifiers & ctrl:
-            self.paste()
-            return True
-
-        if key == KEY.Key_Insert and modifiers & shift:
-            self.paste()
-            return True
-
-        if key == KEY.Key_X and modifiers & ctrl:
-            self.cut()
-            return True
-
-        if key == KEY.Key_Z and modifiers & ctrl:
-            self.undo()
-            return True
-
-        if key == KEY.Key_Y and modifiers & ctrl:
-            self.redo()
-            return True
-
+        for modifier, command in self._command_keys.get(key, ()):
+            if event.modifiers() & modifier:
+                command()
+                return True
         return False
 
-    def insert_text(self, text: str, join_edit: bool = False):
-        tlen = len16(text)
-        for cursor in self.citer.iterate_cursors(join_edit=join_edit):
-            cursor.insertText(text)
-            self.citer.update_offset(tlen)
-            self.citer.cursor_completed()
-
-    def _delete_movement(self, movement: QtGui.QTextCursor.MoveOperation):
-        """Delete based on a move operation at cursor at all positions"""
-        for cursor in self.citer.iterate_cursors():
-            if not cursor.hasSelection():
-                cursor.movePosition(movement, MM.KeepAnchor)
-            self.citer.update_offset(cursor.selectionStart() - cursor.selectionEnd())
-            cursor.removeSelectedText()
-            self.citer.cursor_completed()
-
-    def backspace(self):
-        self._delete_movement(QtGui.QTextCursor.MoveOperation.PreviousCharacter)
-
-    def delete_char(self):
-        self._delete_movement(QtGui.QTextCursor.MoveOperation.NextCharacter)
-
-    def delete_word_forward(self):
-        self._delete_movement(QtGui.QTextCursor.MoveOperation.NextWord)
-
-    def delete_word_backward(self):
-        self._delete_movement(QtGui.QTextCursor.MoveOperation.PreviousWord)
-
-    def _smart_home(
-        self, qt_cursor: QtGui.QTextCursor, state: CursorState, select: bool
-    ) -> CursorState:
-        qt_cursor.movePosition(MO.StartOfBlock, MM.MoveAnchor)
-        line_start_pos = qt_cursor.position()
-        qt_cursor.movePosition(MO.EndOfBlock, MM.KeepAnchor)
-        line_text = qt_cursor.selectedText()
-
-        # Find first non-whitespace character
-        first_non_ws = len(line_text) - len(line_text.lstrip())
-        first_non_ws_pos = line_start_pos + first_non_ws
-
-        # Reset cursor to original position
-        qt_cursor.setPosition(state.anchor)
-        if select or state.hasSelection():
-            qt_cursor.setPosition(state.position, MM.KeepAnchor)
-        else:
-            qt_cursor.setPosition(state.position)
-
-        # Determine target position
-        current_pos = state.position
-        if current_pos == first_non_ws_pos or first_non_ws_pos == line_start_pos:
-            # Already at first non-whitespace or line is all whitespace: go to column 0
-            target_pos = line_start_pos
-        else:
-            # Go to first non-whitespace
-            target_pos = first_non_ws_pos
-
-        # Move to target
-        mode = MM.KeepAnchor if select else MM.MoveAnchor
-        qt_cursor.setPosition(target_pos, mode)
-        return CursorState(qt_cursor.anchor(), qt_cursor.position())
-
-    def move_cursors(
-        self,
-        direction: QtCore.Qt.Key | int,
-        select: bool = False,
-        word_mode: bool = False,
-    ):
-        """Move all cursors in direction
-
-        Args:
-            direction: 'left', 'right', 'up', 'down', 'home', 'end'
-            select: If True, extend selection (Shift+arrow)
-            word_mode: If True, move by word (Ctrl+arrow) or document start/end for home/end
-        """
-        if direction not in [
-            KEY.Key_Left,
-            KEY.Key_Right,
-            KEY.Key_Up,
-            KEY.Key_Down,
-            KEY.Key_Home,
-            KEY.Key_End,
-        ]:
-            return False
-
-        mode = MM.KeepAnchor if select else MM.MoveAnchor
-
-        cursors, _primary_index = self.get_all_cursors()
-
-        new_cursors = []
-        for state in cursors:
-            # Determine move operation
-            if direction == KEY.Key_Left:
-                move_op = MO.WordLeft if word_mode else MO.Left
-            elif direction == KEY.Key_Right:
-                move_op = MO.WordRight if word_mode else MO.Right
-            elif direction == KEY.Key_Up:
-                move_op = MO.Up
-            elif direction == KEY.Key_Down:
-                move_op = MO.Down
-            elif direction == KEY.Key_Home:
-                if word_mode:
-                    move_op = MO.Start
-                else:
-                    # Smart Home: toggle between first non-whitespace and column 0
-                    qt_cursor = QtGui.QTextCursor(self.document())
-                    state.apply(qt_cursor)
-                    new_cursors.append(self._smart_home(qt_cursor, state, select))
-                    continue
-            elif direction == KEY.Key_End:
-                move_op = MO.End if word_mode else MO.EndOfLine
-            else:
-                continue
-
-            qt_cursor = QtGui.QTextCursor(self.document())
-            state.apply(qt_cursor)
-            qt_cursor.movePosition(move_op, mode)
-            new_cursors.append(CursorState(qt_cursor.anchor(), qt_cursor.position()))
-
-        # Update all cursors (this will merge if needed)
-        self._set_all_cursors(new_cursors)
-        return True
-
-    def selected_texts(self) -> list[str]:
-        """Get the selected text of every cursor, in document order"""
-        all_cursors, _primary_index = self.get_all_cursors()
-
-        # Collect selected text from all cursors
-        selected_texts = []
-        qt_cursor = self.textCursor()
-
-        for cursor_state in all_cursors:
-            qt_cursor.setPosition(cursor_state.anchor)
-            qt_cursor.setPosition(cursor_state.position, MM.KeepAnchor)
-            selected_text = qt_cursor.selectedText()
-            selected_text = selected_text.replace("\u2029", "\n")
-            selected_texts.append(selected_text)
-        return selected_texts
-
-    def copy(self):
-        """Copy text from all cursors to clipboard (joined with newlines)"""
-        selected_texts = self.selected_texts()
-        if self.copy_indents_as_spaces:
-            selected_texts = [
-                re.sub(
-                    r"(?m)^\t+",
-                    lambda m: " " * self.space_indent_width * len(m.group()),
-                    st,
-                )
-                for st in selected_texts
-            ]
-
-        clipboard_text = "\n".join(selected_texts)
-
-        # Store both the joined text and the count of selections
-        clipboard = QtWidgets.QApplication.clipboard()
-        mimeData = QtCore.QMimeData()
-
-        lens = ",".join(map(str, map(len, selected_texts)))
-        mimeData.setData(MIME, lens.encode())
-        mimeData.setText(clipboard_text)
-        clipboard.setMimeData(mimeData)
-
-    def cut(self):
-        """Cut text from all cursors to clipboard"""
-        self.copy()
-
-        with self.edit_session():
-            for cursor in self.citer.iterate_cursors():
-                if cursor.hasSelection():
-                    self.citer.update_offset(
-                        cursor.selectionStart() - cursor.selectionEnd()
-                    )
-                    cursor.removeSelectedText()
-                self.citer.cursor_completed()
-
-    def paste(self):
-        """Paste clipboard text at all cursor positions"""
-        clipboard = QtWidgets.QApplication.clipboard()
-        self.insertFromMimeData(clipboard.mimeData())
-
-    def insertFromMimeData(self, source: QtCore.QMimeData):
-        """Insert mime data using TrackedCursors"""
-        clipboard_text = source.text()
-        if not clipboard_text:
-            return
-
-        if not source.hasFormat(MIME):
-            self.insert_text(clipboard_text)
-            return
-
-        copylen_text = bytes(source.data(MIME)).decode()
-        lens = list(map(int, copylen_text.split(",")))
-
-        # Check that the number of cursors and the number of paste lines matches
-        if len(self.secondary_cursors) + 1 != len(lens):
-            self.insert_text(clipboard_text)
-            return
-
-        # Get how long we expect the text to be based on the copy
-        # This is the copy lengths, plus all the separating newlines
-        expected_len = sum(lens) + len(lens) - 1
-        if len(clipboard_text) != expected_len:
-            self.insert_text(clipboard_text)
-            return
-
-        lines = []
-        ptr = 0
-        for el in lens:
-            lines.append(clipboard_text[ptr : ptr + el])
-            ptr += el + 1  # skip the newlines
-
-        for i, cursor in enumerate(self.citer.iterate_cursors()):
-            if i >= len(lines):
-                break
-            line = lines[i]
-            cursor.insertText(line)
-            self.citer.update_offset(len16(line))
-            self.citer.cursor_completed()
-
-    def dropEvent(self, e: QtGui.QDropEvent):
-        """Handle drop events using TrackedCursor so document updates correctly fire"""
-        if not e.mimeData().hasText() and not e.mimeData().hasFormat(MIME):
-            e.ignore()
+    def dropEvent(self, event: QtGui.QDropEvent) -> None:
+        """Drop text through a TrackedCursor, so the tree sees the edit"""
+        if not event.mimeData().hasText() and not event.mimeData().hasFormat(MIME):
+            event.ignore()
             return
 
         main_cursor = self.textCursor()
         is_move = (
-            e.source() == self
-            and e.dropAction() == QtCore.Qt.DropAction.MoveAction
+            event.source() == self
+            and event.dropAction() == QtCore.Qt.DropAction.MoveAction
             and main_cursor.hasSelection()
         )
-
-        pos_fn = getattr(e, "position", None)
-        pos = pos_fn().toPoint() if pos_fn is not None else e.pos()
-        target_pos = self.cursorForPosition(pos).position()
+        target_pos = self.cursorForPosition(_event_pos(event)).position()
 
         sel_start = main_cursor.selectionStart()
         sel_end = main_cursor.selectionEnd()
         if is_move and sel_start <= target_pos <= sel_end:
-            e.ignore()
+            event.ignore()
             return
 
         with self.edit_session():
             if is_move:
-                # Delete using TrackedCursor
                 main_cursor.removeSelectedText()
                 if target_pos > sel_start:
                     target_pos -= sel_end - sel_start
 
             # The drop location becomes the only cursor
-            self.exit_multi_cursor_mode()
-            tc = self.textCursor()
-            tc.setPosition(target_pos)
-            self.setTextCursor(tc)
-            self.citer.get()
-            self.insertFromMimeData(e.mimeData())
-            e.accept()
+            self.cursors.replace_all([CursorState(target_pos, target_pos)])
+            self.insertFromMimeData(event.mimeData())
+            event.accept()
 
-    def _add_cursor_adjacent(self, above: bool):
-        """Add a new cursor on the line above or below the primary cursor (primary moves up, leaves cursor behind)"""
-        # Get current cursor position - use primary cursor
-        primary = self.get_primary_cursor()
-        current_position = primary.position
+    # ------------------------------------------------------------------
+    # Editing
+    # ------------------------------------------------------------------
 
-        # Get current block and column
-        doc = self.document()
-        block = doc.findBlock(current_position)
-        if not block.isValid():
+    def setPlainText(self, text: str) -> None:
+        self.cursors.clear_secondary()
+        super().setPlainText(text)
+        # This doesn't go through a TrackedCursor, so the tree has to be rebuilt
+        self.tree_manager.full_update()
+
+    def clear(self) -> None:
+        self.setPlainText("")
+
+    def undo(self) -> None:
+        self._undo_redo(super().undo)
+
+    def redo(self) -> None:
+        self._undo_redo(super().redo)
+
+    def _undo_redo(self, action: Callable[[], None]) -> None:
+        # Qt's undo stack doesn't know about the secondary cursors, and its edits
+        # don't go through a TrackedCursor. So drop the secondary cursors first,
+        # and rebuild the tree once Qt has finished applying the change
+        self.cursors.clear_secondary()
+        self.aboutToUndoRedo.emit()
+        action()
+        QtCore.QTimer.singleShot(0, self._after_undo_redo)
+
+    def _after_undo_redo(self) -> None:
+        self.tree_manager.full_update()
+        self.undoRedoFinished.emit()
+
+    # The public editing methods each make one undo step and one reparse
+
+    def insert_text(self, text: str, join_edit: bool = False) -> None:
+        """Type text at every cursor, replacing their selections"""
+        with self.edit_session():
+            for cursor in self.citer.iterate_cursors(join_edit=join_edit):
+                cursor.insertText(text)
+                self.citer.cursor_completed()
+
+    def delete(self, movement: MO) -> None:
+        """Delete each cursor's selection, or the text it would move over
+
+        Args:
+            movement: Like MO.PreviousCharacter for Backspace, or MO.NextWord
+                for Ctrl+Delete
+        """
+        with self.edit_session():
+            for cursor in self.citer.iterate_cursors():
+                if not cursor.hasSelection():
+                    cursor.movePosition(movement, QtGui.QTextCursor.MoveMode.KeepAnchor)
+                cursor.removeSelectedText()
+                self.citer.cursor_completed()
+
+    def copy(self) -> None:
+        """Copy the text of every cursor to the clipboard, see clipboard.py"""
+        texts = self.cursors.selected_texts()
+        if self.options["copy_indents_as_spaces"]:
+            width = self.options["space_indent_width"]
+            texts = [tabs_to_spaces(t, width) for t in texts]
+        QtWidgets.QApplication.clipboard().setMimeData(encode_multi_copy(texts))
+
+    def cut(self) -> None:
+        self.copy()
+        with self.edit_session():
+            for cursor in self.citer.iterate_cursors():
+                if cursor.hasSelection():
+                    cursor.removeSelectedText()
+                self.citer.cursor_completed()
+
+    def paste(self) -> None:
+        self.insertFromMimeData(QtWidgets.QApplication.clipboard().mimeData())
+
+    def insertFromMimeData(self, source: QtCore.QMimeData) -> None:
+        """Insert mime data at every cursor, through TrackedCursors"""
+        text = source.text()
+        if not text:
             return
-
-        # Move to previous block
-        if above:
-            adj_block = block.previous()
-        else:
-            adj_block = block.next()
-
-        if not adj_block.isValid():
+        parts = split_multi_copy(source, len(self.cursors.secondary) + 1)
+        if parts is None:
+            self.insert_text(text)
             return
-
-        # Calculate column position
-        col = min(current_position - block.position(), len16(adj_block.text()))
-
-        # Position in previous line (this will be the new primary)
-        new_primary_pos = adj_block.position() + col
-
-        new_secondary = CursorState(current_position, current_position)
-        new_primary = CursorState(new_primary_pos, new_primary_pos)
-        self._set_all_cursors([new_primary] + self.secondary_cursors + [new_secondary])
-
-    def add_cursor_above(self):
-        """Add a new cursor on the line above the primary cursor (primary moves up, leaves cursor behind)"""
-        self._add_cursor_adjacent(True)
-
-    def add_cursor_below(self):
-        """Add a new cursor on the line below the primary cursor (primary moves down, leaves cursor behind)"""
-        self._add_cursor_adjacent(False)
-
-    def add_cursors_to_line_ends(self):
-        """Add a cursor at the end of each line in the current selection"""
-        cursor = self.textCursor()
-
-        if not cursor.hasSelection():
-            return
-
-        # Get the selection range
-        start = min(cursor.anchor(), cursor.position())
-        end = max(cursor.anchor(), cursor.position())
-
-        # Find all blocks in the selection
-        doc = self.document()
-        start_block = doc.findBlock(start)
-        end_block = doc.findBlock(end)
-
-        if not start_block.isValid() or not end_block.isValid():
-            return
-
-        # Collect cursor positions at the end of each line
-        cursors = []
-        block = start_block
-        while block.isValid():
-            # Add cursor at end of this line
-            line_end = block.position() + len16(block.text())
-            cursors.append(CursorState(line_end, line_end))
-
-            if block == end_block:
-                break
-            block = block.next()
-
-        # Enter multi-cursor mode with the first line's cursor as the primary
-        self._set_all_cursors(cursors)
-
-    def add_cursor_at_position(self, position: int) -> bool:
-        """Add a cursor at the specified position (for Alt+Click)"""
-        # Add the new cursor at the clicked position
-        new_cursor = CursorState(position, position)
-        all_cursors, _primary_index = self.get_all_cursors()
-        all_cursors.append(new_cursor)
-        self._set_all_cursors(all_cursors)
-
-        return True
+        with self.edit_session():
+            # There is a part for every cursor, so this never runs out
+            for i, cursor in enumerate(self.citer.iterate_cursors()):
+                cursor.insertText(parts[i])
+                self.citer.cursor_completed()

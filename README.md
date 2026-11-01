@@ -6,39 +6,64 @@ This is not an IDE. It's a drop-in editor widget you can embed in your own Qt ap
 
 ## Quick Start
 
+The quickest way to a full editor is the default setup:
+
+```python
+from Qt import QtWidgets
+
+from QCodeSitter import CodeEditor, default_options, install_default_behaviors
+
+app = QtWidgets.QApplication([])
+editor = CodeEditor(default_options())
+install_default_behaviors(editor)
+editor.show()
+app.exec()
+```
+
+`install_default_behaviors(editor, optional=True)` also adds the behaviors that are off by
+default, like `AutoBracket`.
+
+Or pick the options and behaviors yourself:
+
 ```python
 from tree_sitter import Language
 import tree_sitter_python as tspython
-from Qt import QtWidgets, QtGui
+from Qt import QtGui
 
-from QCodeSitter import CodeEditor
-from QCodeSitter.editor_options import EditorOptions
-from QCodeSitter.hl_groups import FORMAT_SPECS, COLORS
-from QCodeSitter.highlight_query import HIGHLIGHT_QUERY
+from QCodeSitter import CodeEditor, EditorOptions
+from QCodeSitter.highlighting.themes import DARK_THEME, read_theme
 from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
 from QCodeSitter.behaviors.smart_indent import SmartIndent
 from QCodeSitter.behaviors.line_numbers import LineNumber
 from QCodeSitter.behaviors.auto_bracket import AutoBracket
 
-# Configure the editor
+language = Language(tspython.language())
+colors, syntax = read_theme(DARK_THEME)
 options = EditorOptions({
     "space_indent_width": 4,
     "indent_using_tabs": False,
-    "language": Language(tspython.language()),
-    "highlights": (HIGHLIGHT_QUERY, FORMAT_SPECS),
-    "colors": COLORS,
+    "language": language,
+    "syntax": syntax,
+    "colors": colors,
     "font": QtGui.QFont("Consolas", pointSize=11),
 })
 
-# Create the editor and add the behaviors you want
 editor = CodeEditor(options)
-editor.addBehavior(SyntaxHighlighting)
-editor.addBehavior(SmartIndent)
-editor.addBehavior(LineNumber)
-editor.addBehavior(AutoBracket)
+editor.add_behavior(SyntaxHighlighting)
+editor.add_behavior(SmartIndent)
+editor.add_behavior(LineNumber)
+editor.add_behavior(AutoBracket)
 ```
 
 You only pay for what you use. If you don't need code folding, don't add it. If you want custom behavior, write your own.
+
+Every option is listed in `OptionsDict` in `editor_options.py`, and the options you don't
+give take their value from `OPTION_DEFAULTS`. Setting an option that isn't listed raises a
+`KeyError`, and a value of the wrong type raises a `TypeError`, so mistakes don't silently
+do nothing. The highlight query comes from the language, so changing `"language"` is all it
+takes to highlight another language. `"syntax"` only holds the format of each capture.
+
+The `"colors"` option holds the gui colors, listed with their defaults in `gui_colors.py`.
 
 ## The Behavior System
 
@@ -58,31 +83,57 @@ class MyBehavior(Behavior):
         # self.options  - the EditorOptions dict-like object
 
     def remove(self):
-        # Clean up when the behavior is removed
-        pass
+        # Disconnect anything connected in __init__
+        super().remove()
 ```
 
 Behaviors are added and removed at runtime:
 
 ```python
-old, new = editor.addBehavior(MyBehavior)   # Returns (old_instance, new_instance)
-editor.removeBehavior(MyBehavior)            # Returns removed instance
-editor.getBehavior(MyBehavior)               # Returns instance or None
+behavior = editor.add_behavior(MyBehavior)  # Replaces any existing MyBehavior
+editor.remove_behavior(MyBehavior)          # Returns the removed instance
+editor.get_behavior(MyBehavior)             # Returns the instance or None
 ```
 
 ### Reacting to Option Changes
 
-Behaviors can listen for option changes:
+Every option always has a value, so a behavior can read a setting from `self.options` when
+it needs it. For a setting that needs work when it changes, register a handler. Handlers are
+called with the option's value once the editor is shown, and again whenever it changes:
 
 ```python
 class MyBehavior(Behavior):
     def __init__(self, editor):
         super().__init__(editor)
-        self.setListen({"colors", "font"})
-        self.updateAll()  # Apply current values immediately
+        self.font = QtGui.QFont()  # The default if the option isn't set
+        self.watch_options({"font": self.set_font})
+        self.apply_all_options()  # Apply the current values immediately
+
+    def set_font(self, font):
+        self.font = font
 ```
 
-When a listened key changes in `EditorOptions`, the behavior's attribute of the same name is set automatically via `updateOptions`.
+### Keys, Painting and Signals
+
+- Return `True` from `has_key_press` to get `handle_key_press(event)` before the editor's
+  own key handling. Return `True` from it to consume the key.
+- Return actions from `get_hotkeys` to add keyboard shortcuts to the editor.
+- Connect to `editor.behaviorPaint(event, painter)` to paint over the text.
+- Connect to `editor.cursors.changed`, `editor.tree_manager.reparsed`, or
+  `editor.undoRedoFinished` to react to the editor.
+- Subclass `GutterWidget` (in `gutters.py`) for a column beside the text, like line numbers.
+
+### Languages
+
+Language-specific knowledge (comment prefix, indent rules, foldable node types, and the
+highlight and identifier queries) lives in a `LanguageSpec`, looked up from the editor's
+tree-sitter language. Add a language by registering a spec for its grammar name:
+
+```python
+from QCodeSitter.languages import LanguageSpec, register_language
+
+register_language(LanguageSpec("lua", comment_prefix="-- "))
+```
 
 ## Built-in Behaviors
 
@@ -111,20 +162,20 @@ The editor has built-in multi-cursor support. All text operations (insert, delet
 - **Alt+Click** -- Add cursor at mouse position
 - **Escape** -- Exit multi-cursor mode
 
-Behaviors that modify text across multiple cursors use `CursorIterator`, which handles position offset tracking as earlier cursors shift later ones:
+Behaviors that modify text across multiple cursors use the editor's `CursorIterator`.
+It moves one cursor to each cursor in turn, and shifts the later cursors by however much
+each edit changed the document:
 
 ```python
-from QCodeSitter.code_editor import CursorIterator
-
 def my_multi_cursor_operation(self):
-    citer = CursorIterator(self.editor)
-    self.editor.citer = citer
-    for cursor in citer.iterate_cursors():
-        # Modify text through cursor
-        cursor.insertText("hello")
-        citer.update_offset(len("hello"))
-        citer.cursor_completed()
+    citer = self.editor.citer
+    with self.editor.edit_session():  # One undo step, and one reparse
+        for cursor in citer.iterate_cursors():
+            cursor.insertText("hello")
+            citer.cursor_completed()
 ```
+
+Marking a cursor completed stops later key handlers in the same edit session from editing it.
 
 ## Tree-Sitter Integration
 
@@ -138,11 +189,15 @@ The `TrackedDocument` (a `QTextDocument` subclass) and `TrackedCursor` (a `QText
 
 ### Dependencies
 
-- [Qt.py](https://github.com/mottosso/Qt.py) (works with PySide2, PySide6, PyQt5, or PyQt6)
+- Python 3.10+
+
+- [Qt.py](https://github.com/mottosso/Qt.py), and a Qt binding for it: PySide2, PySide6,
+  PyQt5, or PyQt6. `pip install QCodeSitter[pyside6]` installs PySide6
 - [tree-sitter](https://github.com/tree-sitter/py-tree-sitter)
 - A tree-sitter language grammar (e.g., `tree-sitter-python`)
 
 ### Running Tests
 
-Tests are set up to be run with `tox`
+Tests are set up to be run with `tox`. `python examples/demo.py` opens a window with the
+default editor.
 

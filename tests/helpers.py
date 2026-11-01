@@ -5,13 +5,16 @@ Helper functions for QCodeSitter tests.
 from __future__ import annotations
 
 from Qt import QtCore, QtGui
+from tree_sitter import Parser
 
+from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
 from QCodeSitter.code_editor import CodeEditor
+from QCodeSitter.constants import ENC
 
 
 def get_cursor_positions(editor: CodeEditor) -> list[int]:
     """Get all cursor positions (primary + secondary) sorted."""
-    cursors, _ = editor.get_all_cursors()
+    cursors, _ = editor.cursors.in_document_order()
     return [c.position for c in cursors]
 
 
@@ -52,3 +55,37 @@ def simulate_text_input(qtbot, editor: CodeEditor, text: str):
     for char in text:
         key = getattr(QtCore.Qt.Key, f"Key_{char.upper()}", QtCore.Qt.Key.Key_unknown)
         simulate_keypress(qtbot, editor, key, char)
+
+
+def fresh_tree_str(editor: CodeEditor) -> str:
+    """Parse the document from scratch, to compare against the incremental tree"""
+    parser = Parser(editor.tree_manager.language)
+    return str(
+        parser.parse(editor.toPlainText().encode(ENC), encoding="utf16").root_node
+    )
+
+
+def assert_tree_matches_fresh_parse(editor: CodeEditor):
+    assert str(editor.tree_manager.root_node) == fresh_tree_str(editor)
+
+
+def highlight_formats(editor: CodeEditor) -> list[list[tuple[int, int, str]]]:
+    """Get the highlight formats for every block in the document"""
+    out = []
+    block = editor.document().firstBlock()
+    while block.isValid():
+        out.append(
+            [
+                (rng.start, rng.length, rng.format.foreground().color().name())
+                for rng in block.layout().formats()
+            ]
+        )
+        block = block.next()
+    return out
+
+
+def assert_matches_full_highlight(editor: CodeEditor):
+    """The incremental highlighting matches highlighting the whole document again"""
+    incremental = highlight_formats(editor)
+    editor.get_behavior(SyntaxHighlighting).highlighter.rehighlight()
+    assert incremental == highlight_formats(editor)

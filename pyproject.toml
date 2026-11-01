@@ -5,17 +5,25 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "QCodeSitter"
 version = "0.1.0"
-description = "Dynamic sequence with efficient cumulative sums"
-requires-python = ">=3.8"
-dependencies = ["Qt.py>=2.0", "stransi", "tree-sitter==0.25.2", "tree-sitter-python"]
+description = "A tree-sitter powered code editor widget for Qt"
+requires-python = ">=3.10"
+# Qt.py needs a Qt binding: install one yourself, or use the pyside6 extra.
+# The grammar has to be built for an ABI that the tree-sitter core can load
+dependencies = [
+    "Qt.py>=2.0",
+    "tree-sitter>=0.25.2,<0.26",
+    "tree-sitter-python>=0.23,<0.26",
+]
 
 [project.optional-dependencies]
-test = ["pytest>=7.0", "pytest-cov", "pytest-qt>=4.0"]
-fuzz = ["pytest>=7.0", "pytest-qt>=4.0", "pytest-timeout", "hypothesis"]
+pyside6 = ["PySide6"]
+test = ["pytest>=7.0", "pytest-cov", "pytest-qt>=4.0", "PySide6"]
+fuzz = ["pytest>=7.0", "pytest-qt>=4.0", "pytest-timeout", "hypothesis", "PySide6"]
 dev = ["tox>=4.0", "mypy", "ruff"]
+preditor = ["preditor"]
 
 [project.entry-points."preditor.plug.editors"]
-QCodeSitter = "QCodeSitter.entry_points.preditor_interface:CodeSitterTextEdit"
+QCodeSitter = "QCodeSitter.integrations.preditor_interface:CodeSitterTextEdit"
 
 [tool.setuptools.packages.find]
 where = ["src"]

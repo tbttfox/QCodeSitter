@@ -4,7 +4,8 @@ from typing import TYPE_CHECKING
 
 from Qt import QtCore, QtGui
 
-from ..gutter_widget import GutterWidget
+from ..gui_colors import GuiColors, gui_color
+from ..gutters import GutterWidget
 from . import Behavior
 
 if TYPE_CHECKING:
@@ -12,85 +13,43 @@ if TYPE_CHECKING:
 
 
 class LineNumberArea(GutterWidget):
-    def __init__(self, editor: CodeEditor, fg: QtGui.QColor, bg: QtGui.QColor):
-        super().__init__("LineNumberArea", editor)
-        self.line_area_bg_color = bg
-        self.line_area_fg_color = fg
-
-        self.editor.blockCountChanged.connect(self.update_width)
-        self.editor.updateRequest.connect(self.update_gutter)
-        self.update_width()
-
-    def setColors(self, fg: QtGui.QColor, bg: QtGui.QColor):
-        self.line_area_fg_color = fg
-        self.line_area_bg_color = bg
-
-    def width_hint(self):
+    def width_hint(self) -> int:
         digits = len(str(max(1, self.editor.blockCount())))
         return 10 + self.fontMetrics().horizontalAdvance("9") * digits
 
-    def paintEvent(self, event: QtGui.QPaintEvent):
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:
         painter = QtGui.QPainter(self)
-        painter.fillRect(event.rect(), self.line_area_bg_color)
-
-        block = self.editor.firstVisibleBlock()
-        block_number = block.blockNumber()
-        top = (
-            self.editor.blockBoundingGeometry(block)
-            .translated(self.editor.contentOffset())
-            .top()
-        )
-        bottom = top + self.editor.blockBoundingRect(block).height()
-
-        while block.isValid() and top <= event.rect().bottom():
-            if block.isVisible() and bottom >= event.rect().top():
-                number = str(block_number + 1)
-                painter.setPen(self.line_area_fg_color)
+        painter.fillRect(event.rect(), self.bg_color)
+        painter.setPen(self.fg_color)
+        for block, top, bottom in self.visible_blocks(event.rect().bottom()):
+            if bottom >= event.rect().top():
                 painter.drawText(
                     0,
                     int(top),
                     self.width() - 5,
                     self.fontMetrics().height(),
                     QtCore.Qt.AlignmentFlag.AlignRight,
-                    number,
+                    str(block.blockNumber() + 1),
                 )
-            block = block.next()
-            top = bottom
-            bottom = top + self.editor.blockBoundingRect(block).height()
-            block_number += 1
 
 
 class LineNumber(Behavior):
-    def __init__(self, editor: CodeEditor):
+    """A gutter showing the line numbers"""
+
+    def __init__(self, editor: CodeEditor) -> None:
         super().__init__(editor)
-        self.setListen({"font", "colors"})
+        self.line_number_area = LineNumberArea(self.editor)
+        self._set_colors({})
+        self.watch_options(
+            {"font": self.line_number_area.setFont, "colors": self._set_colors}
+        )
+        self.apply_all_options()
 
-        self.line_number_area: LineNumberArea = LineNumberArea(
-            self.editor,
-            QtGui.QColor(150, 150, 150),
-            QtGui.QColor(40, 40, 40),
+    def _set_colors(self, colors: GuiColors) -> None:
+        self.line_number_area.set_gutter_colors(
+            gui_color(colors, "gutter_fg"), gui_color(colors, "gutter")
         )
 
-        if editor.isVisible() and not self.line_number_area.isVisible():
-            self.line_number_area.setVisible(True)
-            self.line_number_area.set_gutter_geo()
-
-        self.updateAll()
-
-    def _font(self, newfont):
-        self.line_number_area.setFont(newfont)
-
-    font = property(None, _font)
-
-    def _colors(self, val):
-        self.line_number_area.setColors(
-            QtGui.QColor(val["gutter_fg"]), QtGui.QColor(val["gutter"])
-        )
-
-    colors = property(None, _colors)
-
-    def remove(self):
+    def remove(self) -> None:
         super().remove()
-        self.line_number_area.clear_width()
-        self.line_number_area.deleteLater()
-        self.line_number_area = None  # type: ignore
+        self.line_number_area.remove()

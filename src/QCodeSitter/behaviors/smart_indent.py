@@ -1,321 +1,190 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from Qt import QtGui
 
-from Qt import QtCore, QtGui, QtWidgets
-
-from ..utils import dedent_string, expand_to_lines, len16
+from ..languages import IndentRules, language_spec
+from ..utils import (
+    KEY,
+    MM,
+    MO,
+    dedent_string,
+    leading_whitespace,
+    replace_lines,
+    utf16_to_index,
+)
 from . import Behavior
 
-if TYPE_CHECKING:
-    from ..code_editor import CodeEditor
-
-MO = QtGui.QTextCursor.MoveOperation
-MM = QtGui.QTextCursor.MoveMode
+CLOSING_BRACKETS = ("]", ")", "}")
 
 
 class SmartIndent(Behavior):
-    def __init__(self, editor: CodeEditor):
-        self.space_indent_width: int = 4
-        self._tab_indent_width: int = 4
-        self.indent_using_tabs: bool = False
-        self.indent_bracket_pairs: list[str] = ["()", "{}", "[]"]
+    """Syntax-aware indentation for Enter, Tab, Shift+Tab, Backspace and closing brackets
 
-        super().__init__(editor)
-
-        self.uiRetabAction = QtWidgets.QAction("Retab", self.editor)
-        self.uiRetabAction.triggered.connect(self.retab)
-
-        self.setListen(
-            {
-                "space_indent_width",
-                "tab_indent_width",
-                "indent_using_tabs",
-                "indent_bracket_pairs",
-                "font",
-            }
-        )
-        self.updateAll()
-
-    def retab(self):
-        # TODO
-        pass
+    The indent settings come from the options, and the indent rules come from
+    the editor language's LanguageSpec
+    """
 
     @property
-    def tab_indent_width(self) -> int:
-        return self._tab_indent_width
+    def _use_tabs(self) -> bool:
+        return self.options["indent_using_tabs"]
 
-    @tab_indent_width.setter
-    def tab_indent_width(self, val: int):
-        self._tab_indent_width = val
-        self._update_tab_stop()
+    @property
+    def _width(self) -> int:
+        return self.options["space_indent_width"]
 
-    def _update_tab_stop(self):
-        metrics = QtGui.QFontMetrics(self.editor.font())
-        self.editor.setTabStopDistance(
-            self.tab_indent_width * metrics.horizontalAdvance(" ")
-        )
+    def indent_rules(self) -> IndentRules:
+        spec = language_spec(self.editor.tree_manager.language)
+        return spec.indent_rules(self.editor.tree_manager, self.editor.document())
 
-    def _font(self, _val: QtGui.QFont):
-        self._update_tab_stop()
-
-    font = property(None, _font)
-
-    def hasKeyPress(self) -> bool:
+    def has_key_press(self) -> bool:
         return True
 
-    def keyPressEvent(self, event: QtGui.QKeyEvent) -> bool:
-        if event.key() == QtCore.Qt.Key.Key_Return:
-            self.smartNewline()
-        elif event.key() == QtCore.Qt.Key.Key_Tab:
-            self.insertIndent()
+    def handle_key_press(self, event: QtGui.QKeyEvent) -> bool:
+        key = event.key()
+        if key == KEY.Key_Tab:
+            self.insert_indent()
             return True
-        elif event.key() == QtCore.Qt.Key.Key_Backtab:
+        if key == KEY.Key_Backtab:
             self.unindent()
             return True
-        elif event.key() == QtCore.Qt.Key.Key_Backspace:
-            self.smartBackspace()
+        # These only handle some cursors, and leave the rest to the editor
+        if key == KEY.Key_Return:
+            self.smart_newline()
+        elif key == KEY.Key_Backspace:
+            self.smart_backspace()
+        elif event.text() in CLOSING_BRACKETS:
+            self.smart_closing_bracket(event.text())
         else:
-            text = event.text()
-            if text in ("]", ")", "}"):
-                self.smartClosingBracket(text)
-        return False
+            return False
+        return self.editor.citer.all_completed()
 
-    def _get_one_indent(self):
-        if self.indent_using_tabs:
-            return "\t"
-        return " " * self.space_indent_width
+    def _one_indent(self) -> str:
+        return "\t" if self._use_tabs else " " * self._width
 
-    def _get_newline_indent(self, cursor: QtGui.QTextCursor) -> tuple[str, int]:
-        """Calculate the indentation string to insert after a newline.
+    def _dedent(self, indent: str) -> str:
+        return dedent_string(indent, self._use_tabs, self._width)
 
-        This is a pure calculation function with no side effects - it just determines
-        what indent string should be inserted based on the syntax and cursor position.
+    def _newline_indent(
+        self, cursor: QtGui.QTextCursor, rules: IndentRules
+    ) -> tuple[str, int]:
+        """Work out the indentation to insert after a newline at the cursor
 
         Returns:
-            The complete indentation string to insert (may include extra indent or dedent)
-            How far to move the cursor after inserting it
+            The text to insert after the newline
+            How far to move the cursor back from the end of that text
         """
-        # Get current line text and indentation
         block = cursor.block()
         line_text = block.text()
-        stripped = line_text.lstrip()
-        indent = line_text[: len(line_text) - len(stripped)]
-
-        # Get cursor position
-        line_num = block.blockNumber()
+        indent = leading_whitespace(line_text)
         col = cursor.positionInBlock()
 
-        # Special case: if the current line is empty/whitespace-only, just copy the indentation
-        if stripped == "":
+        # A blank line keeps its indentation
+        if not line_text.strip():
             return indent, 0
 
-        # Special case: if cursor is at the beginning of the line
+        # At the start of a line, match the line above
         if col == 0:
-            # Use previous line's indentation if available
             prev_block = block.previous()
-            if prev_block.isValid():
-                prev_text = prev_block.text()
-                prev_stripped = prev_text.lstrip()
-                return prev_text[: len(prev_text) - len(prev_stripped)], 0
-            else:
-                return "", 0
+            prev_text = prev_block.text() if prev_block.isValid() else ""
+            return leading_whitespace(prev_text), 0
 
-        # Special case: If the cursor is between two brackets
-        # self.indent_bracket_pairs: str = "(){}[]"
-        tmp = QtGui.QTextCursor(cursor)
-        tmp.movePosition(MO.Left, MM.MoveAnchor, 1)
-        tmp.movePosition(MO.Right, MM.KeepAnchor, 2)
-        wrap = tmp.selectedText()
-        if wrap in self.indent_bracket_pairs:
-            extra_indent = self._get_one_indent()
-            return indent + extra_indent + "\n" + indent, -(len(indent) + 1)
+        # Between a pair of brackets, put the closing bracket on its own line
+        # below an indented empty line
+        index = utf16_to_index(line_text, col)
+        if line_text[index - 1 : index + 1] in self.options["indent_bracket_pairs"]:
+            return indent + self._one_indent() + "\n" + indent, len(indent) + 1
 
-        # Look at the position just before the cursor to find the statement we just finished
-        lookup_col = col - 1
+        # Look at the character just before the cursor to find the statement we just finished
+        row = block.blockNumber()
+        if rules.should_indent_after(row, col - 1):
+            return indent + self._one_indent(), 0
+        if rules.should_dedent_after(row, col - 1, line_text):
+            return self._dedent(indent), 0
+        return indent, 0
 
-        # Determine indent action based on syntax analysis
-        saz = self.editor.syntax_analyzer
-
-        # Check if we should add indent (opening block)
-        extra_indent = ""
-        if saz.should_indent_after_position(line_num, lookup_col):
-            extra_indent = self._get_one_indent()
-
-        # Check if we should dedent (closing block or return statement)
-        elif saz.should_dedent_after_position(line_num, lookup_col, line_text):
-            indent = dedent_string(
-                indent, self.indent_using_tabs, self.space_indent_width
-            )
-
-        return indent + extra_indent, 0
-
-    def smartNewline(self):
-        """Insert a newline with smart indentation based on tree-sitter parse tree"""
-        # This depends on syntax analysis, so I want to figure out
-        # what to do before I edit and possibly break syntax
-
+    def smart_newline(self) -> None:
+        """Insert a newline indented to suit the code around each cursor"""
+        # Work out every indent before editing, because the edits change the tree
         citer = self.editor.citer
-        istrs = []
+        rules = self.indent_rules()
+        indents = []
         for cursor in citer.iterate_cursors(no_position_update=True):
             if cursor.hasSelection():
                 cursor.setPosition(cursor.selectionStart())
-            istrs.append(self._get_newline_indent(cursor))
+            indents.append(self._newline_indent(cursor, rules))
 
         for i, cursor in enumerate(citer.iterate_cursors()):
-            if cursor.hasSelection():
-                citer.update_offset(cursor.selectionStart() - cursor.selectionEnd())
-                cursor.removeSelectedText()
-            indent_str, move = istrs[i]
+            indent_str, move_back = indents[i]
             cursor.insertText("\n" + indent_str)
-            if move < 0:
-                cursor.movePosition(MO.Left, MM.MoveAnchor, -move)
-            elif move > 0:
-                cursor.movePosition(MO.Right, MM.MoveAnchor, move)
-            citer.update_offset(len16(indent_str) + 1)
+            if move_back:
+                cursor.movePosition(MO.Left, MM.MoveAnchor, move_back)
             citer.cursor_completed()
 
-    def insertIndent(self):
-        """Indent at the given cursor, either a single line or all the lines in a selection"""
+    def insert_indent(self) -> None:
+        """Indent to the next tab stop, or indent every line of a selection"""
         citer = self.editor.citer
+        width = self._width
+        indent = self._one_indent()
+
+        def indent_lines(lines: list[str]) -> list[str]:
+            return [indent + ln if ln.strip() else ln for ln in lines]
+
         for cursor in citer.iterate_cursors():
-            if not cursor.hasSelection():
-                if self.indent_using_tabs:
-                    indent = "\t"
-                else:
-                    # Indent to the next tab stop
-                    pos = cursor.positionInBlock()
-                    width = self.space_indent_width
-                    indent = " " * (width - pos % width)
-                cursor.insertText(indent)
-                citer.update_offset(len16(indent))
-                citer.cursor_completed()
-                continue
-
-            expand_to_lines(cursor)
-            start_pos = cursor.selectionStart()
-            end_pos = cursor.selectionEnd()
-            text = cursor.selection().toPlainText()
-            indent = self._get_one_indent()
-            lines = [
-                indent + line if line.strip() else line for line in text.split("\n")
-            ]
-            ins = "\n".join(lines)
-            old_size = end_pos - start_pos
-            ins_size = len16(ins)
-            cursor.insertText(ins)
-            citer.update_offset(ins_size - old_size)
-
-            # Restore selection, adjusting for the added indent
-            cursor.setPosition(start_pos)
-            cursor.setPosition(start_pos + ins_size, MM.KeepAnchor)
-            citer.cursor_completed()
-
-    def unindent(self):
-        """Unindent the given cursor, either a single line or all the lines in a selection"""
-        citer = self.editor.citer
-        for cursor in citer.iterate_cursors():
-            expand_to_lines(cursor)
-            start_pos = cursor.selectionStart()
-            end_pos = cursor.selectionEnd()
-            text = cursor.selection().toPlainText()
-            lines = text.split("\n")
-            if self.indent_using_tabs:
-                newlines = [
-                    line[1:] if line.startswith("\t") else line for line in lines
-                ]
+            if cursor.hasSelection():
+                replace_lines(cursor, indent_lines)
+            elif self._use_tabs:
+                cursor.insertText("\t")
             else:
-                newlines = [
-                    line[: self.space_indent_width].lstrip(" ")
-                    + line[self.space_indent_width :]
-                    for line in lines
-                ]
-            ins = "\n".join(newlines)
-            ins_size = len16(ins)
-            old_size = end_pos - start_pos
-            cursor.insertText(ins)
-            citer.update_offset(ins_size - old_size)
-
-            # Restore selection, adjusting for the removed indent
-            cursor.setPosition(start_pos)
-            cursor.setPosition(start_pos + ins_size, MM.KeepAnchor)
+                cursor.insertText(" " * (width - cursor.positionInBlock() % width))
             citer.cursor_completed()
 
-    def smartBackspace(self):
-        """If backspacing at an the end of indentation, remove an entire "tab" of
-        spaces. Otherwise just do a regular backspace
-        """
-        if self.indent_using_tabs:
+    def unindent(self) -> None:
+        """Remove one indent from every line of each cursor's selection or line"""
+        citer = self.editor.citer
+        width = self._width
+        use_tabs = self._use_tabs
+
+        def unindent_line(line: str) -> str:
+            if use_tabs:
+                return line.removeprefix("\t")
+            return line[:width].lstrip(" ") + line[width:]
+
+        for cursor in citer.iterate_cursors():
+            replace_lines(cursor, lambda lines: [unindent_line(ln) for ln in lines])
+            citer.cursor_completed()
+
+    def smart_backspace(self) -> None:
+        """Backspace over a whole indent when the cursor is in the indentation"""
+        if self._use_tabs:
             return
         citer = self.editor.citer
+        width = self._width
         for cursor in citer.iterate_cursors():
-            if cursor.hasSelection():
-                continue
             col = cursor.positionInBlock()
-            if col == 0:
+            if cursor.hasSelection() or col == 0:
+                continue
+            # Spaces are one code unit each, so col is also the str index
+            if set(cursor.block().text()[:col]) != {" "}:
                 continue
 
-            # Check if all preceding characters are spaces
-            # This is only dealing with whitespace, so we don't have to worry about encoding
-            text = cursor.block().text()
-            if set(text[:col]) != {" "}:
-                continue
-
-            # Delete up to the tabstop
-            delete = col % self.space_indent_width
-            if delete == 0:
-                delete = self.space_indent_width
-            cursor.movePosition(MO.Left, MM.KeepAnchor, delete)
+            # Delete back to the previous tab stop
+            cursor.movePosition(MO.Left, MM.KeepAnchor, col % width or width)
             cursor.removeSelectedText()
-            citer.update_offset(-delete)
             citer.cursor_completed()
 
-    def smartClosingBracket(self, bracket):
-        """Auto-dedent when typing a closing bracket if the line only contains whitespace
-
-        Args:
-            bracket: The closing bracket character (']', ')', or '}')
-        """
+    def smart_closing_bracket(self, bracket: str) -> None:
+        """Dedent a blank line when a closing bracket is typed on it"""
         citer = self.editor.citer
         for cursor in citer.iterate_cursors():
             if cursor.hasSelection():
-                citer.update_offset(cursor.selectionStart() - cursor.selectionEnd())
                 cursor.removeSelectedText()
 
-            block = cursor.block()
-            line_text = block.text()
-            col = cursor.positionInBlock()
-
-            # Check if everything before the cursor is whitespace
-            before_cursor = line_text[:col]
-            if before_cursor.strip() != "":
+            line_text = cursor.block().text()
+            indent = leading_whitespace(line_text)
+            if not indent or line_text.strip():
                 continue
 
-            # Check if everything after the cursor is whitespace
-            after_cursor = line_text[col:]
-            if after_cursor.strip() != "":
-                continue
-
-            # The line is all whitespace, so we should dedent before inserting the bracket
-            stripped = line_text.lstrip()
-            indent = line_text[: len(line_text) - len(stripped)]
-
-            if len(indent) == 0:
-                continue
-
-            # Remove the current line's indentation and replace with dedented version + bracket
-            dedented_indent = dedent_string(
-                indent, self.indent_using_tabs, self.space_indent_width
-            )
-
-            # Replace the entire line with dedented indent + bracket
             cursor.movePosition(MO.StartOfLine)
             cursor.movePosition(MO.EndOfLine, MM.KeepAnchor)
-
-            oldlen = cursor.selectionEnd() - cursor.selectionStart()
-            newtxt = dedented_indent + bracket
-            newlen = len16(newtxt)
-            cursor.insertText(newtxt)
-
-            citer.update_offset(newlen - oldlen)
+            cursor.insertText(self._dedent(indent) + bracket)
             citer.cursor_completed()
