@@ -16,7 +16,8 @@ class Behavior:
     """A feature that plugs into a CodeEditor
 
     Subclasses get their options with `watch_options`, and connect to the
-    editor's signals with `connect` so that `remove` disconnects them.
+    editor's signals with `connect` so that `remove` disconnects them, and undo
+    anything else they did to the editor in `on_remove`.
     Behaviors that handle keys override `handle_key_press`.
     """
 
@@ -64,10 +65,21 @@ class Behavior:
         self.options.apply(self._option_handlers, keys)
 
     def remove(self) -> None:
-        """Disconnect from the editor. Subclasses should call this too"""
+        """Disconnect from the editor, then call `on_remove`
+
+        Subclasses override `on_remove` instead of this
+        """
         for signal, slot in reversed(self._connections):
             signal.disconnect(slot)
         self._connections.clear()
+        self.on_remove()
+
+    def on_remove(self) -> None:
+        """Undo what the behavior did to the editor, besides connecting signals
+
+        This runs after the signals connected with `connect` are
+        disconnected, so the cleanup can't trigger the behavior's own handlers
+        """
 
     def get_hotkeys(self) -> list[QtWidgets.QAction]:
         """The shortcut actions to add to the editor"""

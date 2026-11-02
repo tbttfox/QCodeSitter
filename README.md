@@ -91,9 +91,9 @@ class MyBehavior(Behavior):
     def on_text_changed(self):
         ...
 
-    def remove(self):
-        # Undo anything else done in __init__
-        super().remove()
+    def on_remove(self):
+        # Undo anything else done in __init__. This runs after the
+        # signals connected with self.connect are disconnected
 ```
 
 Behaviors are added and removed at runtime:

@@ -120,6 +120,7 @@ class SyntaxHighlighting(Behavior):
         self.connect(
             self.editor.tree_manager.languageChanged, self._rebuild_highlighter
         )
+        self.connect(self.editor.tree_manager.reparsed, self._on_reparsed)
         self.watch_options({"syntax": self._set_syntax})
 
     def _set_syntax(self, syntax: SyntaxSpecs) -> None:
@@ -136,7 +137,6 @@ class SyntaxHighlighting(Behavior):
         self.highlighter = TreeSitterHighlighter(
             self.editor.tree_manager, query, self._syntax
         )
-        self.editor.tree_manager.reparsed.connect(self._on_reparsed)
 
     def _detach_highlighter(self) -> None:
         """Stop the current highlighter from formatting the document
@@ -146,7 +146,6 @@ class SyntaxHighlighting(Behavior):
         """
         if self.highlighter is None:
             return
-        self.editor.tree_manager.reparsed.disconnect(self._on_reparsed)
         self.highlighter.setDocument(None)
         self.highlighter.deleteLater()
         self.highlighter = None
@@ -175,7 +174,6 @@ class SyntaxHighlighting(Behavior):
                     self.highlighter.rehighlightBlock(block)
                 block = block.next()
 
-    def remove(self) -> None:
-        super().remove()
+    def on_remove(self) -> None:
         # Detaching the highlighter from the document also clears its formats
         self._detach_highlighter()

@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 from Qt import QtCore, QtGui
 
-from ..gui_colors import GuiColors, gui_color
 from ..gutters import GutterWidget
 from . import Behavior
 
@@ -40,14 +39,11 @@ class LineNumbers(Behavior):
         super().__init__(editor)
         self.line_number_area = LineNumberArea(self.editor)
         self.watch_options(
-            {"font": self.line_number_area.setFont, "colors": self._set_colors}
+            {
+                "font": self.line_number_area.setFont,
+                "colors": self.line_number_area.set_gutter_colors,
+            }
         )
 
-    def _set_colors(self, colors: GuiColors) -> None:
-        self.line_number_area.set_gutter_colors(
-            gui_color(colors, "gutter_fg"), gui_color(colors, "gutter")
-        )
-
-    def remove(self) -> None:
-        super().remove()
+    def on_remove(self) -> None:
         self.line_number_area.remove()

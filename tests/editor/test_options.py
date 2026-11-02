@@ -235,6 +235,22 @@ class TestBehaviorBase:
         editor.setPlainText("b")
         assert calls == []
 
+    def test_on_remove_runs_once_after_disconnecting(self, editor):
+        """Subclasses clean up in on_remove, with their signals already gone"""
+        live_connections = []
+
+        class Cleanup(Behavior):
+            def __init__(self, editor):
+                super().__init__(editor)
+                self.connect(editor.textChanged, lambda: None)
+
+            def on_remove(self):
+                live_connections.append(len(self._connections))
+
+        editor.add_behavior(Cleanup)
+        editor.remove_behavior(Cleanup)
+        assert live_connections == [0]
+
     def test_only_key_handlers_get_key_presses(self, editor):
         assert not Behavior.handles_key_presses()
         assert not Behavior(editor).handle_key_press(

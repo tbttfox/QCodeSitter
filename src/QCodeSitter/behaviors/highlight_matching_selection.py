@@ -26,8 +26,7 @@ class HighlightMatchingSelection(Behavior):
     def _set_colors(self, colors: GuiColors) -> None:
         self._match_hl = gui_color(colors, "match_hl")
 
-    def remove(self) -> None:
-        super().remove()
+    def on_remove(self) -> None:
         self.editor.clear_selections(self.SOURCE)
 
     def highlight_occurrences(self) -> None:
