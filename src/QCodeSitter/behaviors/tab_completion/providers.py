@@ -26,8 +26,9 @@ class IdentifierProvider(Provider):
         if query is None:
             return set()
 
-        captures = query_byte_range(query, tree.root_node, 0, tree.root_node.end_byte)
         doc = self.editor.document()
+        root = tree.root_node
+        captures = query_byte_range(query, root, 0, root.end_byte, doc.node_text)
         identifiers = set()
         for capture_name, nodes in captures.items():
             for node in nodes:

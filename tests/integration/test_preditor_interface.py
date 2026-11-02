@@ -8,10 +8,10 @@ from Qt import QtGui, QtWidgets
 pytest.importorskip("preditor")
 
 from QCodeSitter.behaviors.tab_completion import TabCompletion
-from QCodeSitter.highlighting.themes import DARK_THEME, LIGHT_THEME, read_theme
 from QCodeSitter.integrations.preditor_interface import (
     CodeSitterTextEdit,
 )
+from QCodeSitter.themes import DARK_THEME, LIGHT_THEME, read_theme
 from tests.helpers import assert_tree_matches_fresh_parse, set_cursor_selection
 
 TEXT = "first line\n    second line\nthird line\n"

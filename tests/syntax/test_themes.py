@@ -6,13 +6,8 @@ import pytest
 from Qt import QtGui
 
 from QCodeSitter.gui_colors import DERIVED_GUI_COLORS, GUI_COLOR_DEFAULTS, gui_color
-from QCodeSitter.highlighting.themes import (
-    DARK_THEME,
-    LIGHT_THEME,
-    overlay_syntax,
-    read_theme,
-    resolve_capture,
-)
+from QCodeSitter.syntax_specs import overlay_syntax, resolve_capture
+from QCodeSitter.themes import DARK_THEME, LIGHT_THEME, read_theme
 
 
 class TestThemes:

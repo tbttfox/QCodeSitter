@@ -90,13 +90,31 @@ class TestLanguageQueries:
         folding = editor.get_behavior(CodeFolding)
         assert [r.node.type for r in folding.regions] == ["list"]
 
+    def test_identifier_query_text_predicates(self, editor, python_spec):
+        """Text predicates work in every query, not just the highlight query"""
+        editor.setPlainText("café = 1\nbar = 2\nbaz = 3\n")
+        register_language(
+            dataclasses.replace(
+                python_spec,
+                identifier_query=(
+                    "((assignment left: (identifier) @variable)"
+                    ' (#match? @variable "^ba"))'
+                    "((assignment left: (identifier) @constant)"
+                    ' (#eq? @constant "café"))'
+                ),
+            )
+        )
+        context = context_at_cursor(editor)
+        found = {(c.text, c.kind) for c in IdentifierProvider(editor).provide(context)}
+        assert found == {("bar", "variable"), ("baz", "variable"), ("café", "constant")}
+
 
 class TestLanguageBase:
     def test_base_rules_never_change_the_indent(self, editor):
         editor.setPlainText("def foo():")
-        rules = IndentRules(editor.tree_manager, editor.document())
+        rules = IndentRules(editor.tree_manager)
         assert not rules.should_indent_after(0, 9)
-        assert not rules.should_dedent_after(0, 9, "def foo():")
+        assert not rules.should_dedent_after(0, 9)
         assert rules.node_at(0, 0).type == "def"
 
     def test_registry(self, python_language):

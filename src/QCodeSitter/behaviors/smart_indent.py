@@ -28,7 +28,7 @@ class SmartIndent(Behavior):
 
     def indent_rules(self) -> IndentRules:
         spec = language_spec(self.editor.tree_manager.language)
-        return spec.indent_rules(self.editor.tree_manager, self.editor.document())
+        return spec.indent_rules(self.editor.tree_manager)
 
     def handle_key_press(self, event: QtGui.QKeyEvent) -> bool:
         key = event.key()
@@ -87,7 +87,7 @@ class SmartIndent(Behavior):
         row = block.blockNumber()
         if rules.should_indent_after(row, col - 1):
             return indent + self._one_indent(), 0
-        if rules.should_dedent_after(row, col - 1, line_text):
+        if rules.should_dedent_after(row, col - 1):
             return self._dedent(indent), 0
         return indent, 0
 

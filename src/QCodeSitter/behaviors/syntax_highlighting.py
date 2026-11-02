@@ -4,10 +4,9 @@ from typing import TYPE_CHECKING
 
 from Qt import QtGui
 
-from ..highlighting.themes import SyntaxSpecs, resolve_capture
 from ..languages import highlight_query
 from ..queries import query_byte_range
-from ..queries.predicates import QueryPredicates
+from ..syntax_specs import SyntaxSpecs, resolve_capture
 from ..tracked_document import len16
 from . import Behavior
 
@@ -15,7 +14,6 @@ if TYPE_CHECKING:
     from tree_sitter import Query
 
     from ..code_editor import CodeEditor
-    from ..tracked_document import TrackedDocument
     from ..tree_manager import TreeManager
 
 
@@ -27,18 +25,14 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
 
     def __init__(
         self,
-        document: TrackedDocument,
         tree_manager: TreeManager,
         query: Query,
         format_specs: SyntaxSpecs,
     ) -> None:
-        super().__init__(document)
+        super().__init__(tree_manager.document)
         self.tree_manager = tree_manager
-        self._doc = document
+        self._doc = tree_manager.document
         self.query = query
-        # Tree-sitter can't evaluate text predicates like #eq? and #match? on our
-        # UTF-16 trees, so they are evaluated against the document text instead
-        self.predicates = QueryPredicates(self._doc.node_text)
         self.formats = self._compile_formats(format_specs)
 
     def _compile_formats(
@@ -96,7 +90,7 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
             return
 
         captures = query_byte_range(
-            self.query, root, start_byte, end_byte, self.predicates
+            self.query, root, start_byte, end_byte, self._doc.node_text
         )
         block_start = block.position()
         for capture_name, nodes in captures.items():
@@ -140,7 +134,7 @@ class SyntaxHighlighting(Behavior):
         if query is None or not self._syntax:
             return
         self.highlighter = TreeSitterHighlighter(
-            self.editor.document(), self.editor.tree_manager, query, self._syntax
+            self.editor.tree_manager, query, self._syntax
         )
         self.editor.tree_manager.reparsed.connect(self._on_reparsed)
 

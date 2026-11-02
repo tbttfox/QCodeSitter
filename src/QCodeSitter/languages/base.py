@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from tree_sitter import Node
 
-    from ..tracked_document import TrackedDocument
     from ..tree_manager import TreeManager
 
 
@@ -14,12 +13,13 @@ class IndentRules:
     """Syntax-aware indentation decisions for SmartIndent
 
     The base rules never change the indent, so the new line copies the current one.
-    Rows and columns are Qt rows and UTF-16 code unit columns.
+    Rows and columns are Qt rows and UTF-16 code unit columns. Both hooks take
+    a row and column, and can read the line from self.document.
     """
 
-    def __init__(self, tree_manager: TreeManager, document: TrackedDocument) -> None:
+    def __init__(self, tree_manager: TreeManager) -> None:
         self.tree_manager = tree_manager
-        self.document = document
+        self.document = tree_manager.document
 
     def node_at(self, row: int, col: int) -> Node | None:
         return self.tree_manager.node_at_char(self.document.row_col_to_char(row, col))
@@ -28,7 +28,7 @@ class IndentRules:
         """Whether a new line after this column should be indented one more level"""
         return False
 
-    def should_dedent_after(self, row: int, col: int, line_text: str) -> bool:
+    def should_dedent_after(self, row: int, col: int) -> bool:
         """Whether a new line after this column should be indented one less level"""
         return False
 
@@ -39,7 +39,8 @@ class LanguageSpec:
 
     name: str
     comment_prefix: str = "# "
-    # The default highlight query for the language
+    # The default highlight query for the language. Every query can use the
+    # text predicates (#eq?, #match?, #any-of?)
     highlight_query: str = ""
     # Captures the names defined in a document, named after their kind
     identifier_query: str = ""

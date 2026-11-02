@@ -15,7 +15,7 @@ from tree_sitter import Language
 
 from QCodeSitter import CodeEditor, EditorOptions, defaults
 from QCodeSitter.cursors.state import CursorState
-from QCodeSitter.highlighting.themes import DARK_THEME, read_theme
+from QCodeSitter.themes import DARK_THEME, read_theme
 
 
 @pytest.fixture(scope="session")

@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..queries import compile_query
-from ..queries.predicates import prepare_query_source
 from .base import IndentRules, LanguageSpec
 from .python import PYTHON
 
@@ -62,9 +61,9 @@ language_spec = LANGUAGES.spec_for
 
 
 def highlight_query(language: Language) -> Query | None:
-    """The language's highlight query, ready for QueryPredicates to evaluate"""
+    """The language's highlight query"""
     source = language_spec(language).highlight_query
-    return compile_query(language, prepare_query_source(source)) if source else None
+    return compile_query(language, source) if source else None
 
 
 def identifier_query(language: Language) -> Query | None:

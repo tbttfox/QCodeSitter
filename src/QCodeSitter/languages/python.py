@@ -79,11 +79,11 @@ class PythonIndentRules(IndentRules):
             node = node.parent
         return False
 
-    def should_dedent_after(self, row: int, col: int, line_text: str) -> bool:
+    def should_dedent_after(self, row: int, col: int) -> bool:
         node = self.node_at(row, col)
         if node is None:
             return False
-        if self._closes_earlier_bracket(row, col, line_text):
+        if self._closes_earlier_bracket(row, col):
             return True
         while node is not None:
             if node.type in _TERMINAL_TYPES:
@@ -91,10 +91,11 @@ class PythonIndentRules(IndentRules):
             node = node.parent
         return False
 
-    def _closes_earlier_bracket(self, row: int, col: int, line_text: str) -> bool:
+    def _closes_earlier_bracket(self, row: int, col: int) -> bool:
         """Whether the line starts with a bracket, after the column, that closes
         a bracket opened on an earlier line
         """
+        line_text = self.document.findBlockByNumber(row).text()
         # The indent is all whitespace, so its length is also its UTF-16 length
         bracket_col = len(leading_whitespace(line_text))
         if line_text[bracket_col : bracket_col + 1] not in _CLOSE_BRACKETS:
