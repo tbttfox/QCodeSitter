@@ -54,8 +54,7 @@ class HighlightMatchingBrackets(Behavior):
     def _quote_chars(self) -> str:
         return self.options["highlight_quote_chars"]
 
-    def remove(self) -> None:
-        super().remove()
+    def on_remove(self) -> None:
         self.editor.clear_selections(self.SOURCE)
 
     def highlight_matching_brackets(self) -> None:

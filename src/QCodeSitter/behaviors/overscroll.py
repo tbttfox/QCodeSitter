@@ -94,9 +94,8 @@ class Overscroll(Behavior):
         finally:
             painter.restore()
 
-    def remove(self) -> None:
+    def on_remove(self) -> None:
         """Set the scroll range back to the line count"""
-        super().remove()
         sb = self.editor.verticalScrollBar()
         viewport_height = self.editor.viewport().height()
         line_height = self.editor.fontMetrics().lineSpacing()

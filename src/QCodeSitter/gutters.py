@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from Qt import QtCore, QtGui, QtWidgets
 
+from .gui_colors import GuiColors, gui_color
+
 if TYPE_CHECKING:
     from .code_editor import CodeEditor
 
@@ -77,9 +79,10 @@ class GutterWidget(QtWidgets.QWidget):
         if self.editor.isVisible():
             self.show()
 
-    def set_gutter_colors(self, fg: QtGui.QColor, bg: QtGui.QColor) -> None:
-        self.fg_color = fg
-        self.bg_color = bg
+    def set_gutter_colors(self, colors: GuiColors) -> None:
+        """Paint with the "gutter_fg" and "gutter" gui colors"""
+        self.fg_color = gui_color(colors, "gutter_fg")
+        self.bg_color = gui_color(colors, "gutter")
         self.update()
 
     def sizeHint(self) -> QtCore.QSize:

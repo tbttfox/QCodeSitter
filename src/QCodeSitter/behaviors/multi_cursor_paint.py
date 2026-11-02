@@ -124,8 +124,7 @@ class MultiCursorPaint(Behavior):
         painter.setPen(pen)
         painter.drawLine(cursor_rect.topLeft(), cursor_rect.bottomLeft())
 
-    def remove(self) -> None:
-        super().remove()
+    def on_remove(self) -> None:
         self.blink_timer.stop()
         self.blink_timer.deleteLater()
         self.editor.clear_selections(self.SOURCE)

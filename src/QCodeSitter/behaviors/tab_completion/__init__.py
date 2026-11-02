@@ -100,8 +100,7 @@ class TabCompletion(Behavior):
         self._providers.append(provider)
         return provider
 
-    def remove(self) -> None:
-        super().remove()
+    def on_remove(self) -> None:
         self.debounce_timer.stop()
         self.completion_popup.hide()
         self.completion_popup.deleteLater()

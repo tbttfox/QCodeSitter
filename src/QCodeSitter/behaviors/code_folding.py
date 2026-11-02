@@ -150,9 +150,7 @@ class CodeFolding(Behavior):
         )
 
     def _set_colors(self, colors: GuiColors) -> None:
-        self.folding_area.set_gutter_colors(
-            gui_color(colors, "gutter_fg"), gui_color(colors, "gutter")
-        )
+        self.folding_area.set_gutter_colors(colors)
         self.fold_line_bg_color = gui_color(colors, "bg_dim")
         self.fold_ellipsis_bg_color = gui_color(colors, "hl_dim")
         self.fold_ellipsis_fg_color = gui_color(colors, "fg_dim")
@@ -387,8 +385,7 @@ class CodeFolding(Behavior):
         finally:
             painter.restore()
 
-    def remove(self) -> None:
-        super().remove()
+    def on_remove(self) -> None:
         for region in self.regions:
             region.is_folded = False
         self._sync_block_visibility()
