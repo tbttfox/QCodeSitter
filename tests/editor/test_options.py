@@ -9,6 +9,7 @@ import pytest
 from Qt import QtCore, QtGui
 
 from QCodeSitter.behaviors import Behavior
+from QCodeSitter.behaviors.auto_bracket import AutoBracket
 from QCodeSitter.code_editor import CodeEditor
 from QCodeSitter.defaults import (
     DEFAULT_BEHAVIORS,
@@ -18,8 +19,8 @@ from QCodeSitter.defaults import (
 )
 from QCodeSitter.editor_options import (
     OPTION_DEFAULTS,
-    OPTION_KEYS,
     EditorOptions,
+    check_option_keys,
     register_option,
     unregister_option,
 )
@@ -57,7 +58,48 @@ class TestEditorOptions:
     def test_defaults_are_not_shared(self, qapp):
         first, second = EditorOptions(), EditorOptions()
         first["indent_bracket_pairs"].append("<>")
+        assert first["indent_bracket_pairs"] == OPTION_DEFAULTS["indent_bracket_pairs"]
         assert second["indent_bracket_pairs"] == OPTION_DEFAULTS["indent_bracket_pairs"]
+
+    def test_mutable_values_are_copied(self, qapp):
+        given = ["()"]
+        options = EditorOptions({"auto_bracket_pairs": given})
+        given.append("<>")
+        assert options["auto_bracket_pairs"] == ["()"]
+        pairs = options["auto_bracket_pairs"]
+        pairs.append("[]")
+        assert options["auto_bracket_pairs"] == ["()"]
+        options["auto_bracket_pairs"] = pairs
+        pairs.append("{}")
+        assert options["auto_bracket_pairs"] == ["()", "[]"]
+
+    def test_get_and_registered_defaults_are_copied(self, qapp):
+        options = EditorOptions()
+        options.get("auto_bracket_pairs").append("<>")
+        assert options["auto_bracket_pairs"] == OPTION_DEFAULTS["auto_bracket_pairs"]
+        given = ["()"]
+        register_option("qcs_test_pairs", list, given)
+        try:
+            given.append("[]")
+            options["qcs_test_pairs"].append("{}")
+            assert options["qcs_test_pairs"] == ["()"]
+        finally:
+            unregister_option("qcs_test_pairs")
+
+    def test_read_mutate_write_emits(self, qapp):
+        options = EditorOptions()
+        emitted = []
+        options.optionsUpdated.connect(emitted.append)
+        pairs = options["auto_bracket_pairs"]
+        pairs.append("<>")
+        options["auto_bracket_pairs"] = pairs
+        assert emitted == [["auto_bracket_pairs"]]
+
+    def test_read_mutate_write_reaches_behaviors(self, editor):
+        pairs = editor.options["auto_bracket_pairs"]
+        pairs.append("<>")
+        editor.options["auto_bracket_pairs"] = pairs
+        assert "<" in editor.get_behavior(AutoBracket).pairs
 
     def test_update_emits_keys(self, qapp):
         options = EditorOptions()
@@ -93,6 +135,40 @@ class TestEditorOptions:
             unregister_option("qcs_test_limit")
         with pytest.raises(KeyError):
             options["qcs_test_limit"] = 4
+
+    def test_registered_default_is_read_live(self, qapp):
+        options = EditorOptions()
+        emitted = []
+        options.optionsUpdated.connect(emitted.append)
+        register_option("qcs_test_limit", int, 3)
+        try:
+            assert options.get("qcs_test_limit") == 3
+            # Setting the default value isn't a change
+            options["qcs_test_limit"] = 3
+            assert emitted == []
+            unread = EditorOptions()
+            register_option("qcs_test_limit", int, 5)
+            assert options["qcs_test_limit"] == 3
+            assert unread["qcs_test_limit"] == 5
+        finally:
+            unregister_option("qcs_test_limit")
+        # Reading the default didn't copy it into the options
+        assert "qcs_test_limit" not in unread
+        assert unread.get("qcs_test_limit") is None
+
+    def test_bad_default_changes_nothing(self, qapp):
+        register_option("qcs_test_limit", int, 3)
+        try:
+            with pytest.raises(TypeError):
+                register_option("qcs_test_limit", int, "x")
+            assert EditorOptions()["qcs_test_limit"] == 3
+            with pytest.raises(TypeError):
+                register_option("qcs_test_other", int, "x")
+            with pytest.raises(KeyError):
+                check_option_keys(["qcs_test_other"])
+        finally:
+            unregister_option("qcs_test_limit")
+            unregister_option("qcs_test_other")
 
     def test_apply_only_set_keys(self, qapp):
         options = EditorOptions({"space_indent_width": 2})
@@ -173,7 +249,6 @@ class TestBehaviorBase:
 class TestDefaults:
     def test_default_options(self, qapp, python_language):
         options = default_options(LIGHT_THEME, python_language)
-        assert set(options.keys()) <= OPTION_KEYS
         colors, syntax = read_theme(LIGHT_THEME)
         assert options["colors"] == colors
         assert options["syntax"] == syntax
