@@ -175,7 +175,7 @@ LIGHT_THEME: Theme = {
 
     "gui" : {
         "bg":                  "true_white",
-        "bg_dim":              "bg1",
+        "bg_dim":              "bg_dim",
         "fg":                  "fg",
         "fg_dim":              "grey",
         "gutter":              "bg2",
@@ -260,14 +260,16 @@ def read_theme(theme: Theme) -> tuple[GuiColors, SyntaxSpecs]:
         theme: A json theme as defined above
 
     Returns:
-        guicolors: A dictionary mapping gui color names to hex color strings. Also includes any
-            palette color names
+        guicolors: A dictionary mapping gui color names to hex color strings. Also includes
+            the palette color names, unless a gui entry has the same name
         syntaxcolors: A dictionary mapping treesitter syntax range names to format settings
     """
     pal = theme.get("palette", {})
 
-    gui = {k: _resolve_color(f"gui {k!r}", v, pal) for k, v in theme["gui"].items()}
-    gui.update(pal)
+    gui = {
+        **pal,
+        **{k: _resolve_color(f"gui {k!r}", v, pal) for k, v in theme["gui"].items()},
+    }
 
     newsyn: SyntaxSpecs = {}
     for k, vdata_orig in theme["syntax"].items():

@@ -18,9 +18,6 @@ from tree_sitter import Language
 from .gui_colors import GuiColors
 from .highlighting.themes import SyntaxSpecs
 
-if TYPE_CHECKING:
-    from collections.abc import KeysView
-
 
 class OptionsDict(TypedDict, total=False):
     """Every option the editor and the built-in behaviors understand
@@ -69,8 +66,19 @@ OPTION_DEFAULTS: OptionsDict = {
 # The keys of the built-in options
 OPTION_KEYS = frozenset(get_type_hints(OptionsDict))
 
+# What EditorOptions._lookup returns for an option without a value
+_MISSING = object()
+
 # Option key -> the function that applies its value
 OptionHandlers = Mapping[str, Callable[[Any], object]]
+
+
+def _copy_mutable(value: Any) -> Any:
+    """A deep copy of a list or dict value, so the store's own can't be edited in place
+
+    Other values are returned as they are, since languages and fonts can't be deep-copied
+    """
+    return copy.deepcopy(value) if isinstance(value, (list, dict)) else value
 
 
 class OptionSchema:
@@ -98,11 +106,16 @@ class OptionSchema:
         """
         if key in OPTION_KEYS:
             raise ValueError(f"{key!r} is a built-in editor option")
+        # Check the default first, so a bad one leaves the schema as it was
+        if default is not None and not isinstance(default, value_type):
+            raise TypeError(
+                f"Editor option {key!r} must be a {value_type.__name__}, "
+                f"not {type(default).__name__}"
+            )
         self._types[key] = value_type
         self._defaults.pop(key, None)
         if default is not None:
-            self.check({key: default})
-            self._defaults[key] = default
+            self._defaults[key] = _copy_mutable(default)
 
     def unregister(self, key: str) -> None:
         """Remove an option added with `register`"""
@@ -112,8 +125,10 @@ class OptionSchema:
         self._defaults.pop(key, None)
 
     def registered_default(self, key: str) -> Any:
-        """A copy of a registered option's default. Raises a KeyError if it has none"""
-        return copy.deepcopy(self._defaults[key])
+        """A registered option's stored default, not a copy. Raises a KeyError if it
+        has none
+        """
+        return self._defaults[key]
 
     def check_keys(self, keys: Iterable[str]) -> None:
         """Raise a KeyError for any key that isn't a known option"""
@@ -155,16 +170,24 @@ class EditorOptions(QtCore.QObject):
         super().__init__()
         opts = {} if opts is None else opts
         check_options(opts)
-        self._options: dict[str, Any] = {**copy.deepcopy(OPTION_DEFAULTS), **opts}
+        self._options: dict[str, Any] = {
+            **copy.deepcopy(OPTION_DEFAULTS),
+            **{key: _copy_mutable(value) for key, value in opts.items()},
+        }
 
-    def _has(self, key: str) -> bool:
-        """Whether the option has a value, taking a registered default if needed"""
-        if key not in self._options:
-            try:
-                self._options[key] = OPTION_SCHEMA.registered_default(key)
-            except KeyError:
-                return False
-        return True
+    def _lookup(self, key: str) -> Any:
+        """The option's value, or its registered default, or _MISSING
+
+        A registered default is looked up every time, so registering the
+        option again later changes it for editors that already read it. This is
+        the stored value, not a copy, so callers must not change it
+        """
+        if key in self._options:
+            return self._options[key]
+        try:
+            return OPTION_SCHEMA.registered_default(key)
+        except KeyError:
+            return _MISSING
 
     if TYPE_CHECKING:
         # Reading a built-in option gives the type OptionsDict declares for it
@@ -190,37 +213,34 @@ class EditorOptions(QtCore.QObject):
         # fmt: on
 
     def __getitem__(self, key: str) -> Any:
-        if not self._has(key):
+        value = self._lookup(key)
+        if value is _MISSING:
             raise KeyError(key)
-        return self._options[key]
+        # A list or dict is a copy, so changing it means setting it again
+        return _copy_mutable(value)
 
     def __setitem__(self, key: str, value: Any) -> None:
         self.update({key: value})
 
     def __contains__(self, key: str) -> bool:
-        return self._has(key)
+        return self._lookup(key) is not _MISSING
 
     def update(self, opts: Mapping[str, Any]) -> None:
         """Set several options, emitting `optionsUpdated` once for the changed ones"""
         check_options(opts)
-        changed = [
-            key
-            for key, value in opts.items()
-            if key not in self._options or self._options[key] != value
-        ]
-        self._options.update(opts)
+        changed = [key for key, value in opts.items() if self._lookup(key) != value]
+        self._options.update({key: _copy_mutable(value) for key, value in opts.items()})
         if changed:
             self.optionsUpdated.emit(changed)
 
     def get(self, key: str, default: Any = None) -> Any:
-        return self._options[key] if self._has(key) else default
-
-    def keys(self) -> KeysView[str]:
-        return self._options.keys()
+        value = self._lookup(key)
+        return default if value is _MISSING else _copy_mutable(value)
 
     def apply(self, handlers: OptionHandlers, keys: Iterable[str]) -> None:
         """Call the handler of each key that is set, with its value"""
         for key in keys:
             handler = handlers.get(key)
-            if handler is not None and self._has(key):
-                handler(self._options[key])
+            value = self._lookup(key)
+            if handler is not None and value is not _MISSING:
+                handler(_copy_mutable(value))

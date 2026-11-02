@@ -33,6 +33,17 @@ class TestThemes:
             "plain": {"italic": True},
         }
 
+    def test_read_theme_gui_wins_over_palette(self):
+        colors, syntax = read_theme(
+            {
+                "palette": {"bg": "#000000", "accent": "#00FF00"},
+                "gui": {"bg": "#FFFFFF"},
+                "syntax": {"keyword": {"color": "bg"}},
+            }
+        )
+        assert colors == {"bg": "#FFFFFF", "accent": "#00FF00"}
+        assert syntax == {"keyword": {"color": "#FFFFFF"}}
+
     def test_read_theme_warns_about_unknown_names(self, qapp):
         theme = {"palette": {"red": "#FF0000"}, "gui": {"bg": "rde"}, "syntax": {}}
         with pytest.warns(UserWarning, match="gui 'bg' color 'rde'"):
