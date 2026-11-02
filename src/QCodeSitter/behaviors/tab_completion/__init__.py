@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, TypeVar
 from Qt import QtCore, QtGui
 
 from ...languages import language_spec
-from ...tracked_document import utf16_to_index
-from ...utils import KEY, MOD
+from ...tracked_document import len16, utf16_to_index
+from ...utils import KEY, MM, MOD
 from .. import Behavior
 from .popup import CompletionPopup
 from .types import Completion, CompletionContext, Provider
@@ -121,15 +121,26 @@ class TabCompletion(Behavior):
             and context.start == self._last_context.start
         )
 
-    def on_cursor_changed(self) -> None:
+    def _hide_or_filter(self) -> CompletionContext | None:
+        """Hide the popup, or filter what it shows, for the identifier at the cursor
+
+        Returns:
+            The cursor's context when the providers need asking for new
+            completions, or None when the popup was hidden or filtered
+        """
         context = context_at_cursor(self.editor)
         if not self._should_trigger(context):
             self.completion_popup.hide()
-        elif self._showing_completions_for(context):
+            return None
+        if self._showing_completions_for(context):
             # Still completing the same word, so just filter what's showing
             self.completion_popup.update_filter(context.prefix)
             self._last_context = context
-        elif self._typing_mode:
+            return None
+        return context
+
+    def on_cursor_changed(self) -> None:
+        if self._hide_or_filter() is not None and self._typing_mode:
             self.debounce_timer.start(self.options["debounce_delay"])
         self._typing_mode = False
 
@@ -154,20 +165,13 @@ class TabCompletion(Behavior):
         It runs once typing pauses for the "debounce_delay" option
         """
         # The context might have changed while waiting
-        context = context_at_cursor(self.editor)
-        if not self._should_trigger(context):
-            self.completion_popup.hide()
+        context = self._hide_or_filter()
+        if context is None:
             return
-
-        if self._showing_completions_for(context):
-            self.completion_popup.update_filter(context.prefix)
-        else:
-            completions = merge_completions(
-                comp
-                for provider in self._providers
-                for comp in provider.provide(context)
-            )
-            self.completion_popup.show_completions(completions, context.prefix)
+        completions = merge_completions(
+            comp for provider in self._providers for comp in provider.provide(context)
+        )
+        self.completion_popup.show_completions(completions, context.prefix)
         self._last_context = context
 
     # ------------------------------------------------------------------
@@ -175,27 +179,38 @@ class TabCompletion(Behavior):
     # ------------------------------------------------------------------
 
     def accept_item(self) -> bool:
-        if not self.completion_popup.isVisible():
-            return False
-        self.completion_popup.accept_completion()
+        """Replace the prefix before every cursor with the selected completion
+
+        A cursor with other text before it only gets the rest of the completion.
+        Call it while the popup shows
+        """
+        comp = self.completion_popup.selected_completion()
+        if comp is not None:
+            prefix = self.completion_popup.current_prefix
+            citer = self.editor.citer
+            with self.editor.edit_session():
+                for cursor in citer.iterate_cursors(complete_all=True):
+                    pos = cursor.position()
+                    cursor.setPosition(max(0, pos - len16(prefix)), MM.KeepAnchor)
+                    # Replace the prefix in one edit, so the tree only sees one change
+                    if cursor.selectedText() == prefix:
+                        cursor.insertText(comp.text)
+                    else:
+                        cursor.setPosition(pos)
+                        cursor.insertText(comp.text[len(prefix) :])
+        self.completion_popup.hide()
         return True
 
     def select_previous(self) -> bool:
-        if not self.completion_popup.isVisible():
-            return False
         self.completion_popup.offset_current(-1)
         return True
 
     def select_next(self) -> bool:
-        if not self.completion_popup.isVisible():
-            return False
         self.completion_popup.offset_current(1)
         return True
 
     def dismiss(self) -> bool:
-        """Hide the popup, consuming the key if it was showing"""
-        if not self.completion_popup.isVisible():
-            return False
+        """Hide the popup, and consume the key"""
         self.completion_popup.hide()
         return True
 
@@ -205,6 +220,9 @@ class TabCompletion(Behavior):
         return False
 
     def handle_key_press(self, event: QtGui.QKeyEvent) -> bool:
+        # The keys only act on a showing popup, and otherwise go to the next handler
+        if not self.completion_popup.isVisible():
+            return False
         actions = {
             KEY.Key_Return: self.accept_item,
             KEY.Key_Enter: self.accept_item,
