@@ -36,9 +36,6 @@ class SmartIndent(Behavior):
         spec = language_spec(self.editor.tree_manager.language)
         return spec.indent_rules(self.editor.tree_manager, self.editor.document())
 
-    def has_key_press(self) -> bool:
-        return True
-
     def handle_key_press(self, event: QtGui.QKeyEvent) -> bool:
         key = event.key()
         if key == KEY.Key_Tab:
@@ -48,7 +45,7 @@ class SmartIndent(Behavior):
             self.unindent()
             return True
         # These only handle some cursors, and leave the rest to the editor
-        if key == KEY.Key_Return:
+        if key in (KEY.Key_Return, KEY.Key_Enter):
             self.smart_newline()
         elif key == KEY.Key_Backspace:
             self.smart_backspace()
@@ -108,7 +105,7 @@ class SmartIndent(Behavior):
         citer = self.editor.citer
         rules = self.indent_rules()
         indents = []
-        for cursor in citer.iterate_cursors(no_position_update=True):
+        for cursor in citer.read_cursors():
             if cursor.hasSelection():
                 cursor.setPosition(cursor.selectionStart())
             indents.append(self._newline_indent(cursor, rules))
@@ -118,7 +115,7 @@ class SmartIndent(Behavior):
             cursor.insertText("\n" + indent_str)
             if move_back:
                 cursor.movePosition(MO.Left, MM.MoveAnchor, move_back)
-            citer.cursor_completed()
+            citer.mark_cursor_completed()
 
     def insert_indent(self) -> None:
         """Indent to the next tab stop, or indent every line of a selection"""
@@ -136,7 +133,7 @@ class SmartIndent(Behavior):
                 cursor.insertText("\t")
             else:
                 cursor.insertText(" " * (width - cursor.positionInBlock() % width))
-            citer.cursor_completed()
+            citer.mark_cursor_completed()
 
     def unindent(self) -> None:
         """Remove one indent from every line of each cursor's selection or line"""
@@ -151,7 +148,7 @@ class SmartIndent(Behavior):
 
         for cursor in citer.iterate_cursors():
             replace_lines(cursor, lambda lines: [unindent_line(ln) for ln in lines])
-            citer.cursor_completed()
+            citer.mark_cursor_completed()
 
     def smart_backspace(self) -> None:
         """Backspace over a whole indent when the cursor is in the indentation"""
@@ -170,7 +167,7 @@ class SmartIndent(Behavior):
             # Delete back to the previous tab stop
             cursor.movePosition(MO.Left, MM.KeepAnchor, col % width or width)
             cursor.removeSelectedText()
-            citer.cursor_completed()
+            citer.mark_cursor_completed()
 
     def smart_closing_bracket(self, bracket: str) -> None:
         """Dedent a blank line when a closing bracket is typed on it"""
@@ -187,4 +184,4 @@ class SmartIndent(Behavior):
             cursor.movePosition(MO.StartOfLine)
             cursor.movePosition(MO.EndOfLine, MM.KeepAnchor)
             cursor.insertText(self._dedent(indent) + bracket)
-            citer.cursor_completed()
+            citer.mark_cursor_completed()

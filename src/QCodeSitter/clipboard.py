@@ -39,8 +39,8 @@ def split_multi_copy(source: QtCore.QMimeData, cursor_count: int) -> list[str] |
     except (UnicodeDecodeError, ValueError):
         return None
     text = source.text()
-    # The texts are separated by newlines
-    if len(lens) != cursor_count or len(text) != sum(lens) + len(lens) - 1:
+    newline_separators = len(lens) - 1
+    if len(lens) != cursor_count or len(text) != sum(lens) + newline_separators:
         return None
     parts = []
     ptr = 0

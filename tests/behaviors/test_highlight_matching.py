@@ -43,6 +43,9 @@ class TestBracketMatching:
             ("d = {'a': (1)}", 14, [(13, 14), (4, 5)]),
             # Nested brackets match their own pair
             ("f(g(x))", 4, [(3, 4), (5, 6)]),
+            # In broken code, the brackets are siblings in an ERROR node, and the
+            # nearest balanced one matches instead of the first one
+            ("(a(a = )", 8, [(7, 8), (2, 3)]),
         ],
     )
     def test_matching_pair(self, bracket_editor, text, cursor, expected):
@@ -91,7 +94,7 @@ class TestQuoteMatching:
 
     def test_quote_pairs_option(self, bracket_editor):
         """Turning off a quote character stops it from being matched"""
-        bracket_editor.options["highlight_quote_pairs"] = "'"
+        bracket_editor.options["highlight_quote_chars"] = "'"
         bracket_editor.setPlainText('x = "abc"')
         set_cursor_position(bracket_editor, 5)
         assert highlighted(bracket_editor) == []

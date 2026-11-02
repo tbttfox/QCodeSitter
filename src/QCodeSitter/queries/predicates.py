@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from tree_sitter import Node
 
-    from ..tree_manager import Captures, PredicateArgs
+    from . import Captures, PredicateArgs
 
 
 PREFIX = "qcs-"

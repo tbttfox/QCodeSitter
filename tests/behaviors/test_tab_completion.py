@@ -10,6 +10,8 @@ from Qt import QtCore, QtGui
 from QCodeSitter.behaviors.tab_completion import (
     Completion,
     TabCompletion,
+    context_at_cursor,
+    identifier_before,
     merge_completions,
 )
 from QCodeSitter.behaviors.tab_completion.popup import CompletionPopup
@@ -67,7 +69,8 @@ def wait_for_popup(qtbot, editor):
 class TestIdentifierProvider:
     def test_provides_document_names(self, completion_editor):
         provider = IdentifierProvider(completion_editor)
-        found = {(c.text, c.kind) for c in provider.provide()}
+        context = context_at_cursor(completion_editor)
+        found = {(c.text, c.kind) for c in provider.provide(context)}
         assert {
             ("os", "import"),
             ("odict", "import"),
@@ -79,7 +82,8 @@ class TestIdentifierProvider:
 
     def test_no_tree(self, bare_editor):
         bare_editor.tree_manager.set_language(None)
-        assert IdentifierProvider(bare_editor).provide() == set()
+        context = context_at_cursor(bare_editor)
+        assert IdentifierProvider(bare_editor).provide(context) == set()
 
 
 class TestMainPythonProvider:
@@ -88,12 +92,14 @@ class TestMainPythonProvider:
         monkeypatch.setattr(main, "qcs_test_value", 1, raising=False)
         monkeypatch.setattr(main, "qcs_test_class", int, raising=False)
         monkeypatch.setattr(main, "qcs_test_module", pytest, raising=False)
-        found = {(c.text, c.kind) for c in MainPythonProvider(editor).provide()}
-        assert {
+        editor.setPlainText("qcs_test")
+        set_cursor_position(editor, 8)
+        provided = MainPythonProvider(editor).provide(context_at_cursor(editor))
+        assert {(c.text, c.kind) for c in provided} == {
             ("qcs_test_value", "variable"),
             ("qcs_test_class", "class"),
             ("qcs_test_module", "module"),
-        } <= found
+        }
 
 
 class TestCompletionPopup:
@@ -119,6 +125,14 @@ class TestCompletionPopup:
         simulate_keypress(qtbot, completion_editor, KEY.Key_Tab)
         assert completion_editor.toPlainText() == SAMPLE + "Calculator"
         assert not popup(completion_editor).isVisible()
+
+    def test_tab_accepts_when_added_after_smart_indent(self, qtbot, completion_editor):
+        # Like turning completion back on in PrEditor, after the other behaviors
+        completion_editor.add_behavior(TabCompletion).add_provider(IdentifierProvider)
+        type_text(qtbot, completion_editor, "Calc")
+        wait_for_popup(qtbot, completion_editor)
+        simulate_keypress(qtbot, completion_editor, KEY.Key_Tab)
+        assert completion_editor.toPlainText() == SAMPLE + "Calculator"
 
     def test_navigation_wraps(self, qtbot, completion_editor):
         type_text(qtbot, completion_editor, "o")
@@ -154,7 +168,7 @@ class TestCompletionPopup:
     def test_no_completion_in_strings(self, qtbot, completion_editor):
         type_text(qtbot, completion_editor, 'x = "co')
         # Run the debounced completion now, instead of waiting for the timer
-        completion_editor.get_behavior(TabCompletion).do_completion()
+        completion_editor.get_behavior(TabCompletion).refresh_completions()
         assert not popup(completion_editor).isVisible()
 
     def test_vim_keys(self, qtbot, completion_editor):
@@ -169,14 +183,41 @@ class TestCompletionPopup:
         )
         assert completion_editor.toPlainText() == SAMPLE + "Calculator"
 
-    def test_extract_prefix_stops_at_dot(self):
-        assert TabCompletion._extract_prefix("x = os.path.jo", 14) == (12, "jo")
+    def test_identifier_before(self):
+        assert identifier_before("x = os.path.jo", 14) == (12, "jo")
+        assert identifier_before("x = abc1", 8) == (4, "abc1")
+
+    def test_no_completion_in_the_middle_of_a_word(self, qtbot, completion_editor):
+        completion_editor.insertPlainText("Calcx")
+        set_cursor_position(completion_editor, len(SAMPLE) + 4)
+        completion_editor.get_behavior(TabCompletion).refresh_completions()
+        assert not popup(completion_editor).isVisible()
+
+    def test_a_new_word_asks_the_providers_again(self, qtbot, completion_editor):
+        """A word typed where an old one was doesn't reuse the old completions"""
+        completion = completion_editor.get_behavior(TabCompletion)
+        type_text(qtbot, completion_editor, "Calc")
+        wait_for_popup(qtbot, completion_editor)
+        simulate_keypress(qtbot, completion_editor, KEY.Key_Escape)
+        for _ in range(4):
+            simulate_keypress(qtbot, completion_editor, KEY.Key_Backspace)
+        # Define a new name below, and type the same word in the same place
+        end = len(SAMPLE)
+        cursor = completion_editor.textCursor()
+        cursor.setPosition(end)
+        cursor.insertText("\nCalcium = 1")
+        set_cursor_position(completion_editor, end)
+        type_text(qtbot, completion_editor, "Calc")
+        completion.refresh_completions()
+        assert shown_texts(completion_editor) == ["Calcium", "Calculator"]
 
     def test_completes_at_the_start_of_the_document(self, qtbot, completion_editor):
         """Nothing shown yet doesn't count as already completing at line 0"""
         set_cursor_position(completion_editor, 0)
+        completion_editor.insertPlainText("\n")
+        set_cursor_position(completion_editor, 0)
         type_text(qtbot, completion_editor, "Calc")
-        completion_editor.get_behavior(TabCompletion).do_completion()
+        completion_editor.get_behavior(TabCompletion).refresh_completions()
         assert shown_texts(completion_editor) == ["Calculator"]
 
     def test_popup_follows_the_colors_option(self, completion_editor):
@@ -210,14 +251,15 @@ class TestCompletionTypes:
 
     def test_provider_base(self, editor):
         with pytest.raises(NotImplementedError):
-            Provider(editor).provide()
+            Provider(editor).provide(context_at_cursor(editor))
 
-    def test_providers_take_the_editor(self, editor):
-        editor.setPlainText("def foo(): pass")
-        assert Completion("foo", "function", 3) in IdentifierProvider(editor).provide()
-        assert all(
-            isinstance(c, Completion) for c in MainPythonProvider(editor).provide()
-        )
+    def test_context_at_cursor(self, editor):
+        editor.setPlainText("x = os.pa")
+        set_cursor_position(editor, 9)
+        context = context_at_cursor(editor)
+        assert (context.line_num, context.index, context.start) == (0, 9, 7)
+        assert (context.prefix, context.line) == ("pa", "x = os.pa")
+        assert context.node is not None
 
 
 class TestCompletionPopupWidget:

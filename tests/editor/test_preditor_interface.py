@@ -108,6 +108,11 @@ class TestWorkboxSettings:
     def test_tab_width(self, workbox):
         assert workbox.__tab_width__() == 4
 
+    def test_margins_font_is_the_editor_font(self, workbox):
+        font = QtGui.QFont("Courier", 17)
+        workbox.__set_font__(font)
+        assert workbox.__margins_font__() == font
+
     def test_auto_complete_toggle(self, workbox):
         assert workbox.__auto_complete_enabled__()
         workbox.__set_auto_complete_enabled__(False)

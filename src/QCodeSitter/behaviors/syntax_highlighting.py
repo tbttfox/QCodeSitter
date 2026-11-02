@@ -4,10 +4,10 @@ from typing import TYPE_CHECKING
 
 from Qt import QtGui
 
-from ..highlighting.predicates import QueryPredicates
 from ..highlighting.themes import SyntaxSpecs, resolve_capture
 from ..languages import highlight_query
-from ..tree_manager import query_byte_range
+from ..queries import query_byte_range
+from ..queries.predicates import QueryPredicates
 from ..utils import len16
 from . import Behavior
 
@@ -125,11 +125,12 @@ class SyntaxHighlighting(Behavior):
         super().__init__(editor)
         self._syntax: SyntaxSpecs = {}
         self.highlighter: TreeSitterHighlighter | None = None
-        self.editor.aboutToUndoRedo.connect(self._on_about_to_undo_redo)
-        self.editor.undoRedoFinished.connect(self._on_undo_redo_finished)
-        self.editor.tree_manager.languageChanged.connect(self._rebuild_highlighter)
+        self.connect(self.editor.aboutToUndoRedo, self._on_about_to_undo_redo)
+        self.connect(self.editor.undoRedoFinished, self._on_undo_redo_finished)
+        self.connect(
+            self.editor.tree_manager.languageChanged, self._rebuild_highlighter
+        )
         self.watch_options({"syntax": self._set_syntax})
-        self.apply_all_options()
 
     def _on_about_to_undo_redo(self) -> None:
         # The tree is out of date until the editor reparses after the undo
@@ -196,8 +197,5 @@ class SyntaxHighlighting(Behavior):
 
     def remove(self) -> None:
         super().remove()
-        self.editor.aboutToUndoRedo.disconnect(self._on_about_to_undo_redo)
-        self.editor.undoRedoFinished.disconnect(self._on_undo_redo_finished)
-        self.editor.tree_manager.languageChanged.disconnect(self._rebuild_highlighter)
         # Detaching the highlighter from the document also clears its formats
         self._detach_highlighter()

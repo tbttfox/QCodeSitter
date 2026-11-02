@@ -452,3 +452,71 @@ class TestEscapeKey:
         assert len(editor.cursors.secondary) == 2
         simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_Escape)
         assert len(editor.cursors.secondary) == 0
+
+
+KEY = QtCore.Qt.Key
+MOD = QtCore.Qt.KeyboardModifier
+
+
+class TestEditsOutsideTheKeyHandlers:
+    """Every way of editing the text types at every cursor, and keeps the tree"""
+
+    def two_cursors(self, editor):
+        editor.setPlainText("a\nb")
+        editor.cursors.replace_all([CursorState(1, 1), CursorState(3, 3)])
+
+    def test_numpad_digit(self, editor, qtbot):
+        self.two_cursors(editor)
+        simulate_keypress(qtbot, editor, KEY.Key_1, "1", MOD.KeypadModifier)
+        assert editor.toPlainText() == "a1\nb1"
+        assert_tree_matches_fresh_parse(editor)
+
+    def test_altgr_character(self, editor, qtbot):
+        self.two_cursors(editor)
+        altgr = MOD.ControlModifier | MOD.AltModifier
+        simulate_keypress(qtbot, editor, KEY.Key_Q, "@", altgr)
+        assert editor.toPlainText() == "a@\nb@"
+        assert_tree_matches_fresh_parse(editor)
+
+    def test_ctrl_letter_is_not_typed(self, editor, qtbot):
+        editor.setPlainText("a")
+        simulate_keypress(qtbot, editor, KEY.Key_Q, "\x11", MOD.ControlModifier)
+        assert editor.toPlainText() == "a"
+
+    def test_numpad_enter(self, editor, qtbot):
+        self.two_cursors(editor)
+        simulate_keypress(qtbot, editor, KEY.Key_Enter, "\r", MOD.KeypadModifier)
+        assert editor.toPlainText() == "a\n\nb\n"
+        assert_tree_matches_fresh_parse(editor)
+
+    def test_insert_plain_text(self, editor):
+        self.two_cursors(editor)
+        editor.insertPlainText("x = 1")
+        assert editor.toPlainText() == "ax = 1\nbx = 1"
+        assert_tree_matches_fresh_parse(editor)
+
+    def test_append_plain_text(self, editor):
+        editor.setPlainText("x = 1")
+        editor.appendPlainText("y = 2")
+        assert editor.toPlainText() == "x = 1\ny = 2"
+        assert_tree_matches_fresh_parse(editor)
+
+    def test_context_menu_cuts_every_cursor(self, editor):
+        editor.setPlainText("ab\nab")
+        editor.cursors.replace_all([CursorState(0, 1), CursorState(3, 4)])
+        menu = editor.create_context_menu()
+        actions = {a.text(): a for a in menu.actions()}
+        assert not actions["&Undo"].isEnabled()
+        actions["Cu&t"].trigger()
+        assert editor.toPlainText() == "b\nb"
+        assert_tree_matches_fresh_parse(editor)
+
+    def test_input_method_text_rebuilds_the_tree(self, editor):
+        self.two_cursors(editor)
+        # Qt types input method text with its own cursor, at the primary only
+        event = QtGui.QInputMethodEvent()
+        event.setCommitString("é")
+        editor.inputMethodEvent(event)
+        assert editor.toPlainText() == "aé\nb"
+        assert editor.cursors.secondary == []
+        assert_tree_matches_fresh_parse(editor)

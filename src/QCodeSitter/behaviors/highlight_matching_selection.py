@@ -20,17 +20,14 @@ class HighlightMatchingSelection(Behavior):
 
     def __init__(self, editor: CodeEditor) -> None:
         super().__init__(editor)
-        self._set_colors({})
-        self.editor.selectionChanged.connect(self.highlight_occurrences)
         self.watch_options({"colors": self._set_colors})
-        self.apply_all_options()
+        self.connect(self.editor.selectionChanged, self.highlight_occurrences)
 
     def _set_colors(self, colors: GuiColors) -> None:
         self._match_hl = gui_color(colors, "match_hl")
 
     def remove(self) -> None:
         super().remove()
-        self.editor.selectionChanged.disconnect(self.highlight_occurrences)
         self.editor.clear_selections(self.SOURCE)
 
     def highlight_occurrences(self) -> None:

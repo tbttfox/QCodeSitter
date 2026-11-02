@@ -65,6 +65,10 @@ takes to highlight another language. `"syntax"` only holds the format of each ca
 
 The `"colors"` option holds the gui colors, listed with their defaults in `gui_colors.py`.
 
+Setting an option to the value it already has does nothing, so change a list option by
+setting a new list rather than editing it in place. A behavior from outside the package
+adds its own options with `register_option("my_option", int, default=3)`.
+
 ## The Behavior System
 
 Every editor feature beyond basic text editing is implemented as a **Behavior**. Behaviors are essentially just plugins. They are modular, self-contained classes that plug into the editor through a well-defined interface.
@@ -81,9 +85,14 @@ class MyBehavior(Behavior):
         super().__init__(editor)
         # self.editor  - the CodeEditor instance
         # self.options  - the EditorOptions dict-like object
+        # Signals connected with self.connect are disconnected when it's removed
+        self.connect(editor.textChanged, self.on_text_changed)
+
+    def on_text_changed(self):
+        ...
 
     def remove(self):
-        # Disconnect anything connected in __init__
+        # Undo anything else done in __init__
         super().remove()
 ```
 
@@ -97,26 +106,31 @@ editor.get_behavior(MyBehavior)             # Returns the instance or None
 
 ### Reacting to Option Changes
 
-Every option always has a value, so a behavior can read a setting from `self.options` when
-it needs it. For a setting that needs work when it changes, register a handler. Handlers are
-called with the option's value once the editor is shown, and again whenever it changes:
+Every option except `"language"` and `"font"` always has a value, so a behavior can read a
+setting from `self.options` when it needs it. For a setting that needs work when it changes,
+register a handler. Handlers are called with the option's value right away, and again
+whenever it changes. The handlers of `"language"` and `"font"` wait until they are set:
 
 ```python
 class MyBehavior(Behavior):
     def __init__(self, editor):
         super().__init__(editor)
-        self.font = QtGui.QFont()  # The default if the option isn't set
+        self.font = QtGui.QFont()  # The default until the option is set
         self.watch_options({"font": self.set_font})
-        self.apply_all_options()  # Apply the current values immediately
 
     def set_font(self, font):
         self.font = font
 ```
 
+Parsing and highlighting are the expensive part of an editor, so the editor only sets its
+language when it is first shown. Call `editor.load()` to set it for an editor you don't show.
+
 ### Keys, Painting and Signals
 
-- Return `True` from `has_key_press` to get `handle_key_press(event)` before the editor's
-  own key handling. Return `True` from it to consume the key.
+- Override `handle_key_press(event)` to get key presses before the editor's own key
+  handling, and return `True` from it to consume the key. Behaviors with a higher
+  `KEY_PRIORITY` get the keys first, like `TabCompletion`, so Tab accepts a completion
+  before `SmartIndent` indents.
 - Return actions from `get_hotkeys` to add keyboard shortcuts to the editor.
 - Connect to `editor.behaviorPaint(event, painter)` to paint over the text.
 - Connect to `editor.cursors.changed`, `editor.tree_manager.reparsed`, or
@@ -172,7 +186,7 @@ def my_multi_cursor_operation(self):
     with self.editor.edit_session():  # One undo step, and one reparse
         for cursor in citer.iterate_cursors():
             cursor.insertText("hello")
-            citer.cursor_completed()
+            citer.mark_cursor_completed()
 ```
 
 Marking a cursor completed stops later key handlers in the same edit session from editing it.

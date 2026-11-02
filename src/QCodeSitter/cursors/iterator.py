@@ -4,6 +4,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
+from Qt import QtGui
+
 from .state import CursorState, primary_first
 
 if TYPE_CHECKING:
@@ -21,7 +23,8 @@ class CursorIterator:
     A pass can mark a cursor as completed, and later passes in the same
     `session` skip it. That lets behaviors handle some cursors and leave the
     rest to the next handler. Replacing the editor's cursors during a session
-    starts over with the new cursors, none of them completed.
+    starts over with the new cursors, none of them completed, and ends the
+    pass that replaced them.
     """
 
     def __init__(self, editor: CodeEditor) -> None:
@@ -60,7 +63,7 @@ class CursorIterator:
         finally:
             self.active = False
 
-    def cursor_completed(self) -> None:
+    def mark_cursor_completed(self) -> None:
         """Mark the current cursor as completed. Only useful inside iterate_cursors"""
         self._current_completed = True
 
@@ -68,19 +71,29 @@ class CursorIterator:
         """Whether every cursor in the current session has been completed"""
         return all(self._completed)
 
-    def iterate_cursors(
-        self, join_edit: bool = False, no_position_update: bool = False
-    ) -> Iterator[TrackedCursor]:
+    def read_cursors(self) -> Iterator[QtGui.QTextCursor]:
+        """Yield a cursor at each non-completed cursor state, to read the document
+
+        These are in the same order as `iterate_cursors`, but moving them doesn't
+        move the editor's cursors, and editing with them isn't tracked
+        """
+        if not self.active:
+            self.snapshot_cursors()
+        qt_cursor = QtGui.QTextCursor(self.editor.document())
+        for state, completed in zip(self._states, self._completed):
+            if not completed:
+                yield state.apply(qt_cursor)
+
+    def iterate_cursors(self, join_edit: bool = False) -> Iterator[TrackedCursor]:
         """Yield a cursor at each non-completed cursor state, in one edit block
 
         Args:
             join_edit: Join the edits onto the previous undo step
-            no_position_update: Leave the states where they were, for passes
-                that only read the document
         """
         if not self.active:
             # A one-off edit outside of a session works on the current cursors
             self.snapshot_cursors()
+        states, completed = self._states, self._completed
 
         document = self.editor.document()
         qt_cursor = self.editor.textCursor()
@@ -92,19 +105,21 @@ class CursorIterator:
         offset = 0
         yielded_any = False
         try:
-            for i, state in enumerate(self._states):
+            for i, state in enumerate(states):
                 state.offset(offset)
-                if self._completed[i]:
+                if completed[i]:
                     continue
 
                 state.apply(qt_cursor)
                 self._current_completed = False
                 length = document.characterCount()
                 yield qt_cursor
+                if self._states is not states:
+                    # The loop body replaced the cursors, so the old ones are stale
+                    return
                 offset += document.characterCount() - length
-                if not no_position_update:
-                    state.copy_from(qt_cursor)
-                self._completed[i] = self._current_completed
+                state.copy_from(qt_cursor)
+                completed[i] = self._current_completed
                 yielded_any = True
         finally:
             qt_cursor.endEditBlock()

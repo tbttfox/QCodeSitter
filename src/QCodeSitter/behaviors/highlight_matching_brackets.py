@@ -21,23 +21,22 @@ class HighlightMatchingBrackets(Behavior):
 
     The pairs come from the tree-sitter tree, so brackets in strings and
     comments don't match the code around them. The brackets and quotes come
-    from the "highlight_bracket_pairs" and "highlight_quote_pairs" options
+    from the "highlight_bracket_pairs" and "highlight_quote_chars" options
     """
 
     SOURCE = "bracket_matching"
 
     def __init__(self, editor: CodeEditor) -> None:
         super().__init__(editor)
-        self._set_colors({})
-        self._set_bracket_pairs(self.options["highlight_bracket_pairs"])
-        self.editor.cursorPositionChanged.connect(self.highlight_matching_brackets)
         self.watch_options(
             {
                 "colors": self._set_colors,
                 "highlight_bracket_pairs": self._set_bracket_pairs,
             }
         )
-        self.apply_all_options()
+        self.connect(
+            self.editor.cursorPositionChanged, self.highlight_matching_brackets
+        )
 
     def _set_colors(self, colors: GuiColors) -> None:
         self._format = QtGui.QTextCharFormat()
@@ -52,11 +51,10 @@ class HighlightMatchingBrackets(Behavior):
 
     @property
     def _quote_chars(self) -> str:
-        return self.options["highlight_quote_pairs"]
+        return self.options["highlight_quote_chars"]
 
     def remove(self) -> None:
         super().remove()
-        self.editor.cursorPositionChanged.disconnect(self.highlight_matching_brackets)
         self.editor.clear_selections(self.SOURCE)
 
     def highlight_matching_brackets(self) -> None:
@@ -126,22 +124,32 @@ class HighlightMatchingBrackets(Behavior):
     def _matching_bracket_ranges(
         self, node: Node, match_char: str
     ) -> list[tuple[int, int]]:
-        """Get the ranges of a bracket node, and its sibling it pairs with"""
-        if node.type not in self.bracket_chars or node.parent is None:
+        """Get the ranges of a bracket node, and its sibling it pairs with
+
+        The partner is the nearest balanced one, which matters in error nodes
+        that hold several unmatched brackets
+        """
+        if node.type not in self.bracket_pairs or node.parent is None:
             return []
 
         partner_type = self.bracket_pairs[match_char]
-        is_opening = match_char in self.opening_brackets
+        siblings = node.parent.children
+        index = siblings.index(node)
         # Opening brackets match forwards, and closing brackets match backwards
-        partner = next(
-            (
-                sibling
-                for sibling in node.parent.children
-                if sibling.type == partner_type
-                and (sibling.start_byte > node.start_byte) == is_opening
-            ),
-            None,
-        )
+        if match_char in self.opening_brackets:
+            candidates = siblings[index + 1 :]
+        else:
+            candidates = siblings[index - 1 :: -1] if index else []
+        partner = None
+        depth = 0
+        for sibling in candidates:
+            if sibling.type == node.type:
+                depth += 1
+            elif sibling.type == partner_type:
+                if depth == 0:
+                    partner = sibling
+                    break
+                depth -= 1
         if partner is None:
             return []
 

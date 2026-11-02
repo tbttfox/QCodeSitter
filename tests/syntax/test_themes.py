@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from Qt import QtGui
 
-from QCodeSitter.gui_colors import GUI_COLOR_DEFAULTS, gui_color
+from QCodeSitter.gui_colors import DERIVED_GUI_COLORS, GUI_COLOR_DEFAULTS, gui_color
 from QCodeSitter.highlighting.themes import (
     DARK_THEME,
     LIGHT_THEME,
@@ -43,7 +43,9 @@ class TestThemes:
     def test_built_in_themes_resolve(self, qapp, recwarn, theme):
         colors, syntax = read_theme(theme)
         assert not recwarn.list
-        for name in GUI_COLOR_DEFAULTS:
+        # Every gui color in a theme is one the editor uses
+        assert set(theme["gui"]) <= set(GUI_COLOR_DEFAULTS) | set(DERIVED_GUI_COLORS)
+        for name in [*GUI_COLOR_DEFAULTS, *DERIVED_GUI_COLORS]:
             assert gui_color(colors, name).isValid(), name
         assert all(QtGui.QColor(spec["color"]).isValid() for spec in syntax.values())
 
@@ -61,3 +63,10 @@ class TestThemes:
     def test_gui_color_default(self, qapp):
         assert gui_color({}, "pair_hl") == QtGui.QColor(GUI_COLOR_DEFAULTS["pair_hl"])
         assert gui_color({"pair_hl": "#010203"}, "pair_hl") == QtGui.QColor("#010203")
+
+    def test_derived_gui_color_default(self, qapp):
+        darker = QtGui.QColor("#646464").darker(120)
+        assert gui_color({"bg": "#646464"}, "outside_bg") == darker
+        assert gui_color({"outside_bg": "#010203"}, "outside_bg") == QtGui.QColor(
+            "#010203"
+        )

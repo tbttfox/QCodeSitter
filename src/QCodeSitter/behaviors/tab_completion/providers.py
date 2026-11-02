@@ -6,8 +6,8 @@ import inspect
 import sys
 
 from ...languages import identifier_query
-from ...tree_manager import query_byte_range
-from .types import Completion, Provider
+from ...queries import query_byte_range
+from .types import Completion, CompletionContext, Provider
 
 
 class IdentifierProvider(Provider):
@@ -18,7 +18,7 @@ class IdentifierProvider(Provider):
 
     PRIORITY = 3
 
-    def provide(self) -> set[Completion]:
+    def provide(self, context: CompletionContext) -> set[Completion]:
         tree = self.editor.tree_manager.tree
         if tree is None:
             return set()
@@ -55,9 +55,11 @@ class MainPythonProvider(Provider):
 
     PRIORITY = 3
 
-    def provide(self) -> set[Completion]:
+    def provide(self, context: CompletionContext) -> set[Completion]:
         namespace = vars(sys.modules["__main__"])
+        prefix = context.prefix.lower()
         return {
             Completion(name, _kind_of(value), self.PRIORITY)
             for name, value in namespace.items()
+            if name.lower().startswith(prefix)
         }

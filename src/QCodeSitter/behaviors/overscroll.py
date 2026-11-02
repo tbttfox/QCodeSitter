@@ -17,7 +17,6 @@ class Overscroll(Behavior):
     def __init__(self, editor: CodeEditor) -> None:
         super().__init__(editor)
         self._brush = QtGui.QBrush(QtCore.Qt.BrushStyle.SolidPattern)
-        self._set_colors({})
         self._pen = QtGui.QPen(QtCore.Qt.PenStyle.NoPen)
 
         # Track the scroll position if the scroll position gets clamped
@@ -25,16 +24,18 @@ class Overscroll(Behavior):
         self._cur_scroll = 0
         self._was_clamped = False
 
-        self.editor.verticalScrollBar().valueChanged.connect(self.track_scroll)
-        self.editor.verticalScrollBar().rangeChanged.connect(self.on_range_changed)
-        self.editor.document().contentsChanged.connect(self.update_extra_scroll)
+        sb = self.editor.verticalScrollBar()
+        self.connect(sb.valueChanged, self.track_scroll)
+        self.connect(sb.rangeChanged, self.on_range_changed)
+        self.connect(self.editor.document().contentsChanged, self.update_extra_scroll)
 
         self.update_extra_scroll()
-        self.editor.behaviorPaint.connect(
-            self.paint_outside_document, QtCore.Qt.ConnectionType.DirectConnection
+        self.connect(
+            self.editor.behaviorPaint,
+            self.paint_outside_document,
+            QtCore.Qt.ConnectionType.DirectConnection,
         )
         self.watch_options({"colors": self._set_colors})
-        self.apply_all_options()
 
     def track_scroll(self, value: int) -> None:
         sb = self.editor.verticalScrollBar()
@@ -58,11 +59,7 @@ class Overscroll(Behavior):
             sb.setValue(saved_value)
 
     def _set_colors(self, colors: GuiColors) -> None:
-        # Unlike the other gui colors, the default depends on the background
-        if "outside_bg" in colors:
-            self._brush.setColor(QtGui.QColor(colors["outside_bg"]))
-        else:
-            self._brush.setColor(gui_color(colors, "bg").darker(120))
+        self._brush.setColor(gui_color(colors, "outside_bg"))
         self.editor.viewport().update()
 
     def paint_outside_document(
@@ -100,11 +97,7 @@ class Overscroll(Behavior):
     def remove(self) -> None:
         """Set the scroll range back to the line count"""
         super().remove()
-        self.editor.behaviorPaint.disconnect(self.paint_outside_document)
         sb = self.editor.verticalScrollBar()
-        sb.valueChanged.disconnect(self.track_scroll)
-        sb.rangeChanged.disconnect(self.on_range_changed)
-        self.editor.document().contentsChanged.disconnect(self.update_extra_scroll)
         viewport_height = self.editor.viewport().height()
         line_height = self.editor.fontMetrics().lineSpacing()
         visible_line_count = viewport_height // line_height
