@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING
 from Qt import QtCore, QtGui, QtWidgets
 
 from ...gui_colors import GuiColors, gui_color
-from ...tracked_document import len16
-from ...utils import MM
 from .types import Completion
 
 if TYPE_CHECKING:
@@ -113,27 +111,10 @@ class CompletionPopup(QtWidgets.QListWidget):
             popup_pos.setY(popup_pos.y() - self.height())
         self.move(popup_pos)
 
-    def accept_completion(self) -> None:
-        """Replace the prefix before every cursor with the selected completion
-
-        A cursor with other text before it only gets the rest of the completion
-        """
+    def selected_completion(self) -> Completion | None:
+        """The selected completion, or None when nothing is selected"""
         item = self.currentItem()
-        if item is not None:
-            comp: Completion = item.data(ROLE)
-            prefix = self.current_prefix
-            citer = self.editor.citer
-            with self.editor.edit_session():
-                for cursor in citer.iterate_cursors(complete_all=True):
-                    pos = cursor.position()
-                    cursor.setPosition(max(0, pos - len16(prefix)), MM.KeepAnchor)
-                    # Replace the prefix in one edit, so the tree only sees one change
-                    if cursor.selectedText() == prefix:
-                        cursor.insertText(comp.text)
-                    else:
-                        cursor.setPosition(pos)
-                        cursor.insertText(comp.text[len(prefix) :])
-        self.hide()
+        return None if item is None else item.data(ROLE)
 
     def offset_current(self, offset: int) -> None:
         """Move the selection by offset rows, wrapping around the ends"""

@@ -166,6 +166,13 @@ class TestCompletionPopup:
         simulate_keypress(completion_editor, KEY.Key_Tab)
         assert completion_editor.toPlainText() == SAMPLE + "    "
 
+    def test_keys_pass_through_without_popup(self, completion_editor):
+        completion_editor.setPlainText("ab\ncd")
+        set_cursor_position(completion_editor, 4)
+        assert not popup(completion_editor).isVisible()
+        simulate_keypress(completion_editor, KEY.Key_Up)
+        assert completion_editor.textCursor().blockNumber() == 0
+
     def test_no_completion_in_strings(self, completion_editor):
         type_text(completion_editor, 'x = "co')
         # Run the debounced completion now, instead of waiting for the timer
@@ -282,26 +289,33 @@ class TestCompletionPopupWidget:
             "property (class)",
             "print (function)",
         ]
-        editor.insert_text("i")
         popup.update_filter("pri")
         assert popup.count() == 1
-        popup.accept_completion()
-        assert editor.toPlainText() == "print"
-        assert not popup.isVisible()
+        assert popup.selected_completion() == Completion("print", "function", 1)
         popup.deleteLater()
+
+    def test_accept_replaces_the_prefix(self, editor):
+        editor.setPlainText("pri")
+        set_cursor_position(editor, 3)
+        tc = editor.get_behavior(TabCompletion)
+        tc.completion_popup.show_completions(
+            [Completion("print", "function", 1)], "pri"
+        )
+        assert tc.accept_item() is True
+        assert editor.toPlainText() == "print"
+        assert not tc.completion_popup.isVisible()
 
     def test_accept_completes_every_cursor(self, editor):
         editor.setPlainText("pr\npr\nx")
         editor.cursors.replace_all(
             [CursorState(2, 2), CursorState(5, 5), CursorState(7, 7)]
         )
-        popup = CompletionPopup(editor)
-        popup.show_completions([Completion("print", "function", 1)], "pr")
-        popup.accept_completion()
+        tc = editor.get_behavior(TabCompletion)
+        tc.completion_popup.show_completions([Completion("print", "function", 1)], "pr")
+        assert tc.accept_item() is True
         # The last cursor has no prefix before it, so it only gets the rest
         assert editor.toPlainText() == "print\nprint\nxint"
         assert get_cursor_positions(editor) == [5, 11, 16]
-        popup.deleteLater()
 
     def test_no_matches_hides(self, editor):
         popup = CompletionPopup(editor)
