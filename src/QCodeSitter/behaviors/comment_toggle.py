@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ..cursors.line_edits import replace_lines_at_cursors
 from ..languages import language_spec
-from ..utils import leading_whitespace, make_shortcut_action, replace_lines
+from ..utils import leading_whitespace, make_shortcut_action
 from . import Behavior
 
 if TYPE_CHECKING:
@@ -29,11 +30,10 @@ class CommentToggle(Behavior):
 
     def toggle_comment(self) -> None:
         prefix = self.comment_prefix
-        citer = self.editor.citer
         with self.editor.edit_session():
-            for cursor in citer.iterate_cursors():
-                replace_lines(cursor, lambda lines: self.toggle_lines(lines, prefix))
-                citer.mark_cursor_completed()
+            replace_lines_at_cursors(
+                self.editor.citer, lambda lines: self.toggle_lines(lines, prefix)
+            )
 
     @classmethod
     def toggle_lines(cls, lines: list[str], prefix: str) -> list[str]:

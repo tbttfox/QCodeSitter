@@ -54,7 +54,10 @@ class EditingKeys:
             ),
             KEY.Key_V: ((MOD.ControlModifier, editor.paste),),
             KEY.Key_X: ((MOD.ControlModifier, editor.cut),),
-            KEY.Key_Z: ((MOD.ControlModifier, editor.undo),),
+            KEY.Key_Z: (
+                (MOD.ControlModifier, editor.undo),
+                (MOD.ControlModifier | MOD.ShiftModifier, editor.redo),
+            ),
             KEY.Key_Y: ((MOD.ControlModifier, editor.redo),),
         }
 
@@ -71,9 +74,11 @@ class EditingKeys:
         modifiers = event.modifiers()
         cursors = self.editor.cursors
 
+        # Escape leaves multi-cursor mode, or else goes on to the parent widget
         if key == KEY.Key_Escape:
+            had_secondary = bool(cursors.secondary)
             cursors.clear_secondary()
-            return True
+            return had_secondary
 
         if self._type_text(event):
             return True
@@ -136,8 +141,10 @@ class EditingKeys:
         if key in (KEY.Key_Return, KEY.Key_Enter):
             self.editor.insert_text("\n")
             return True
+        # The modifiers must match exactly, so Ctrl+Shift+Z doesn't also undo
+        modifiers = event.modifiers() & ~MOD.KeypadModifier
         for modifier, command in self._command_keys.get(key, ()):
-            if event.modifiers() & modifier:
+            if modifiers == modifier:
                 command()
                 return True
         return False

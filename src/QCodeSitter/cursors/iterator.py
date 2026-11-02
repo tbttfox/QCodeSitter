@@ -17,8 +17,8 @@ class CursorIterator:
     """Runs an edit at every cursor, in document order, as one undo step
 
     Each pass of `iterate_cursors` moves a single cursor to each cursor state.
-    Edits shift the cursors after them, so every state is offset by the change
-    in document length made at the cursors before it.
+    Every state follows the edits made at the other cursors, the way a
+    QTextCursor does.
 
     A pass can mark a cursor as completed, and later passes in the same
     `session` skip it. That lets behaviors handle some cursors and leave the
@@ -84,11 +84,15 @@ class CursorIterator:
             if not completed:
                 yield state.apply(qt_cursor)
 
-    def iterate_cursors(self, join_edit: bool = False) -> Iterator[TrackedCursor]:
+    def iterate_cursors(
+        self, join_edit: bool = False, complete_all: bool = False
+    ) -> Iterator[TrackedCursor]:
         """Yield a cursor at each non-completed cursor state, in one edit block
 
         Args:
             join_edit: Join the edits onto the previous undo step
+            complete_all: Mark every yielded cursor completed, for a pass that
+                handles every cursor
         """
         if not self.active:
             # A one-off edit outside of a session works on the current cursors
@@ -97,32 +101,35 @@ class CursorIterator:
 
         document = self.editor.document()
         qt_cursor = self.editor.textCursor()
+        # Qt moves these with every edit, even one that deletes past them, so
+        # they always hold where each cursor is now
+        trackers = [state.build_cursor(document) for state in states]
         if join_edit:
             qt_cursor.joinPreviousEditBlock()
         else:
             qt_cursor.beginEditBlock()
 
-        offset = 0
         yielded_any = False
         try:
-            for i, state in enumerate(states):
-                state.offset(offset)
+            for i, tracker in enumerate(trackers):
                 if completed[i]:
                     continue
 
-                state.apply(qt_cursor)
+                CursorState.from_cursor(tracker).apply(qt_cursor)
                 self._current_completed = False
-                length = document.characterCount()
                 yield qt_cursor
                 if self._states is not states:
                     # The loop body replaced the cursors, so the old ones are stale
                     return
-                offset += document.characterCount() - length
-                state.copy_from(qt_cursor)
-                completed[i] = self._current_completed
+                CursorState.from_cursor(qt_cursor).apply(tracker)
+                completed[i] = complete_all or self._current_completed
                 yielded_any = True
         finally:
             qt_cursor.endEditBlock()
+            # Later edits can move the cursors before them too
+            if self._states is states:
+                for state, tracker in zip(states, trackers):
+                    state.copy_from(tracker)
 
         if yielded_any:
             self._writing_back = True

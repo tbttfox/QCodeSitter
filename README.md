@@ -184,12 +184,13 @@ each edit changed the document:
 def my_multi_cursor_operation(self):
     citer = self.editor.citer
     with self.editor.edit_session():  # One undo step, and one reparse
-        for cursor in citer.iterate_cursors():
+        for cursor in citer.iterate_cursors(complete_all=True):
             cursor.insertText("hello")
-            citer.mark_cursor_completed()
 ```
 
-Marking a cursor completed stops later key handlers in the same edit session from editing it.
+`complete_all=True` marks every cursor completed, which stops later key handlers in the
+same edit session from editing them. A pass that handles only some cursors calls
+`citer.mark_cursor_completed()` inside the loop for each one it handled instead.
 
 ## Tree-Sitter Integration
 

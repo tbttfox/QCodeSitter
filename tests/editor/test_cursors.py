@@ -40,6 +40,19 @@ class TestCursorMerging:
         editor.cursors.replace_all([CursorState(8, 2), CursorState(5, 5)])
         assert editor.cursors.in_document_order()[0] == [CursorState(8, 2)]
 
+    def test_touching_selections_stay_separate(self, editor):
+        editor.setPlainText("Hello World")
+        editor.cursors.replace_all([CursorState(0, 2), CursorState(2, 4)])
+        assert editor.cursors.in_document_order()[0] == [
+            CursorState(0, 2),
+            CursorState(2, 4),
+        ]
+
+    def test_cursor_touching_a_selection_merges(self, editor):
+        editor.setPlainText("Hello World")
+        editor.cursors.replace_all([CursorState(0, 2), CursorState(2, 2)])
+        assert editor.cursors.in_document_order()[0] == [CursorState(0, 2)]
+
 
 class TestCursorIterator:
     def test_cursor_iterator_offset_tracking(self, editor):
@@ -80,9 +93,8 @@ class TestCursorIteratorPasses:
                     cursor.insertText("1")
                     citer.mark_cursor_completed()
             assert not citer.all_completed()
-            for cursor in citer.iterate_cursors():
+            for cursor in citer.iterate_cursors(complete_all=True):
                 cursor.insertText("2")
-                citer.mark_cursor_completed()
             assert citer.all_completed()
         assert editor.toPlainText() == "2a\n1b\n2c"
 
@@ -164,6 +176,9 @@ class TestMultiCursorController:
         assert cursors.add_at(1)
         cursors.replace_all([CursorState(0, 0)])
         assert not cursors.add_to_line_ends()
+        cursors.replace_all([CursorState(0, 1)])
+        assert not cursors.add_to_line_ends()
+        assert get_cursor_positions(editor) == [2]
         cursors.replace_all([CursorState(0, 5)])
         assert cursors.add_to_line_ends()
         assert get_cursor_positions(editor) == [2, 5]

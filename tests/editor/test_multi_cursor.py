@@ -12,6 +12,7 @@ from Qt import QtCore, QtGui
 
 from QCodeSitter.behaviors.multi_cursor_paint import MultiCursorPaint
 from QCodeSitter.cursors.state import CursorState
+from QCodeSitter.utils import MO
 from tests.helpers import (
     get_cursor_positions,
     set_cursor_position,
@@ -21,6 +22,23 @@ from tests.helpers import (
 
 
 class TestAddingCursors:
+    @pytest.mark.parametrize("text", ["aaaa", "abab"])
+    def test_add_next_occurrence_next_to_the_selection(self, editor, text):
+        editor.setPlainText(text)
+        set_cursor_selection(editor, 0, 2)
+        # The next match touches the selection, but two selections only merge
+        # when they overlap
+        assert editor.cursors.add_next_occurrence() is True
+        assert editor.cursors.primary() == CursorState(0, 2)
+        assert editor.cursors.secondary == [CursorState(2, 4)]
+
+    def test_add_below_onto_a_cursor_adds_nothing(self, editor):
+        editor.setPlainText("a\nb")
+        set_cursor_position(editor, 0)
+        assert editor.cursors.add_below() is True
+        editor.cursors.replace_all([CursorState(0, 0), CursorState(2, 2)])
+        assert editor.cursors.add_below() is False
+
     def test_add_cursor_at_position(self, editor):
         editor.setPlainText("Hello World")
         set_cursor_position(editor, 0)
@@ -60,6 +78,13 @@ class TestAddingCursors:
         positions = [c.selectionStart() for c in cursors]
         assert 0 in positions
         assert 8 in positions
+
+    def test_add_next_occurrence_matches_case(self, editor):
+        editor.setPlainText("foo Foo foo")
+        set_cursor_selection(editor, 0, 3)
+        editor.cursors.add_next_occurrence()
+        cursors, _ = editor.cursors.in_document_order()
+        assert [c.selectionStart() for c in cursors] == [0, 8]
 
     def test_add_next_occurrence_wraps(self, editor):
         editor.setPlainText("foo bar foo")
@@ -116,6 +141,38 @@ class TestMultiCursorEditing:
         assert lines[0] == "foo"
         assert lines[1] == "foo"
         assert lines[2] == "foo"
+
+    def test_deleting_past_the_next_cursor_deletes_once(self, editor):
+        editor.setPlainText("abc def")
+        set_cursor_position(editor, 0)
+        editor.cursors.secondary = [CursorState(1, 1)]
+        editor.delete(MO.NextWord)
+        assert editor.toPlainText() == "def"
+        assert editor.cursors.primary() == CursorState(0, 0)
+        assert editor.cursors.secondary == []
+
+    def test_backspacing_into_the_previous_cursor_deletes_once(self, editor):
+        editor.setPlainText("abc def")
+        editor.cursors.replace_all([CursorState(5, 5), CursorState(6, 6)])
+        editor.delete(MO.PreviousWord)
+        assert editor.toPlainText() == "abc f"
+        assert editor.cursors.secondary == []
+
+    def test_deleting_from_a_later_cursor_that_reaches_back_deletes_once(self, editor):
+        editor.setPlainText("abc defg")
+        # The second cursor's word span (4, 7) starts before the first's (5, 6)
+        editor.cursors.replace_all([CursorState(5, 6), CursorState(7, 7)])
+        editor.delete(MO.PreviousWord)
+        assert editor.toPlainText() == "abc g"
+        assert get_cursor_positions(editor) == [4]
+
+    def test_word_deletes_at_close_cursors_stay_in_the_document(self, editor):
+        editor.setPlainText("line one\nline two\nline three")
+        editor.cursors.replace_all([CursorState(i, i) for i in range(0, 25, 3)])
+        editor.delete(MO.NextWord)
+        length = editor.document().characterCount() - 1
+        for state in [editor.cursors.primary(), *editor.cursors.secondary]:
+            assert 0 <= state.selectionStart() <= state.selectionEnd() <= length
 
     def test_newline_at_all_cursors(self, editor_with_multicursor):
         editor = editor_with_multicursor

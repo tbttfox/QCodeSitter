@@ -14,7 +14,10 @@ if TYPE_CHECKING:
 
 
 def _merge_overlapping(cursors: list[CursorState]) -> list[CursorState]:
-    """Merge cursors that overlap or touch, keeping the first cursor first
+    """Merge cursors that overlap, keeping the first cursor first
+
+    Cursors that only touch merge when at least one of them has no selection,
+    so two selections side by side stay separate
 
     A merged selection covers both selections, and is backward if either was
     """
@@ -25,8 +28,14 @@ def _merge_overlapping(cursors: list[CursorState]) -> list[CursorState]:
     merged: list[CursorState] = []
     primary_index = 0
     for cursor in sorted(cursors, key=lambda c: c.selectionStart()):
-        if merged and cursor.selectionStart() <= merged[-1].selectionEnd():
-            last = merged[-1]
+        last = merged[-1] if merged else None
+        if last is not None and (
+            cursor.selectionStart() < last.selectionEnd()
+            or (
+                cursor.selectionStart() == last.selectionEnd()
+                and not (cursor.hasSelection() and last.hasSelection())
+            )
+        ):
             start = last.selectionStart()
             end = max(last.selectionEnd(), cursor.selectionEnd())
             if last.is_backward() or cursor.is_backward():
@@ -48,8 +57,7 @@ def _smart_home(qt_cursor: QtGui.QTextCursor, mode: MM) -> None:
     # Whitespace is never a surrogate pair, so its length is its UTF-16 length
     indent_end = line_start + len(leading_whitespace(text))
 
-    at_indent = qt_cursor.position() == indent_end
-    target = line_start if at_indent or indent_end == line_start else indent_end
+    target = line_start if qt_cursor.position() == indent_end else indent_end
     qt_cursor.setPosition(target, mode)
 
 
@@ -124,15 +132,16 @@ class MultiCursor(QtCore.QObject):
             if next_pos < 0 or next_pos >= min(c.selectionStart() for c in all_cursors):
                 return False
         end = next_pos + len16(search_text)
-        self.replace_all([*all_cursors, CursorState(next_pos, end)])
-        return True
+        return self._add([*all_cursors, CursorState(next_pos, end)])
 
     def _find(self, search_text: str, start_pos: int) -> int:
         """Find the position of search_text after start_pos, or -1 if there is none"""
         document = self.editor.document()
         cursor = QtGui.QTextCursor(document)
         cursor.setPosition(start_pos)
-        found = document.find(search_text, cursor)
+        found = document.find(
+            search_text, cursor, QtGui.QTextDocument.FindFlag.FindCaseSensitively
+        )
         return -1 if found.isNull() else found.selectionStart()
 
     def move(self, operation: MO, select: bool = False) -> None:
@@ -178,14 +187,13 @@ class MultiCursor(QtCore.QObject):
 
         col = min(current_position - block.position(), len16(adj_block.text()))
         new_primary_pos = adj_block.position() + col
-        self.replace_all(
+        return self._add(
             [
                 CursorState(new_primary_pos, new_primary_pos),
                 *self.secondary,
                 CursorState(current_position, current_position),
             ]
         )
-        return True
 
     def add_above(self) -> bool:
         """Move the primary cursor up a line, leaving a cursor behind"""
@@ -196,7 +204,10 @@ class MultiCursor(QtCore.QObject):
         return self._add_adjacent(False)
 
     def add_to_line_ends(self) -> bool:
-        """Replace the selection with a cursor at the end of each of its lines"""
+        """Replace the selection with a cursor at the end of each of its lines
+
+        Returns whether there are more cursors than before
+        """
         cursor = self.editor.textCursor()
         if not cursor.hasSelection():
             return False
@@ -211,12 +222,18 @@ class MultiCursor(QtCore.QObject):
             if block == end_block:
                 break
             block = block.next()
-        self.replace_all(cursors)
-        return True
+        return self._add(cursors)
 
     def add_at(self, position: int) -> bool:
         """Add a cursor at a position, like Alt+Click"""
+        return self._add([*self._primary_first(), CursorState(position, position)])
+
+    def _add(self, cursors: list[CursorState]) -> bool:
+        """Replace every cursor, and return whether there are more than before
+
+        A new cursor that overlaps another one merges into it, as does one
+        that touches another when either of them has no selection
+        """
         count = len(self.secondary)
-        self.replace_all([*self._primary_first(), CursorState(position, position)])
-        # A cursor on top of another one merges into it
+        self.replace_all(cursors)
         return len(self.secondary) > count

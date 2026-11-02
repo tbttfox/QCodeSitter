@@ -169,6 +169,23 @@ class TestMultiCursorComment:
         assert lines[1] == "# y = 2"
         assert lines[2] == "# z = 3"
 
+    def test_cursors_sharing_a_line_toggle_it_once(self, editor):
+        editor.setPlainText("x = 1\ny = 2")
+        set_cursor_position(editor, 0)
+        editor.cursors.secondary = [CursorState(1, 1), CursorState(6, 6)]
+        editor.get_behavior(CommentToggle).toggle_comment()
+        assert editor.toPlainText() == "# x = 1\n# y = 2"
+        # The cursors on the first line merged, selecting it
+        assert editor.cursors.primary() == CursorState(0, 7)
+        assert editor.cursors.secondary == [CursorState(8, 15)]
+
+    def test_selection_and_cursor_sharing_lines(self, editor):
+        editor.setPlainText("a\nb\nc\nd")
+        set_cursor_selection(editor, 0, 3)  # "a" and "b"
+        editor.cursors.secondary = [CursorState(2, 2), CursorState(6, 6)]
+        editor.get_behavior(CommentToggle).toggle_comment()
+        assert editor.toPlainText() == "# a\n# b\nc\n# d"
+
 
 class TestCommentToggleEdgeCases:
     def test_toggle_roundtrip(self, editor):
