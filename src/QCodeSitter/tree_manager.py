@@ -3,8 +3,7 @@ from __future__ import annotations
 from Qt import QtCore
 from tree_sitter import Language, Node, Parser, Point, Tree
 
-from .constants import ENC
-from .tracked_document import TrackedDocument
+from .tracked_document import ENC, TrackedDocument
 
 
 class TreeManager(QtCore.QObject):

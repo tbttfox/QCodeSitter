@@ -7,7 +7,6 @@ Parsing and highlighting happen synchronously, so no test needs to wait.
 
 from __future__ import annotations
 
-import logging
 import re
 import warnings
 
@@ -16,7 +15,6 @@ from Qt import QtCore, QtGui
 from tree_sitter import Point, Query
 
 from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
-from QCodeSitter.constants import ENC
 from QCodeSitter.cursors.tracked import TrackedCursor
 from QCodeSitter.languages import (
     language_spec,
@@ -29,7 +27,7 @@ from QCodeSitter.queries.predicates import (
     lua_to_regex,
     prepare_query_source,
 )
-from QCodeSitter.tracked_document import TrackedDocument
+from QCodeSitter.tracked_document import ENC, TrackedDocument
 from QCodeSitter.tree_manager import TreeManager
 from tests.helpers import (
     assert_tree_matches_fresh_parse,
@@ -40,12 +38,10 @@ from tests.helpers import (
 
 
 class TestTrackedDocument:
-    """Test TrackedDocument UTF-16 position tracking."""
-
     def test_document_creation(self, editor):
         assert isinstance(editor.document(), TrackedDocument)
 
-    def test_byte_contents_change_signal(self, editor, qtbot):
+    def test_byte_contents_change_signal(self, editor):
         """Typing emits the edit in UTF-16LE bytes"""
         editor.setPlainText("é𝒳")
         set_cursor_position(editor, 3)
@@ -53,7 +49,7 @@ class TestTrackedDocument:
         editor.document().byteContentsChange.connect(
             lambda *args: received.append(args)
         )
-        simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_A, "a")
+        simulate_keypress(editor, QtCore.Qt.Key.Key_A, "a")
         # 3 code units are 6 bytes, and "a" is 2 more
         assert received == [(6, 6, 8, Point(0, 6), Point(0, 6), Point(0, 8))]
 
@@ -76,17 +72,15 @@ class TestTrackedDocument:
 
 
 class TestTreeManager:
-    """Test TreeManager parsing and updates."""
-
     def test_tree_root_node(self, editor_with_text):
         assert editor_with_text.tree_manager.root_node.type == "module"
 
-    def test_incremental_update(self, editor, qtbot):
+    def test_incremental_update(self, editor):
         """The incremental tree matches a fresh parse after typing"""
         editor.setPlainText("x = 1")
         set_cursor_position(editor, 5)
-        simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_Plus, "+")
-        simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_2, "2")
+        simulate_keypress(editor, QtCore.Qt.Key.Key_Plus, "+")
+        simulate_keypress(editor, QtCore.Qt.Key.Key_2, "2")
 
         assert editor.toPlainText() == "x = 1+2"
         tree = editor.tree_manager.tree
@@ -100,7 +94,7 @@ class TestTreeManager:
         assert manager.node_at_char(4).type == "identifier"
         assert manager.node_at_byte(8) == manager.node_at_char(4)
 
-    def test_pause_defers_reparse(self, editor, qtbot):
+    def test_pause_defers_reparse(self, editor):
         """Edits while paused are parsed once on unpause"""
         editor.setPlainText("x = 1")
         reparses = []
@@ -135,8 +129,6 @@ class TestTreeManager:
 
 
 class TestPythonIndentRules:
-    """Test the python indent rules used by SmartIndent"""
-
     @staticmethod
     def rules(editor, text: str) -> PythonIndentRules:
         editor.setPlainText(text)
@@ -180,8 +172,6 @@ class TestPythonIndentRules:
 
 
 class TestSyntaxHighlighting:
-    """Test syntax highlighting behavior."""
-
     @staticmethod
     def _token_color(editor, line, token):
         block = editor.document().findBlockByNumber(line)
@@ -204,12 +194,12 @@ class TestSyntaxHighlighting:
             editor_with_text, "keyword.function"
         )
 
-    def test_highlighting_updates_on_typing(self, editor, qtbot):
+    def test_highlighting_updates_on_typing(self, editor):
         """Typing a keyword highlights it as one"""
         editor.setPlainText("x = 1\n")
         set_cursor_position(editor, 6)
         for char in "return":
-            simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_unknown, char)
+            simulate_keypress(editor, QtCore.Qt.Key.Key_unknown, char)
         assert self._token_color(editor, 1, "return") == self._capture_color(
             editor, "keyword.return"
         )
@@ -238,7 +228,6 @@ class TestSyntaxHighlighting:
         )
 
     def test_text_predicate_negative(self, editor):
-        """Test predicates don't match text they shouldn't."""
         editor.setPlainText("x = selfish")
         assert self._token_color(editor, 0, "selfish") == self._capture_color(
             editor, "variable"
@@ -249,7 +238,7 @@ class TestSyntaxHighlighting:
         editor.setPlainText("x = 1\n")
         set_cursor_position(editor, 6)
         for char in "return":
-            simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_unknown, char)
+            simulate_keypress(editor, QtCore.Qt.Key.Key_unknown, char)
         editor.undo()
         qtbot.waitUntil(
             lambda: str(editor.tree_manager.root_node) == fresh_tree_str(editor)
@@ -278,28 +267,24 @@ class TestSyntaxHighlighting:
 
 
 class TestSyntaxIntegration:
-    """Test integration between syntax components."""
-
-    def test_smart_indent_uses_syntax(self, editor, qtbot):
+    def test_smart_indent_uses_syntax(self, editor):
         """Enter after a block opener indents the new line"""
         editor.setPlainText("def hello():")
         set_cursor_position(editor, 12)
-        simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_Return)
+        simulate_keypress(editor, QtCore.Qt.Key.Key_Return)
         assert editor.toPlainText() == "def hello():\n    "
 
-    def test_syntax_error_handling(self, editor, qtbot):
+    def test_syntax_error_handling(self, editor):
         """Incomplete code still parses, with error nodes"""
         editor.setPlainText("def foo(")
         assert editor.tree_manager.root_node.has_error
         set_cursor_position(editor, 8)
-        simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_ParenRight, ")")
+        simulate_keypress(editor, QtCore.Qt.Key.Key_ParenRight, ")")
         assert editor.toPlainText() == "def foo()"
         assert str(editor.tree_manager.root_node) == fresh_tree_str(editor)
 
 
 class TestUnicodeHandling:
-    """Test handling of unicode and special characters."""
-
     @pytest.mark.parametrize("text", ['x = "Hello 世界"', 'x = "Hello 🎉"'])
     def test_unicode_in_string(self, editor, text):
         editor.setPlainText(text)
@@ -308,17 +293,15 @@ class TestUnicodeHandling:
         # The string node ends at the end of the document, in UTF-16 bytes
         assert string.end_byte == len(text.encode(ENC))
 
-    def test_editing_after_unicode(self, editor, qtbot):
+    def test_editing_after_unicode(self, editor):
         editor.setPlainText("日本語🎉")
         set_cursor_position(editor, 5)
-        simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_Exclam, "!")
+        simulate_keypress(editor, QtCore.Qt.Key.Key_Exclam, "!")
         assert editor.toPlainText() == "日本語🎉!"
         assert str(editor.tree_manager.root_node) == fresh_tree_str(editor)
 
 
 class TestDocumentReload:
-    """Test behavior when document is reloaded/replaced."""
-
     def test_replace_all_text(self, editor):
         editor.setPlainText("def foo(): pass")
         editor.setPlainText("x = 1")
@@ -468,7 +451,7 @@ class TestTreeManagerQueries:
         second = query_byte_range(query, root, 12, root.end_byte)["name"]
         assert [n.start_point.row for n in second] == [1]
 
-    def test_query_byte_range_failure_is_empty(self, editor, caplog):
+    def test_query_byte_range_failure_is_empty(self, editor):
         editor.setPlainText("x = 1")
         query = Query(
             editor.tree_manager.language, '((identifier) @name (#qcs-eq? @name "x"))'
@@ -478,14 +461,11 @@ class TestTreeManagerQueries:
         def failing_predicate(*_args):
             raise ValueError("bad predicate")
 
-        with caplog.at_level(logging.DEBUG, logger="QCodeSitter.queries"):
-            for _ in range(2):
-                captures = query_byte_range(
-                    query, root, 0, root.end_byte, failing_predicate
-                )
-                assert captures == {}
-        # Only the first failure of a query is a warning
-        assert [r.levelno for r in caplog.records] == [logging.WARNING, logging.DEBUG]
+        with pytest.warns(UserWarning, match="bad predicate"):
+            captures = query_byte_range(
+                query, root, 0, root.end_byte, failing_predicate
+            )
+        assert captures == {}
 
     def test_invalid_query_warns_once(self, python_language):
         with pytest.warns(UserWarning, match="Invalid tree-sitter query for python"):

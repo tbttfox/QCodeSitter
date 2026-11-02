@@ -10,7 +10,8 @@ import re
 
 from Qt import QtCore
 
-from .constants import MIME
+# The mime type that holds the lengths of the texts
+MIME = "text/multi_copy_lengths"
 
 
 def tabs_to_spaces(text: str, width: int) -> str:
@@ -48,3 +49,8 @@ def split_multi_copy(source: QtCore.QMimeData, cursor_count: int) -> list[str] |
         parts.append(text[ptr : ptr + length])
         ptr += length + 1
     return parts
+
+
+def has_multi_copy(source: QtCore.QMimeData) -> bool:
+    """Whether mime data holds text copied from several cursors"""
+    return source.hasFormat(MIME)

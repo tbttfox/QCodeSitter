@@ -8,7 +8,7 @@ from ..highlighting.themes import SyntaxSpecs, resolve_capture
 from ..languages import highlight_query
 from ..queries import query_byte_range
 from ..queries.predicates import QueryPredicates
-from ..utils import len16
+from ..tracked_document import len16
 from . import Behavior
 
 if TYPE_CHECKING:

@@ -15,18 +15,14 @@ from tests.helpers import (
 
 
 class TestCursorMerging:
-    """Test that overlapping cursors are merged properly."""
-
-    def test_merge_adjacent_cursors(self, editor, qtbot):
-        """Test that adjacent cursors are merged."""
+    def test_merge_adjacent_cursors(self, editor):
         editor.setPlainText("Hello World")
         editor.cursors.replace_all([CursorState(5, 5), CursorState(5, 5)])
         # Should merge into one cursor
         cursors, _ = editor.cursors.in_document_order()
         assert len(cursors) == 1
 
-    def test_merge_overlapping_selections(self, editor, qtbot):
-        """Test that overlapping selections are merged."""
+    def test_merge_overlapping_selections(self, editor):
         editor.setPlainText("Hello World")
         # "Hello " and "o World" overlap
         editor.cursors.replace_all([CursorState(0, 6), CursorState(4, 11)])
@@ -46,27 +42,23 @@ class TestCursorMerging:
 
 
 class TestCursorIterator:
-    """Test the CursorIterator class for multi-cursor operations."""
-
-    def test_cursor_iterator_offset_tracking(self, editor, qtbot):
-        """Test that CursorIterator correctly tracks position offsets."""
+    def test_cursor_iterator_offset_tracking(self, editor):
         editor.setPlainText("abc\nabc\nabc")
         set_cursor_position(editor, 0)
         editor.cursors.secondary = [CursorState(4, 4), CursorState(8, 8)]
         # Insert "X" at each position - later cursors should be offset
-        simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_X, "X")
+        simulate_keypress(editor, QtCore.Qt.Key.Key_X, "X")
         text = editor.toPlainText()
         lines = text.split("\n")
         # Each line should start with "X"
         assert all(line.startswith("X") for line in lines)
 
-    def test_cursor_iterator_with_deletions(self, editor, qtbot):
-        """Test CursorIterator with deletions that change offsets."""
+    def test_cursor_iterator_with_deletions(self, editor):
         editor.setPlainText("Xabc\nXabc\nXabc")
         set_cursor_position(editor, 0)
         editor.cursors.secondary = [CursorState(5, 5), CursorState(10, 10)]
         # Delete first char at each position
-        simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_Delete)
+        simulate_keypress(editor, QtCore.Qt.Key.Key_Delete)
         text = editor.toPlainText()
         lines = text.split("\n")
         # "X" should be removed from each line

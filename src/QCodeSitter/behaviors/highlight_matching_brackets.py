@@ -7,7 +7,8 @@ from Qt import QtGui, QtWidgets
 
 from ..gui_colors import GuiColors, gui_color
 from ..languages import language_spec
-from ..utils import MM, len16, utf16_to_index
+from ..tracked_document import len16, utf16_to_index
+from ..utils import MM
 from . import Behavior
 
 if TYPE_CHECKING:

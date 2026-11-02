@@ -5,9 +5,14 @@ from __future__ import annotations
 import pytest
 from Qt import QtCore
 
-from QCodeSitter.clipboard import encode_multi_copy, split_multi_copy, tabs_to_spaces
-from QCodeSitter.constants import MIME
-from QCodeSitter.utils import dedent_string, leading_whitespace, len16, utf16_to_index
+from QCodeSitter.cursors.clipboard import (
+    MIME,
+    encode_multi_copy,
+    split_multi_copy,
+    tabs_to_spaces,
+)
+from QCodeSitter.tracked_document import len16, utf16_to_index
+from QCodeSitter.utils import dedent_string, leading_whitespace
 
 
 class TestUtils:

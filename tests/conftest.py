@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 import tree_sitter_python as tspython
-from Qt import QtGui
+from Qt import QtGui, QtWidgets
 from tree_sitter import Language
 
 from QCodeSitter import CodeEditor, EditorOptions, defaults
@@ -31,6 +31,19 @@ def make_test_options(python_language: Language) -> EditorOptions:
     )
     options.update({"vim_completion_keys": False, "debounce_delay": 0})
     return options
+
+
+@pytest.fixture
+def clipboard(qapp):
+    """The app clipboard, emptied for the test and put back afterwards
+
+    Every test shares the one clipboard, so tests that use it start from nothing
+    """
+    board = QtWidgets.QApplication.clipboard()
+    saved = board.text()
+    board.clear()
+    yield board
+    board.setText(saved)
 
 
 def install_test_behaviors(editor: CodeEditor):

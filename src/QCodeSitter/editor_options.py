@@ -69,53 +69,76 @@ OPTION_DEFAULTS: OptionsDict = {
 # The keys of the built-in options
 OPTION_KEYS = frozenset(get_type_hints(OptionsDict))
 
-# Option key -> the runtime type its values must have, including registered options
-_option_types: dict[str, type] = {
-    key: get_origin(hint) or hint for key, hint in get_type_hints(OptionsDict).items()
-}
-# The defaults of the registered options
-_registered_defaults: dict[str, Any] = {}
-
 # Option key -> the function that applies its value
 OptionHandlers = Mapping[str, Callable[[Any], object]]
 
 
-def register_option(key: str, value_type: type, default: object = None) -> None:
-    """Add an option, for a behavior from outside the package
+class OptionSchema:
+    """The type every option's values must have, and the registered options' defaults
 
-    Args:
-        key: The option's name, which mustn't be a built-in option
-        value_type: The type its values must have
-        default: Its value when it isn't set. None means it has no default,
-            and handlers for it wait until it is set
+    The built-in options come from OptionsDict, and behaviors from outside the
+    package add theirs with `register`
     """
-    if key in OPTION_KEYS:
-        raise ValueError(f"{key!r} is a built-in editor option")
-    _option_types[key] = value_type
-    if default is None:
-        _registered_defaults.pop(key, None)
-    else:
-        check_options({key: default})
-        _registered_defaults[key] = default
+
+    def __init__(self) -> None:
+        self._types: dict[str, type] = {
+            key: get_origin(hint) or hint
+            for key, hint in get_type_hints(OptionsDict).items()
+        }
+        self._defaults: dict[str, Any] = {}
+
+    def register(self, key: str, value_type: type, default: object = None) -> None:
+        """Add an option, for a behavior from outside the package
+
+        Args:
+            key: The option's name, which mustn't be a built-in option
+            value_type: The type its values must have
+            default: Its value when it isn't set. None means it has no default,
+                and handlers for it wait until it is set
+        """
+        if key in OPTION_KEYS:
+            raise ValueError(f"{key!r} is a built-in editor option")
+        self._types[key] = value_type
+        self._defaults.pop(key, None)
+        if default is not None:
+            self.check({key: default})
+            self._defaults[key] = default
+
+    def unregister(self, key: str) -> None:
+        """Remove an option added with `register`"""
+        if key in OPTION_KEYS:
+            raise ValueError(f"{key!r} is a built-in editor option")
+        self._types.pop(key, None)
+        self._defaults.pop(key, None)
+
+    def registered_default(self, key: str) -> Any:
+        """A copy of a registered option's default. Raises a KeyError if it has none"""
+        return copy.deepcopy(self._defaults[key])
+
+    def check_keys(self, keys: Iterable[str]) -> None:
+        """Raise a KeyError for any key that isn't a known option"""
+        unknown = set(keys) - set(self._types)
+        if unknown:
+            raise KeyError(f"Unknown editor options: {sorted(unknown)}")
+
+    def check(self, opts: Mapping[str, object]) -> None:
+        """Raise a KeyError for unknown keys, or a TypeError for wrong value types"""
+        self.check_keys(opts)
+        for key, value in opts.items():
+            expected = self._types[key]
+            if not isinstance(value, expected):
+                raise TypeError(
+                    f"Editor option {key!r} must be a {expected.__name__}, "
+                    f"not {type(value).__name__}"
+                )
 
 
-def check_option_keys(keys: Iterable[str]) -> None:
-    """Raise a KeyError for any key that isn't a known option"""
-    unknown = set(keys) - set(_option_types)
-    if unknown:
-        raise KeyError(f"Unknown editor options: {sorted(unknown)}")
-
-
-def check_options(opts: Mapping[str, object]) -> None:
-    """Raise a KeyError for unknown keys, or a TypeError for values of the wrong type"""
-    check_option_keys(opts)
-    for key, value in opts.items():
-        expected = _option_types[key]
-        if not isinstance(value, expected):
-            raise TypeError(
-                f"Editor option {key!r} must be a {expected.__name__}, "
-                f"not {type(value).__name__}"
-            )
+# There is one schema for the process, so a registered option works in every editor
+OPTION_SCHEMA = OptionSchema()
+register_option = OPTION_SCHEMA.register
+unregister_option = OPTION_SCHEMA.unregister
+check_option_keys = OPTION_SCHEMA.check_keys
+check_options = OPTION_SCHEMA.check
 
 
 class EditorOptions(QtCore.QObject):
@@ -136,9 +159,12 @@ class EditorOptions(QtCore.QObject):
 
     def _has(self, key: str) -> bool:
         """Whether the option has a value, taking a registered default if needed"""
-        if key not in self._options and key in _registered_defaults:
-            self._options[key] = copy.deepcopy(_registered_defaults[key])
-        return key in self._options
+        if key not in self._options:
+            try:
+                self._options[key] = OPTION_SCHEMA.registered_default(key)
+            except KeyError:
+                return False
+        return True
 
     if TYPE_CHECKING:
         # Reading a built-in option gives the type OptionsDict declares for it

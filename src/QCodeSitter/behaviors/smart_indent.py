@@ -3,6 +3,7 @@ from __future__ import annotations
 from Qt import QtGui
 
 from ..languages import IndentRules, language_spec
+from ..tracked_document import utf16_to_index
 from ..utils import (
     KEY,
     MM,
@@ -10,7 +11,6 @@ from ..utils import (
     dedent_string,
     leading_whitespace,
     replace_lines,
-    utf16_to_index,
 )
 from . import Behavior
 

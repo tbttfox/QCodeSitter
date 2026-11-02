@@ -8,7 +8,7 @@ from Qt import QtGui
 from QCodeSitter.behaviors.code_folding import (
     FoldingGutterArea,
 )
-from QCodeSitter.behaviors.line_numbers import LineNumber, LineNumberArea
+from QCodeSitter.behaviors.line_numbers import LineNumberArea, LineNumbers
 from QCodeSitter.gutters import GutterWidget
 
 
@@ -17,27 +17,25 @@ def gutter_widths(editor) -> list[int]:
 
 
 class TestLineNumbers:
-    """Test line number display behavior."""
-
-    def test_gutter_width_grows_with_digits(self, editor, qtbot):
+    def test_gutter_width_grows_with_digits(self, editor):
         """The line number gutter widens when the line count needs another digit"""
-        area = editor.get_behavior(LineNumber).line_number_area
+        area = editor.get_behavior(LineNumbers).line_number_area
         editor.setPlainText("\n" * 8)
         narrow = area.reserved_width
         editor.setPlainText("\n" * 120)
         assert area.reserved_width > narrow
         assert editor.viewportMargins().left() == sum(gutter_widths(editor))
 
-    def test_remove_gives_back_space(self, editor, qtbot):
-        area = editor.get_behavior(LineNumber).line_number_area
-        editor.remove_behavior(LineNumber)
+    def test_remove_gives_back_space(self, editor):
+        area = editor.get_behavior(LineNumbers).line_number_area
+        editor.remove_behavior(LineNumbers)
         assert area not in editor.gutters
         assert editor.viewportMargins().left() == sum(gutter_widths(editor))
 
-    def test_readding_does_not_duplicate(self, editor, qtbot):
-        editor.remove_behavior(LineNumber)
-        editor.add_behavior(LineNumber)
-        editor.add_behavior(LineNumber)
+    def test_readding_does_not_duplicate(self, editor):
+        editor.remove_behavior(LineNumbers)
+        editor.add_behavior(LineNumbers)
+        editor.add_behavior(LineNumbers)
         assert [type(g) for g in editor.gutters] == [FoldingGutterArea, LineNumberArea]
         assert editor.viewportMargins().left() == sum(gutter_widths(editor))
 

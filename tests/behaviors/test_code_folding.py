@@ -126,8 +126,7 @@ class TestCodeFolding:
         editor_with_text.remove_behavior(CodeFolding)
         assert _hidden_lines(editor_with_text) == []
 
-    def test_folding_regions_detected(self, editor_with_text, qtbot):
-        """Test that foldable regions are detected in Python code."""
+    def test_folding_regions_detected(self, editor_with_text):
         editor = editor_with_text
         folding = editor.get_behavior(CodeFolding)
         # The sample code has functions and classes that should be foldable
@@ -161,8 +160,7 @@ class TestCodeFolding:
         # Greeter's methods stay folded inside the unfolded class
         assert _hidden_lines(editor_with_text) == [3, 4, 5, 9, 12]
 
-    def test_fold_to_level_shortcut(self, editor_with_text, qtbot):
-        """Test the fold to level shortcuts fold to their own level."""
+    def test_fold_to_level_shortcut(self, editor_with_text):
         folding = editor_with_text.get_behavior(CodeFolding)
         action = next(
             a for a in folding.shortcut_actions if a.text() == "Fold to Level 1"

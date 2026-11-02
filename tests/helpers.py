@@ -9,7 +9,7 @@ from tree_sitter import Parser
 
 from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
 from QCodeSitter.code_editor import CodeEditor
-from QCodeSitter.constants import ENC
+from QCodeSitter.tracked_document import ENC
 
 
 def get_cursor_positions(editor: CodeEditor) -> list[int]:
@@ -34,7 +34,6 @@ def set_cursor_selection(editor: CodeEditor, anchor: int, position: int):
 
 
 def simulate_keypress(
-    qtbot,
     editor: CodeEditor,
     key: QtCore.Qt.Key,
     text: str = "",
@@ -50,11 +49,11 @@ def simulate_keypress(
     editor.keyPressEvent(event)
 
 
-def simulate_text_input(qtbot, editor: CodeEditor, text: str):
+def simulate_text_input(editor: CodeEditor, text: str):
     """Simulate typing text into the editor."""
     for char in text:
         key = getattr(QtCore.Qt.Key, f"Key_{char.upper()}", QtCore.Qt.Key.Key_unknown)
-        simulate_keypress(qtbot, editor, key, char)
+        simulate_keypress(editor, key, char)
 
 
 def fresh_tree_str(editor: CodeEditor) -> str:
