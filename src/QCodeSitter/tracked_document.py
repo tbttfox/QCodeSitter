@@ -5,10 +5,26 @@ from typing import TYPE_CHECKING
 from Qt import QtCore, QtGui, QtWidgets
 from tree_sitter import Point
 
-from .constants import ENC
-
 if TYPE_CHECKING:
     from tree_sitter import Node
+
+# Qt positions count UTF-16 code units, and tree-sitter parses the document as
+# UTF-16LE bytes. Python strings count code points, so they differ for
+# characters outside the BMP, which take two code units
+ENC = "utf-16-le"
+
+
+def len16(val: str) -> int:
+    """Get the number of UTF-16 code units, where surrogate pairs count as 2"""
+    return len(val.encode(ENC)) // 2
+
+
+def utf16_to_index(text: str, col: int) -> int:
+    """Convert a UTF-16 column in text (ie: positionInBlock) to a str index
+
+    A column inside a surrogate pair rounds down to the start of the pair
+    """
+    return len(text.encode(ENC)[: col * 2].decode(ENC, errors="ignore"))
 
 
 class TrackedDocument(QtGui.QTextDocument):

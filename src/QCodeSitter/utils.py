@@ -1,10 +1,14 @@
+"""Short names for the Qt enums, and helpers for indentation, Qt cursors, events
+and actions
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
 
 from Qt import QtCore, QtGui, QtWidgets
 
-from .constants import ENC
+from .tracked_document import len16
 
 MO = QtGui.QTextCursor.MoveOperation
 MM = QtGui.QTextCursor.MoveMode
@@ -24,19 +28,6 @@ def dedent_string(indent: str, indent_using_tabs: bool, space_indent_width: int)
     trailing_spaces = len(indent) - len(indent.rstrip(" "))
     remove = min(space_indent_width, trailing_spaces)
     return indent[:-remove] if remove else indent
-
-
-def len16(val: str) -> int:
-    """Get the number of UTF-16 code units, where surrogate pairs count as 2"""
-    return len(val.encode(ENC)) // 2
-
-
-def utf16_to_index(text: str, col: int) -> int:
-    """Convert a UTF-16 column in text (ie: positionInBlock) to a str index
-
-    A column inside a surrogate pair rounds down to the start of the pair
-    """
-    return len(text.encode(ENC)[: col * 2].decode(ENC, errors="ignore"))
 
 
 def expand_to_lines(cursor: QtGui.QTextCursor) -> None:

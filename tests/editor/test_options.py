@@ -8,7 +8,6 @@ import sys
 import pytest
 from Qt import QtCore, QtGui
 
-from QCodeSitter import editor_options
 from QCodeSitter.behaviors import Behavior
 from QCodeSitter.code_editor import CodeEditor
 from QCodeSitter.defaults import (
@@ -22,6 +21,7 @@ from QCodeSitter.editor_options import (
     OPTION_KEYS,
     EditorOptions,
     register_option,
+    unregister_option,
 )
 from QCodeSitter.highlighting.themes import LIGHT_THEME, read_theme
 
@@ -90,8 +90,9 @@ class TestEditorOptions:
             with pytest.raises(ValueError):
                 register_option("font", str)
         finally:
-            editor_options._option_types.pop("qcs_test_limit")
-            editor_options._registered_defaults.pop("qcs_test_limit")
+            unregister_option("qcs_test_limit")
+        with pytest.raises(KeyError):
+            options["qcs_test_limit"] = 4
 
     def test_apply_only_set_keys(self, qapp):
         options = EditorOptions({"space_indent_width": 2})

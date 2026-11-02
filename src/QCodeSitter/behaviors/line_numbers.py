@@ -33,7 +33,7 @@ class LineNumberArea(GutterWidget):
                 )
 
 
-class LineNumber(Behavior):
+class LineNumbers(Behavior):
     """A gutter showing the line numbers"""
 
     def __init__(self, editor: CodeEditor) -> None:

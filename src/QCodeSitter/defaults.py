@@ -12,7 +12,7 @@ from .behaviors.code_folding import CodeFolding
 from .behaviors.comment_toggle import CommentToggle
 from .behaviors.highlight_matching_brackets import HighlightMatchingBrackets
 from .behaviors.highlight_matching_selection import HighlightMatchingSelection
-from .behaviors.line_numbers import LineNumber
+from .behaviors.line_numbers import LineNumbers
 from .behaviors.multi_cursor_paint import MultiCursorPaint
 from .behaviors.overscroll import Overscroll
 from .behaviors.smart_indent import SmartIndent
@@ -33,7 +33,7 @@ DEFAULT_BEHAVIORS: tuple[type[Behavior], ...] = (
     SmartIndent,
     HighlightMatchingBrackets,
     HighlightMatchingSelection,
-    LineNumber,
+    LineNumbers,
     Overscroll,
     MultiCursorPaint,
     CodeFolding,

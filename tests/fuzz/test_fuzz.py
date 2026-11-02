@@ -19,7 +19,8 @@ from Qt import QtCore, QtWidgets
 
 from QCodeSitter import CodeEditor, EditorOptions
 from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
-from QCodeSitter.utils import MO, len16
+from QCodeSitter.tracked_document import len16
+from QCodeSitter.utils import MO
 from tests.conftest import install_test_behaviors, make_test_options
 from tests.helpers import (
     assert_matches_full_highlight,
@@ -152,21 +153,25 @@ def operation(draw):
         return ("add_cursor_below",)
 
     if kind == "move_cursors":
-        direction = draw(
+        # None is smart home
+        operation = draw(
             st.sampled_from(
                 [
-                    QtCore.Qt.Key.Key_Left,
-                    QtCore.Qt.Key.Key_Right,
-                    QtCore.Qt.Key.Key_Up,
-                    QtCore.Qt.Key.Key_Down,
-                    QtCore.Qt.Key.Key_Home,
-                    QtCore.Qt.Key.Key_End,
+                    MO.Left,
+                    MO.Right,
+                    MO.Up,
+                    MO.Down,
+                    MO.WordLeft,
+                    MO.WordRight,
+                    MO.Start,
+                    MO.End,
+                    MO.EndOfLine,
+                    None,
                 ]
             )
         )
         select = draw(st.booleans())
-        word_mode = draw(st.booleans())
-        return ("move_cursors", direction, select, word_mode)
+        return ("move_cursors", operation, select)
 
 
 def apply_operation(editor, op):
@@ -175,7 +180,7 @@ def apply_operation(editor, op):
 
     if kind == "keypress":
         _, key, text, mod = op
-        simulate_keypress(None, editor, key, text, mod)
+        simulate_keypress(editor, key, text, mod)
 
     elif kind == "insert_text":
         editor.insert_text(op[1])
@@ -214,8 +219,11 @@ def apply_operation(editor, op):
         editor.cursors.add_below()
 
     elif kind == "move_cursors":
-        _, direction, select, word_mode = op
-        editor.cursors.move(direction, select, word_mode)
+        _, operation, select = op
+        if operation is None:
+            editor.cursors.smart_home(select)
+        else:
+            editor.cursors.move(operation, select)
 
 
 @contextmanager
@@ -314,17 +322,27 @@ class TestFuzz:
     @given(ops=st.lists(st.sampled_from(["undo", "redo"]), min_size=1, max_size=50))
     @FUZZ_SETTINGS
     def test_undo_redo_stress(self, qapp, python_language, ops):
-        """Rapid undo/redo should not crash or corrupt state."""
+        """Rapid undo/redo steps through the history without corrupting state"""
         with fuzz_editor(python_language, full=True) as editor:
-            # Build up some undo history
-            editor.insert_text("hello world\n")
-            editor.insert_text("foo bar baz\n")
-            editor.delete(MO.PreviousCharacter)
-            editor.insert_text("end")
+            # Build up some undo history, keeping the text after each step
+            history = [editor.toPlainText()]
+            for edit in (
+                lambda: editor.insert_text("hello world\n"),
+                lambda: editor.insert_text("foo bar baz\n"),
+                lambda: editor.delete(MO.PreviousCharacter),
+                lambda: editor.insert_text("end"),
+            ):
+                edit()
+                history.append(editor.toPlainText())
 
+            # Each undo or redo moves one step, stopping at the ends of the history
+            step = len(history) - 1
             for op_name in ops:
                 if op_name == "undo":
                     editor.undo()
+                    step = max(0, step - 1)
                 else:
                     editor.redo()
+                    step = min(len(history) - 1, step + 1)
+                assert editor.toPlainText() == history[step]
             check_invariants(editor)

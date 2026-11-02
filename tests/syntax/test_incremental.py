@@ -42,16 +42,16 @@ def _load(editor, text=SAMPLE):
 
 
 class TestIncrementalHighlighting:
-    def test_typing(self, editor, qtbot):
-        """Test typing that only changes the text a predicate looks at"""
+    def test_typing(self, editor):
+        """Typing that only changes the text a predicate looks at"""
         _load(editor)
         # "MAX_SIZE" -> "MAX_SIZEx" stops being a constant
         set_cursor_position(editor, SAMPLE.index(" = 10"))
-        simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_X, "x")
+        simulate_keypress(editor, QtCore.Qt.Key.Key_X, "x")
         assert_matches_full_highlight(editor)
 
-    def test_structure_change_below_edit(self, editor, qtbot):
-        """Test an edit that changes the syntax of the rest of the document"""
+    def test_structure_change_below_edit(self, editor):
+        """An edit that changes the syntax of the rest of the document"""
         _load(editor)
         cursor = editor.textCursor()
         cursor.setPosition(0)
@@ -63,18 +63,17 @@ class TestIncrementalHighlighting:
         cursor.removeSelectedText()
         assert_matches_full_highlight(editor)
 
-    def test_multicursor_newlines(self, editor, qtbot):
-        """Test edits at several cursors that add lines"""
+    def test_multicursor_newlines(self, editor):
+        """Edits at several cursors that add lines"""
         _load(editor)
         set_cursor_position(editor, SAMPLE.index("import"))
         for _ in range(3):
             editor.cursors.add_below()
-        simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_Return, "\n")
-        simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_Q, "q")
+        simulate_keypress(editor, QtCore.Qt.Key.Key_Return, "\n")
+        simulate_keypress(editor, QtCore.Qt.Key.Key_Q, "q")
         assert_matches_full_highlight(editor)
 
-    def test_random_edits(self, editor, qtbot):
-        """Test a bunch of random edits"""
+    def test_random_edits(self, editor):
         # Non-BMP characters are left out because a random delete can split a
         # surrogate pair, which the editor can't do
         snippets = [
@@ -106,20 +105,19 @@ class TestIncrementalHighlighting:
                 cursor.removeSelectedText()
             assert_matches_full_highlight(editor)
 
-    def test_delete_lines(self, editor, qtbot):
-        """Test deleting several lines with a selection"""
+    def test_delete_lines(self, editor):
         _load(editor)
         cursor = editor.textCursor()
         cursor.setPosition(SAMPLE.index("def hello"))
         cursor.setPosition(SAMPLE.index("class"), cursor.MoveMode.KeepAnchor)
         editor.setTextCursor(cursor)
-        simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_Backspace)
+        simulate_keypress(editor, QtCore.Qt.Key.Key_Backspace)
         assert_matches_full_highlight(editor)
 
 
 class TestIncrementalFolding:
-    def test_folds_update_after_edit(self, editor, qtbot):
-        """Test fold regions use the tree from after the edit"""
+    def test_folds_update_after_edit(self, editor):
+        """Fold regions use the tree from after the edit"""
         _load(editor, "x = 1\n")
         folding = editor.get_behavior(CodeFolding)
         assert folding.regions == []
@@ -130,7 +128,7 @@ class TestIncrementalFolding:
         regions = folding.regions
         assert [(r.start_line, r.end_line) for r in regions] == [(1, 2)]
 
-    def test_fold_depth(self, editor, qtbot):
+    def test_fold_depth(self, editor):
         _load(editor)
         folding = editor.get_behavior(CodeFolding)
         depths = {(r.node.type, r.start_line): r.depth for r in folding.regions}
@@ -143,7 +141,7 @@ class TestIncrementalFolding:
 class TestTrackedCursorDeletes:
     """The incremental tree should match a fresh parse after deletes"""
 
-    def test_delete_char(self, editor, qtbot):
+    def test_delete_char(self, editor):
         _load(editor, "ab = 1\nx = (1)\n")
         cursor = editor.textCursor()
         cursor.setPosition(len("ab = 1\nx = "))
@@ -151,7 +149,7 @@ class TestTrackedCursorDeletes:
         assert editor.toPlainText() == "ab = 1\nx = 1)\n"
         assert_tree_matches_fresh_parse(editor)
 
-    def test_delete_previous_char(self, editor, qtbot):
+    def test_delete_previous_char(self, editor):
         _load(editor, "ab = 1\nx = (1)\n")
         cursor = editor.textCursor()
         cursor.setPosition(len("ab = 1\nx = (1)"))
@@ -159,7 +157,7 @@ class TestTrackedCursorDeletes:
         assert editor.toPlainText() == "ab = 1\nx = (1\n"
         assert_tree_matches_fresh_parse(editor)
 
-    def test_delete_char_with_selection(self, editor, qtbot):
+    def test_delete_char_with_selection(self, editor):
         _load(editor, "ab = 1\nx = (1)\n")
         cursor = editor.textCursor()
         cursor.setPosition(0)
@@ -170,15 +168,15 @@ class TestTrackedCursorDeletes:
 
 
 class TestAutoBracketDeletePair:
-    def test_delete_pair_far_into_line(self, editor, qtbot):
-        """Test deleting an empty pair after column 3 removes both brackets"""
+    def test_delete_pair_far_into_line(self, editor):
+        """Deleting an empty pair after column 3 removes both brackets"""
         editor.setPlainText("print(x, ())  # comment")
         set_cursor_position(editor, len("print(x, ("))
-        simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_Backspace)
+        simulate_keypress(editor, QtCore.Qt.Key.Key_Backspace)
         assert editor.toPlainText() == "print(x, )  # comment"
 
-    def test_delete_triple_quotes(self, editor, qtbot):
+    def test_delete_triple_quotes(self, editor):
         editor.setPlainText('x = """"""')
         set_cursor_position(editor, len('x = """'))
-        simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_Backspace)
+        simulate_keypress(editor, QtCore.Qt.Key.Key_Backspace)
         assert editor.toPlainText() == "x = "

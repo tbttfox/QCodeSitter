@@ -33,7 +33,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --ignore=tests/test_fuzz.py"
+addopts = "-v --ignore=tests/fuzz"
 markers = [
     "fuzz: slow fuzz tests (run with: tox -e fuzz)",
 ]

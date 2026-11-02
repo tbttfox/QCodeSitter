@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING
 
 from Qt import QtCore, QtGui
 
-from ..utils import MM, MO, leading_whitespace, len16
+from ..tracked_document import len16
+from ..utils import MM, MO, leading_whitespace
 from .state import CursorState, primary_first
 
 if TYPE_CHECKING:

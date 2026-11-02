@@ -7,13 +7,10 @@ The text predicates that the highlight queries use are in predicates.py
 from __future__ import annotations
 
 import functools
-import logging
 import warnings
 from collections.abc import Callable
 
 from tree_sitter import Language, Node, Query, QueryCursor, QueryError
-
-logger = logging.getLogger(__name__)
 
 # A predicate argument is (value, "capture" or "string")
 PredicateArgs = list[tuple[str, str]]
@@ -21,9 +18,6 @@ PredicateArgs = list[tuple[str, str]]
 Captures = dict[str, list[Node]]
 # Called with (predicate name, args, pattern index, captures) to filter a match
 QueryPredicate = Callable[[str, PredicateArgs, int, Captures], bool]
-
-# The queries that failed to run, so each one is only logged as a warning once
-_failed_queries: set[Query] = set()
 
 
 @functools.lru_cache(maxsize=64)
@@ -51,8 +45,8 @@ def query_byte_range(
 ) -> Captures:
     """Run a query over a byte range of a tree, returning nodes by capture name
 
-    A query that fails returns no captures. The first failure of each query is
-    logged as a warning, and the rest at debug level
+    A query that fails returns no captures and warns. Like a query with an
+    error, the same failure only warns once
     """
     cursor = QueryCursor(query)
     try:
@@ -61,14 +55,6 @@ def query_byte_range(
             # Tree-sitter doesn't accept predicate=None
             return cursor.captures(root)
         return cursor.captures(root, predicate=predicate)
-    except (ValueError, RuntimeError):
-        first_failure = query not in _failed_queries
-        _failed_queries.add(query)
-        logger.log(
-            logging.WARNING if first_failure else logging.DEBUG,
-            "Query failed over bytes %d-%d",
-            start_byte,
-            end_byte,
-            exc_info=True,
-        )
+    except (ValueError, RuntimeError) as err:
+        warnings.warn(f"A tree-sitter query failed to run: {err!r}", stacklevel=2)
         return {}

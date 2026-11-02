@@ -34,7 +34,7 @@ from QCodeSitter import CodeEditor, EditorOptions
 from QCodeSitter.highlighting.themes import DARK_THEME, read_theme
 from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
 from QCodeSitter.behaviors.smart_indent import SmartIndent
-from QCodeSitter.behaviors.line_numbers import LineNumber
+from QCodeSitter.behaviors.line_numbers import LineNumbers
 from QCodeSitter.behaviors.auto_bracket import AutoBracket
 
 language = Language(tspython.language())
@@ -51,7 +51,7 @@ options = EditorOptions({
 editor = CodeEditor(options)
 editor.add_behavior(SyntaxHighlighting)
 editor.add_behavior(SmartIndent)
-editor.add_behavior(LineNumber)
+editor.add_behavior(LineNumbers)
 editor.add_behavior(AutoBracket)
 ```
 
@@ -155,7 +155,7 @@ register_language(LanguageSpec("lua", comment_prefix="-- "))
 |---|---|
 | `SyntaxHighlighting` |  Tree-sitter-based syntax highlighting with incremental updates |
 | `SmartIndent` |  Language-aware auto-indentation on Enter, Tab, Backspace |
-| `LineNumber` | Line number gutter |
+| `LineNumbers` | Line number gutter |
 | `AutoBracket` | Auto-close brackets, quotes, and parens; selection wrapping |
 | `TabCompletion` | Autocomplete popup with pluggable providers |
 | `CodeFolding` | Tree-sitter-based code folding with gutter indicators |

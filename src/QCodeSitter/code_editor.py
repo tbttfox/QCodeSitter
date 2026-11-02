@@ -9,42 +9,25 @@ from Qt import QtCore, QtGui, QtWidgets
 from tree_sitter import Language
 
 from .behaviors import Behavior
-from .clipboard import encode_multi_copy, split_multi_copy, tabs_to_spaces
-from .constants import MIME
+from .cursors.clipboard import (
+    encode_multi_copy,
+    has_multi_copy,
+    split_multi_copy,
+    tabs_to_spaces,
+)
 from .cursors.iterator import CursorIterator
 from .cursors.multi import MultiCursor
 from .cursors.state import CursorState
 from .cursors.tracked import TrackedCursor
+from .editing_keys import EditingKeys
 from .editor_options import EditorOptions
 from .gui_colors import GuiColors, gui_color
 from .gutters import GutterLayout
 from .tracked_document import TrackedDocument
 from .tree_manager import TreeManager
-from .utils import KEY, MM, MO, MOD, event_pos, make_shortcut_action
+from .utils import MM, MO, MOD, event_pos, make_shortcut_action
 
 T_Behavior = TypeVar("T_Behavior", bound=Behavior)
-
-# Delete key -> (move operation, move operation with Ctrl held)
-_DELETE_OPS: dict[KEY, tuple[MO, MO]] = {
-    KEY.Key_Backspace: (MO.PreviousCharacter, MO.PreviousWord),
-    KEY.Key_Delete: (MO.NextCharacter, MO.NextWord),
-}
-
-# Movement key -> (move operation, move operation with Ctrl held)
-# None is smart home, which toggles between the indent and column 0
-_MOVE_OPS: dict[KEY, tuple[MO | None, MO]] = {
-    KEY.Key_Left: (MO.Left, MO.WordLeft),
-    KEY.Key_Right: (MO.Right, MO.WordRight),
-    KEY.Key_Up: (MO.Up, MO.Up),
-    KEY.Key_Down: (MO.Down, MO.Down),
-    KEY.Key_Home: (None, MO.Start),
-    KEY.Key_End: (MO.EndOfLine, MO.End),
-}
-
-# The modifiers that can be held while typing text, besides Shift: the
-# numpad, and AltGr, which is Ctrl+Alt on Windows and Group Switch elsewhere
-_TEXT_MODIFIERS = MOD.ShiftModifier | MOD.KeypadModifier | MOD.GroupSwitchModifier
-_ALTGR = MOD.ControlModifier | MOD.AltModifier
 
 
 class CodeEditor(QtWidgets.QPlainTextEdit):
@@ -75,7 +58,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.gutters = GutterLayout(self)
 
         self._loaded = False
-        self._can_join = False
 
         self.tree_manager = TreeManager(self._doc)
         self._doc.byteContentsChange.connect(self.tree_manager.apply_edit)
@@ -90,18 +72,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.options.apply(self._option_handlers, self._option_handlers)
         self.options.optionsUpdated.connect(self._on_options_updated)
 
-        # (modifier, action) pairs for the keys that run editor commands
-        self._command_keys: dict[KEY, tuple[tuple[MOD, Callable[[], None]], ...]] = {
-            KEY.Key_C: ((MOD.ControlModifier, self.copy),),
-            KEY.Key_Insert: (
-                (MOD.ControlModifier, self.copy),
-                (MOD.ShiftModifier, self.paste),
-            ),
-            KEY.Key_V: ((MOD.ControlModifier, self.paste),),
-            KEY.Key_X: ((MOD.ControlModifier, self.cut),),
-            KEY.Key_Z: ((MOD.ControlModifier, self.undo),),
-            KEY.Key_Y: ((MOD.ControlModifier, self.redo),),
-        }
+        self.keys = EditingKeys(self)
         for shortcut, slot in (
             ("Ctrl+D", self.cursors.add_next_occurrence),
             ("Ctrl+Alt+Up", self.cursors.add_above),
@@ -284,10 +255,9 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         with self.edit_session():
             for behavior in self._keypress_behaviors:
                 if behavior.handle_key_press(event):
-                    # The next typing starts a new undo step
-                    self._can_join = False
+                    self.keys.end_undo_step()
                     return
-            if not self._apply_editing_key(event):
+            if not self.keys.handle_key_press(event):
                 # Let Qt handle the keys we don't, like Ctrl+A
                 with self._qt_edits():
                     super().keyPressEvent(event)
@@ -340,87 +310,9 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                 action.triggered.connect(slot)
         return menu
 
-    def _apply_editing_key(self, event: QtGui.QKeyEvent) -> bool:
-        """Apply the built-in editing keys to all the cursors
-
-        Returns whether the key was handled
-        """
-        key = event.key()
-        modifiers = event.modifiers()
-
-        if key == KEY.Key_Escape:
-            self.cursors.clear_secondary()
-            return True
-
-        if self._type_text(event):
-            return True
-
-        if modifiers == MOD.ControlModifier and key == KEY.Key_A:
-            self.cursors.clear_secondary()
-            return False
-
-        delete_ops = _DELETE_OPS.get(key)
-        if delete_ops is not None:
-            self.delete(delete_ops[bool(modifiers & MOD.ControlModifier)])
-            return True
-
-        # Alt+arrow combinations are hotkeys, like Ctrl+Alt+Up to add a cursor
-        if modifiers & MOD.AltModifier:
-            return False
-
-        move_ops = _MOVE_OPS.get(key)
-        if move_ops is None:
-            return self._run_command_key(event)
-        select = bool(modifiers & MOD.ShiftModifier)
-        move_op = move_ops[bool(modifiers & MOD.ControlModifier)]
-        if move_op is None:
-            self.cursors.smart_home(select)
-        else:
-            self.cursors.move(move_op, select)
-        return True
-
-    def _type_text(self, event: QtGui.QKeyEvent) -> bool:
-        """Insert the text of a typing key at every cursor
-
-        Returns whether the key typed text
-        """
-        text = event.text()
-        typing = (
-            text
-            and text.isprintable()
-            and event.modifiers() & ~_TEXT_MODIFIERS in (MOD.NoModifier, _ALTGR)
-        )
-        if not typing:
-            self._can_join = False
-            return False
-        # Typing a word is a single undo step, so each character joins the last
-        is_word = text.isalnum() or text == "_"
-        self.insert_text(text, join_edit=self._can_join and is_word)
-        self._can_join = is_word
-        return True
-
-    def _run_command_key(self, event: QtGui.QKeyEvent) -> bool:
-        """Run the editor command for Tab, Enter, or a clipboard/undo shortcut"""
-        key = event.key()
-        if key == KEY.Key_Tab:
-            if self.options["indent_using_tabs"]:
-                self.insert_text("\t")
-            else:
-                self.insert_text(" " * self.options["space_indent_width"])
-            return True
-        # Key_Enter is the numpad
-        if key in (KEY.Key_Return, KEY.Key_Enter):
-            self.insert_text("\n")
-            return True
-        for modifier, command in self._command_keys.get(key, ()):
-            if event.modifiers() & modifier:
-                command()
-                return True
-        return False
-
     def dropEvent(self, event: QtGui.QDropEvent) -> None:
         """Drop text through a TrackedCursor, so the tree sees the edit"""
-        if not event.mimeData().hasText() and not event.mimeData().hasFormat(MIME):
+        if not event.mimeData().hasText() and not has_multi_copy(event.mimeData()):
             event.ignore()
             return
 
@@ -515,7 +407,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                 self.citer.mark_cursor_completed()
 
     def copy(self) -> None:
-        """Copy the text of every cursor to the clipboard, see clipboard.py"""
+        """Copy the text of every cursor to the clipboard, see cursors/clipboard.py"""
         texts = self.cursors.selected_texts()
         if self.options["copy_indents_as_spaces"]:
             width = self.options["space_indent_width"]

@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING, TypeVar
 from Qt import QtCore, QtGui
 
 from ...languages import language_spec
-from ...utils import KEY, MOD, utf16_to_index
+from ...tracked_document import utf16_to_index
+from ...utils import KEY, MOD
 from .. import Behavior
 from .popup import CompletionPopup
 from .types import Completion, CompletionContext, Provider

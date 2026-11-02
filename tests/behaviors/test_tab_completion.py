@@ -44,9 +44,9 @@ def completion_editor(editor):
     return editor
 
 
-def type_text(qtbot, editor, text: str):
+def type_text(editor, text: str):
     for char in text:
-        simulate_keypress(qtbot, editor, KEY.Key_unknown, char)
+        simulate_keypress(editor, KEY.Key_unknown, char)
 
 
 def popup(editor):
@@ -104,79 +104,78 @@ class TestMainPythonProvider:
 
 class TestCompletionPopup:
     def test_typing_shows_matching_completions(self, qtbot, completion_editor):
-        type_text(qtbot, completion_editor, "co")
+        type_text(completion_editor, "co")
         wait_for_popup(qtbot, completion_editor)
         assert shown_texts(completion_editor) == ["compute"]
 
     def test_filter_narrows_and_refreshes(self, qtbot, completion_editor):
-        type_text(qtbot, completion_editor, "al")
+        type_text(completion_editor, "al")
         wait_for_popup(qtbot, completion_editor)
         assert shown_texts(completion_editor) == ["alpha"]
 
         # A new word asks the providers again, instead of reusing the old items
-        simulate_keypress(qtbot, completion_editor, KEY.Key_Escape)
-        type_text(qtbot, completion_editor, " Ca")
+        simulate_keypress(completion_editor, KEY.Key_Escape)
+        type_text(completion_editor, " Ca")
         wait_for_popup(qtbot, completion_editor)
         assert shown_texts(completion_editor) == ["Calculator"]
 
     def test_tab_accepts(self, qtbot, completion_editor):
-        type_text(qtbot, completion_editor, "Calc")
+        type_text(completion_editor, "Calc")
         wait_for_popup(qtbot, completion_editor)
-        simulate_keypress(qtbot, completion_editor, KEY.Key_Tab)
+        simulate_keypress(completion_editor, KEY.Key_Tab)
         assert completion_editor.toPlainText() == SAMPLE + "Calculator"
         assert not popup(completion_editor).isVisible()
 
     def test_tab_accepts_when_added_after_smart_indent(self, qtbot, completion_editor):
         # Like turning completion back on in PrEditor, after the other behaviors
         completion_editor.add_behavior(TabCompletion).add_provider(IdentifierProvider)
-        type_text(qtbot, completion_editor, "Calc")
+        type_text(completion_editor, "Calc")
         wait_for_popup(qtbot, completion_editor)
-        simulate_keypress(qtbot, completion_editor, KEY.Key_Tab)
+        simulate_keypress(completion_editor, KEY.Key_Tab)
         assert completion_editor.toPlainText() == SAMPLE + "Calculator"
 
-    def test_navigation_wraps(self, qtbot, completion_editor):
-        type_text(qtbot, completion_editor, "o")
+    def test_navigation_wraps(self, completion_editor):
+        type_text(completion_editor, "o")
         # One letter isn't enough to trigger completion
         assert not popup(completion_editor).isVisible()
         completion_editor.get_behavior(TabCompletion).completion_popup.show_completions(
             [Completion("one", "variable", 1), Completion("other", "variable", 1)], "o"
         )
-        simulate_keypress(qtbot, completion_editor, KEY.Key_Up)
+        simulate_keypress(completion_editor, KEY.Key_Up)
         assert popup(completion_editor).currentItem().text() == "other (variable)"
-        simulate_keypress(qtbot, completion_editor, KEY.Key_Down)
-        simulate_keypress(qtbot, completion_editor, KEY.Key_Return)
+        simulate_keypress(completion_editor, KEY.Key_Down)
+        simulate_keypress(completion_editor, KEY.Key_Return)
         assert completion_editor.toPlainText() == SAMPLE + "one"
 
     def test_escape_hides_and_consumes(self, qtbot, completion_editor):
-        type_text(qtbot, completion_editor, "co")
+        type_text(completion_editor, "co")
         wait_for_popup(qtbot, completion_editor)
-        simulate_keypress(qtbot, completion_editor, KEY.Key_Escape)
+        simulate_keypress(completion_editor, KEY.Key_Escape)
         assert not popup(completion_editor).isVisible()
         assert completion_editor.toPlainText() == SAMPLE + "co"
 
     def test_backspace_hides_and_deletes(self, qtbot, completion_editor):
-        type_text(qtbot, completion_editor, "co")
+        type_text(completion_editor, "co")
         wait_for_popup(qtbot, completion_editor)
-        simulate_keypress(qtbot, completion_editor, KEY.Key_Backspace)
+        simulate_keypress(completion_editor, KEY.Key_Backspace)
         assert not popup(completion_editor).isVisible()
         assert completion_editor.toPlainText() == SAMPLE + "c"
 
-    def test_tab_indents_without_popup(self, qtbot, completion_editor):
-        simulate_keypress(qtbot, completion_editor, KEY.Key_Tab)
+    def test_tab_indents_without_popup(self, completion_editor):
+        simulate_keypress(completion_editor, KEY.Key_Tab)
         assert completion_editor.toPlainText() == SAMPLE + "    "
 
-    def test_no_completion_in_strings(self, qtbot, completion_editor):
-        type_text(qtbot, completion_editor, 'x = "co')
+    def test_no_completion_in_strings(self, completion_editor):
+        type_text(completion_editor, 'x = "co')
         # Run the debounced completion now, instead of waiting for the timer
         completion_editor.get_behavior(TabCompletion).refresh_completions()
         assert not popup(completion_editor).isVisible()
 
     def test_vim_keys(self, qtbot, completion_editor):
         completion_editor.options["vim_completion_keys"] = True
-        type_text(qtbot, completion_editor, "Calc")
+        type_text(completion_editor, "Calc")
         wait_for_popup(qtbot, completion_editor)
         simulate_keypress(
-            qtbot,
             completion_editor,
             KEY.Key_Y,
             modifiers=QtCore.Qt.KeyboardModifier.ControlModifier,
@@ -187,7 +186,7 @@ class TestCompletionPopup:
         assert identifier_before("x = os.path.jo", 14) == (12, "jo")
         assert identifier_before("x = abc1", 8) == (4, "abc1")
 
-    def test_no_completion_in_the_middle_of_a_word(self, qtbot, completion_editor):
+    def test_no_completion_in_the_middle_of_a_word(self, completion_editor):
         completion_editor.insertPlainText("Calcx")
         set_cursor_position(completion_editor, len(SAMPLE) + 4)
         completion_editor.get_behavior(TabCompletion).refresh_completions()
@@ -196,27 +195,27 @@ class TestCompletionPopup:
     def test_a_new_word_asks_the_providers_again(self, qtbot, completion_editor):
         """A word typed where an old one was doesn't reuse the old completions"""
         completion = completion_editor.get_behavior(TabCompletion)
-        type_text(qtbot, completion_editor, "Calc")
+        type_text(completion_editor, "Calc")
         wait_for_popup(qtbot, completion_editor)
-        simulate_keypress(qtbot, completion_editor, KEY.Key_Escape)
+        simulate_keypress(completion_editor, KEY.Key_Escape)
         for _ in range(4):
-            simulate_keypress(qtbot, completion_editor, KEY.Key_Backspace)
+            simulate_keypress(completion_editor, KEY.Key_Backspace)
         # Define a new name below, and type the same word in the same place
         end = len(SAMPLE)
         cursor = completion_editor.textCursor()
         cursor.setPosition(end)
         cursor.insertText("\nCalcium = 1")
         set_cursor_position(completion_editor, end)
-        type_text(qtbot, completion_editor, "Calc")
+        type_text(completion_editor, "Calc")
         completion.refresh_completions()
         assert shown_texts(completion_editor) == ["Calcium", "Calculator"]
 
-    def test_completes_at_the_start_of_the_document(self, qtbot, completion_editor):
+    def test_completes_at_the_start_of_the_document(self, completion_editor):
         """Nothing shown yet doesn't count as already completing at line 0"""
         set_cursor_position(completion_editor, 0)
         completion_editor.insertPlainText("\n")
         set_cursor_position(completion_editor, 0)
-        type_text(qtbot, completion_editor, "Calc")
+        type_text(completion_editor, "Calc")
         completion_editor.get_behavior(TabCompletion).refresh_completions()
         assert shown_texts(completion_editor) == ["Calculator"]
 

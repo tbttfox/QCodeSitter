@@ -4,7 +4,8 @@ from typing import TYPE_CHECKING
 
 from Qt import QtGui
 
-from ..utils import KEY, MM, MO, len16, utf16_to_index
+from ..tracked_document import len16, utf16_to_index
+from ..utils import KEY, MM, MO
 from . import Behavior
 
 if TYPE_CHECKING:

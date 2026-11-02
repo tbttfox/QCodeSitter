@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from Qt import QtCore, QtGui, QtWidgets
 
 from ...gui_colors import GuiColors, gui_color
-from ...utils import len16
+from ...tracked_document import len16
 from .types import Completion
 
 if TYPE_CHECKING:

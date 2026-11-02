@@ -44,6 +44,16 @@ class MultiCursorPaint(Behavior):
         self.secondary_cursor_color = gui_color(colors, "secondary_cursor")
         self.secondary_selection_color = gui_color(colors, "secondary_selection")
 
+    @property
+    def cursors_visible(self) -> bool:
+        """Whether the cursors are drawn right now, which toggles as they blink"""
+        return self._blink_state
+
+    @cursors_visible.setter
+    def cursors_visible(self, visible: bool) -> None:
+        self._blink_state = visible
+        self.editor.viewport().update()
+
     def on_cursors_changed(self) -> None:
         if self.editor.cursors.secondary:
             self._update_selections()
@@ -92,11 +102,9 @@ class MultiCursorPaint(Behavior):
     def _update_blink(self) -> None:
         if not self.editor.hasFocus():
             if self._blink_state:
-                self._blink_state = False
-                self.editor.viewport().update()
+                self.cursors_visible = False
             return
-        self._blink_state = not self._blink_state
-        self.editor.viewport().update()
+        self.cursors_visible = not self._blink_state
 
     def _draw_cursor_at_position(
         self,

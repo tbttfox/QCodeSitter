@@ -16,50 +16,43 @@ from tests.helpers import (
 
 
 class TestSingleLineComment:
-    """Test commenting/uncommenting a single line (no selection)."""
-
-    def test_comment_single_line(self, editor, qtbot):
-        """Test commenting a single uncommented line."""
+    def test_comment_single_line(self, editor):
         editor.setPlainText("x = 1")
         set_cursor_position(editor, 2)
         behavior = editor.get_behavior(CommentToggle)
         behavior.toggle_comment()
         assert editor.toPlainText() == "# x = 1"
 
-    def test_uncomment_single_line(self, editor, qtbot):
-        """Test uncommenting a single commented line."""
+    def test_uncomment_single_line(self, editor):
         editor.setPlainText("# x = 1")
         set_cursor_position(editor, 3)
         behavior = editor.get_behavior(CommentToggle)
         behavior.toggle_comment()
         assert editor.toPlainText() == "x = 1"
 
-    def test_comment_indented_line(self, editor, qtbot):
-        """Test commenting an indented line inserts comment after indent."""
+    def test_comment_indented_line(self, editor):
+        """The comment goes after the indent"""
         editor.setPlainText("    x = 1")
         set_cursor_position(editor, 6)
         behavior = editor.get_behavior(CommentToggle)
         behavior.toggle_comment()
         assert editor.toPlainText() == "    # x = 1"
 
-    def test_uncomment_indented_line(self, editor, qtbot):
-        """Test uncommenting an indented commented line."""
+    def test_uncomment_indented_line(self, editor):
         editor.setPlainText("    # x = 1")
         set_cursor_position(editor, 6)
         behavior = editor.get_behavior(CommentToggle)
         behavior.toggle_comment()
         assert editor.toPlainText() == "    x = 1"
 
-    def test_comment_empty_line(self, editor, qtbot):
-        """Test toggling comment on an empty line does nothing."""
+    def test_comment_empty_line(self, editor):
         editor.setPlainText("")
         set_cursor_position(editor, 0)
         behavior = editor.get_behavior(CommentToggle)
         behavior.toggle_comment()
         assert editor.toPlainText() == ""
 
-    def test_comment_whitespace_only_line(self, editor, qtbot):
-        """Test toggling comment on whitespace-only line does nothing."""
+    def test_comment_whitespace_only_line(self, editor):
         editor.setPlainText("    ")
         set_cursor_position(editor, 2)
         behavior = editor.get_behavior(CommentToggle)
@@ -68,26 +61,21 @@ class TestSingleLineComment:
 
 
 class TestMultiLineComment:
-    """Test commenting/uncommenting with a selection spanning multiple lines."""
-
-    def test_comment_selected_lines(self, editor, qtbot):
-        """Test commenting multiple selected lines."""
+    def test_comment_selected_lines(self, editor):
         editor.setPlainText("x = 1\ny = 2\nz = 3")
         set_cursor_selection(editor, 0, 11)  # Select first two lines
         behavior = editor.get_behavior(CommentToggle)
         behavior.toggle_comment()
         assert editor.toPlainText() == "# x = 1\n# y = 2\nz = 3"
 
-    def test_uncomment_selected_lines(self, editor, qtbot):
-        """Test uncommenting multiple selected commented lines."""
+    def test_uncomment_selected_lines(self, editor):
         editor.setPlainText("# x = 1\n# y = 2\nz = 3")
         set_cursor_selection(editor, 0, 15)  # Select first two lines
         behavior = editor.get_behavior(CommentToggle)
         behavior.toggle_comment()
         assert editor.toPlainText() == "x = 1\ny = 2\nz = 3"
 
-    def test_mixed_lines_get_commented(self, editor, qtbot):
-        """Test mixed commented/uncommented lines all get commented."""
+    def test_mixed_lines_get_commented(self, editor):
         editor.setPlainText("# x = 1\ny = 2\nz = 3")
         set_cursor_selection(editor, 0, 18)  # Select all lines
         behavior = editor.get_behavior(CommentToggle)
@@ -98,8 +86,8 @@ class TestMultiLineComment:
         assert lines[1] == "# y = 2"
         assert lines[2] == "# z = 3"
 
-    def test_comment_respects_min_indent(self, editor, qtbot):
-        """Test commenting respects minimum indentation of selected lines."""
+    def test_comment_respects_min_indent(self, editor):
+        """The comments line up at the smallest indent of the selected lines"""
         editor.setPlainText("    x = 1\n        y = 2\n    z = 3")
         set_cursor_selection(editor, 0, 31)  # Select all
         behavior = editor.get_behavior(CommentToggle)
@@ -110,8 +98,7 @@ class TestMultiLineComment:
         assert lines[1] == "    #     y = 2"  # Extra indent preserved after comment
         assert lines[2] == "    # z = 3"
 
-    def test_comment_skips_empty_lines(self, editor, qtbot):
-        """Test commenting skips empty lines in selection."""
+    def test_comment_skips_empty_lines(self, editor):
         editor.setPlainText("x = 1\n\ny = 2")
         set_cursor_selection(editor, 0, 12)  # Select all
         behavior = editor.get_behavior(CommentToggle)
@@ -122,8 +109,7 @@ class TestMultiLineComment:
         assert lines[1] == ""
         assert lines[2] == "# y = 2"
 
-    def test_uncomment_with_empty_lines(self, editor, qtbot):
-        """Test uncommenting with empty lines in between."""
+    def test_uncomment_with_empty_lines(self, editor):
         editor.setPlainText("# x = 1\n\n# y = 2")
         set_cursor_selection(editor, 0, 16)  # Select all
         behavior = editor.get_behavior(CommentToggle)
@@ -136,10 +122,7 @@ class TestMultiLineComment:
 
 
 class TestMultiCursorComment:
-    """Test comment toggle with multiple cursors."""
-
-    def test_multicursor_comment(self, editor, qtbot):
-        """Test commenting with multiple cursors on different lines."""
+    def test_multicursor_comment(self, editor):
         editor.setPlainText("x = 1\ny = 2\nz = 3")
         set_cursor_position(editor, 2)  # On first line
         editor.cursors.secondary = [
@@ -154,8 +137,7 @@ class TestMultiCursorComment:
         assert lines[1] == "# y = 2"
         assert lines[2] == "# z = 3"
 
-    def test_multicursor_uncomment(self, editor, qtbot):
-        """Test uncommenting with multiple cursors."""
+    def test_multicursor_uncomment(self, editor):
         editor.setPlainText("# x = 1\n# y = 2\n# z = 3")
         set_cursor_position(editor, 3)  # On first line
         editor.cursors.secondary = [
@@ -170,8 +152,8 @@ class TestMultiCursorComment:
         assert lines[1] == "y = 2"
         assert lines[2] == "z = 3"
 
-    def test_multicursor_with_selection(self, editor, qtbot):
-        """Test multi-cursor where one cursor has a selection."""
+    def test_multicursor_with_selection(self, editor):
+        """One cursor has a selection, and the other doesn't"""
         editor.setPlainText("x = 1\ny = 2\nz = 3")
         # Primary cursor selects first two lines
         set_cursor_selection(editor, 0, 11)
@@ -189,10 +171,7 @@ class TestMultiCursorComment:
 
 
 class TestCommentToggleEdgeCases:
-    """Test edge cases for comment toggling."""
-
-    def test_toggle_roundtrip(self, editor, qtbot):
-        """Test that comment then uncomment returns to original."""
+    def test_toggle_roundtrip(self, editor):
         original = "def foo():\n    return 1"
         editor.setPlainText(original)
         set_cursor_selection(editor, 0, len(original))
@@ -201,8 +180,7 @@ class TestCommentToggleEdgeCases:
         behavior.toggle_comment()
         assert editor.toPlainText() == original
 
-    def test_comment_preserves_other_lines(self, editor, qtbot):
-        """Test that commenting doesn't affect lines outside selection."""
+    def test_comment_preserves_other_lines(self, editor):
         editor.setPlainText("a = 1\nb = 2\nc = 3")
         set_cursor_selection(editor, 6, 11)  # Select only "b = 2"
         behavior = editor.get_behavior(CommentToggle)
@@ -213,14 +191,12 @@ class TestCommentToggleEdgeCases:
         assert lines[1] == "# b = 2"
         assert lines[2] == "c = 3"
 
-    def test_uncomment_no_trailing_space(self, editor, qtbot):
-        """Test uncommenting a line where comment has no trailing space."""
+    def test_uncomment_no_trailing_space(self, editor):
         editor.setPlainText("#x = 1")
         set_cursor_position(editor, 2)
         behavior = editor.get_behavior(CommentToggle)
         behavior.toggle_comment()
         assert editor.toPlainText() == "x = 1"
 
-    def test_behavior_exists(self, editor, qtbot):
-        """Test CommentToggle behavior is registered."""
+    def test_behavior_exists(self, editor):
         assert editor.get_behavior(CommentToggle) is not None
