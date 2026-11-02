@@ -172,4 +172,4 @@ class TreeManager(QtCore.QObject):
 
     @property
     def root_node(self) -> Node | None:
-        return self.tree.root_node if self.tree else None
+        return self.tree.root_node if self.tree is not None else None

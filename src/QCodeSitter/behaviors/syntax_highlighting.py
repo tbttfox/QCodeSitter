@@ -35,8 +35,6 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
         super().__init__(document)
         self.tree_manager = tree_manager
         self._doc = document
-        # Turned off while the tree doesn't match the document
-        self.enabled = True
         self.query = query
         # Tree-sitter can't evaluate text predicates like #eq? and #match? on our
         # UTF-16 trees, so they are evaluated against the document text instead
@@ -85,7 +83,7 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
     def highlightBlock(self, text: str) -> None:
         tree = self.tree_manager.tree
         block = self.currentBlock()
-        if not self.enabled or tree is None or not block.isValid():
+        if tree is None or not block.isValid():
             return
 
         # Qt positions are UTF-16 code units, but python's len counts code points
@@ -125,22 +123,10 @@ class SyntaxHighlighting(Behavior):
         super().__init__(editor)
         self._syntax: SyntaxSpecs = {}
         self.highlighter: TreeSitterHighlighter | None = None
-        self.connect(self.editor.aboutToUndoRedo, self._on_about_to_undo_redo)
-        self.connect(self.editor.undoRedoFinished, self._on_undo_redo_finished)
         self.connect(
             self.editor.tree_manager.languageChanged, self._rebuild_highlighter
         )
         self.watch_options({"syntax": self._set_syntax})
-
-    def _on_about_to_undo_redo(self) -> None:
-        # The tree is out of date until the editor reparses after the undo
-        if self.highlighter:
-            self.highlighter.enabled = False
-
-    def _on_undo_redo_finished(self) -> None:
-        if self.highlighter:
-            self.highlighter.enabled = True
-            self.highlighter.rehighlight()
 
     def _set_syntax(self, syntax: SyntaxSpecs) -> None:
         self._syntax = syntax
@@ -172,7 +158,7 @@ class SyntaxHighlighting(Behavior):
         self.highlighter = None
 
     def _on_reparsed(self) -> None:
-        if self.highlighter is None or not self.highlighter.enabled:
+        if self.highlighter is None:
             return
         changed_rows = self.editor.tree_manager.changed_rows
         if changed_rows is None:

@@ -366,8 +366,32 @@ class TestUndoRedo:
         )
         assert editor.toPlainText() == "Hello"
 
+    def test_undo_and_redo_rebuild_the_tree(self, editor):
+        editor.setPlainText("x = 1")
+        set_cursor_position(editor, 5)
+        editor.insert_text("\ndef f():\n    pass")
+        editor.undo()
+        assert editor.toPlainText() == "x = 1"
+        assert_tree_matches_fresh_parse(editor)
+        editor.redo()
+        assert editor.toPlainText() == "x = 1\ndef f():\n    pass"
+        assert_tree_matches_fresh_parse(editor)
+
+    def test_set_plain_text_without_undo_rebuilds_the_tree(self, editor):
+        # Qt's edits must still be noticed with undo off
+        editor.setUndoRedoEnabled(False)
+        editor.setPlainText("x = 1")
+        editor.appendPlainText("y = 2")
+        assert_tree_matches_fresh_parse(editor)
+
 
 class TestDocumentState:
+    def test_document_cant_be_replaced(self, editor):
+        doc = editor.document()
+        with pytest.raises(NotImplementedError):
+            editor.setDocument(QtGui.QTextDocument())
+        assert editor.document() is doc
+
     def test_set_plain_text(self, editor):
         editor.setPlainText("Test content")
         assert editor.toPlainText() == "Test content"
@@ -467,6 +491,24 @@ class TestEditsOutsideTheKeyHandlers:
         editor.setPlainText("x = 1")
         editor.appendPlainText("y = 2")
         assert editor.toPlainText() == "x = 1\ny = 2"
+        assert_tree_matches_fresh_parse(editor)
+
+    def test_append_html(self, editor):
+        editor.setPlainText("x = 1")
+        editor.cursors.replace_all([CursorState(0, 0), CursorState(5, 5)])
+        editor.appendHtml("<b>y = 2</b>")
+        assert editor.toPlainText() == "x = 1\ny = 2"
+        assert editor.cursors.secondary == []
+        assert_tree_matches_fresh_parse(editor)
+
+    def test_qt_edit_before_an_error_still_resyncs(self, editor):
+        """An untracked edit followed by an exception rebuilds the tree anyway"""
+        self.two_cursors(editor)
+        with pytest.raises(RuntimeError), editor._qt_edits():
+            QtGui.QTextCursor(editor.document()).insertText("x = 1\n")
+            raise RuntimeError
+        assert editor.toPlainText() == "x = 1\na\nb"
+        assert editor.cursors.secondary == []
         assert_tree_matches_fresh_parse(editor)
 
     def test_context_menu_cuts_every_cursor(self, editor):

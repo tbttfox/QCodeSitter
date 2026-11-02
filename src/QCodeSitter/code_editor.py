@@ -36,8 +36,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     # Emitted with (QPaintEvent, QPainter) to let behaviors paint over the viewport
     behaviorPaint = QtCore.Signal(object, object)
-    aboutToUndoRedo = QtCore.Signal()
-    # Emitted after an undo or redo, once the tree has been reparsed
+    # Emitted after an undo or redo, once the tree has been reparsed. Behaviors
+    # that follow the tree can use TreeManager.reparsed instead
     undoRedoFinished = QtCore.Signal()
 
     def __init__(
@@ -46,7 +46,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         super().__init__(parent=parent)
         self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._doc = TrackedDocument()
-        self.setDocument(self._doc)
+        super().setDocument(self._doc)
         self._selections: dict[str, list[QtWidgets.QTextEdit.ExtraSelection]] = {}
         self._behaviors: list[Behavior] = []
         self._keypress_behaviors: list[Behavior] = []
@@ -84,10 +84,13 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         return TrackedCursor(self._doc, super().textCursor())
 
     def document(self) -> TrackedDocument:
-        doc = super().document()
-        if not isinstance(doc, TrackedDocument):
-            raise TypeError("CodeEditor only works with a TrackedDocument")
-        return doc
+        return self._doc
+
+    def setDocument(self, document: QtGui.QTextDocument) -> None:
+        """Not supported. The tree, cursors and behaviors are bound to the editor's
+        own TrackedDocument
+        """
+        raise NotImplementedError("CodeEditor can't change its TrackedDocument")
 
     @contextmanager
     def edit_session(self) -> Iterator[None]:
@@ -275,12 +278,20 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     @contextmanager
     def _qt_edits(self) -> Iterator[None]:
-        """Rebuild the tree if Qt edits the document itself, without a TrackedCursor"""
+        """Rebuild the tree if Qt edits the document itself
+
+        Qt's own edits don't go through a TrackedCursor, so tree-sitter isn't told
+        about them, and they don't update the secondary cursors, which are dropped.
+        Every edit changes the revision, even with undo off. The resync also
+        runs if the block raises, so an edit made before the error isn't lost
+        """
         revision = self._doc.revision()
-        yield
-        if self._doc.revision() != revision:
-            self.cursors.clear_secondary()
-            self.tree_manager.parse_from_scratch()
+        try:
+            yield
+        finally:
+            if self._doc.revision() != revision:
+                self.cursors.clear_secondary()
+                self.tree_manager.parse_from_scratch()
 
     def contextMenuEvent(self, event: QtGui.QContextMenuEvent) -> None:
         self.create_context_menu().exec_(event.globalPos())
@@ -354,10 +365,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     # ------------------------------------------------------------------
 
     def setPlainText(self, text: str) -> None:
-        self.cursors.clear_secondary()
-        super().setPlainText(text)
-        # This doesn't go through a TrackedCursor, so the tree has to be rebuilt
-        self.tree_manager.parse_from_scratch()
+        with self._qt_edits():
+            super().setPlainText(text)
 
     def insertPlainText(self, text: str) -> None:
         """Type text at every cursor, like `insert_text`"""
@@ -365,9 +374,13 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def appendPlainText(self, text: str) -> None:
         """Add a line of text to the end of the document"""
-        self.cursors.clear_secondary()
-        super().appendPlainText(text)
-        self.tree_manager.parse_from_scratch()
+        with self._qt_edits():
+            super().appendPlainText(text)
+
+    def appendHtml(self, html: str) -> None:
+        """Add a paragraph of html to the end of the document"""
+        with self._qt_edits():
+            super().appendHtml(html)
 
     def clear(self) -> None:
         self.setPlainText("")
@@ -379,13 +392,9 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self._undo_redo(super().redo)
 
     def _undo_redo(self, action: Callable[[], None]) -> None:
-        # Qt's undo stack doesn't know about the secondary cursors, and its edits
-        # don't go through a TrackedCursor. So drop the secondary cursors first,
-        # and rebuild the tree after Qt applies the change
-        self.cursors.clear_secondary()
-        self.aboutToUndoRedo.emit()
-        action()
-        self.tree_manager.parse_from_scratch()
+        # Qt's undo stack doesn't know about the secondary cursors
+        with self._qt_edits():
+            action()
         self.undoRedoFinished.emit()
 
     # The public editing methods each make one undo step and one reparse
