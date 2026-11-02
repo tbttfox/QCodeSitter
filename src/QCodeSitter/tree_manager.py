@@ -22,7 +22,7 @@ class TreeManager(QtCore.QObject):
         self.document = document
         self.parser: Parser | None = None
         self.tree: Tree | None = None
-        self._paused = False
+        self._pause_depth = 0
         # Whether an edit was made while paused, so unpausing has to reparse
         self._reparse_pending = False
 
@@ -40,7 +40,7 @@ class TreeManager(QtCore.QObject):
 
     @property
     def is_paused(self) -> bool:
-        return self._paused
+        return self._pause_depth > 0
 
     def set_language(self, language: Language | None) -> None:
         """Change the language, and parse the document again"""
@@ -78,15 +78,20 @@ class TreeManager(QtCore.QObject):
         self.reparsed.emit()
 
     def pause(self) -> None:
-        """Hold reparses until `unpause`, so a group of edits is parsed once"""
-        self._paused = True
-        self._reparse_pending = False
+        """Hold reparses until `unpause`, so a group of edits is parsed once
+
+        Pauses nest, and only the unpause matching the first pause reparses
+        """
+        if self._pause_depth == 0:
+            self._reparse_pending = False
+        self._pause_depth += 1
 
     def unpause(self) -> None:
-        if not self._paused:
+        if self._pause_depth == 0:
             return
-        self._paused = False
-        if self._reparse_pending:
+        self._pause_depth -= 1
+        if self._pause_depth == 0 and self._reparse_pending:
+            self._reparse_pending = False
             self.reparse()
 
     def _track_edit_rows(
@@ -135,7 +140,7 @@ class TreeManager(QtCore.QObject):
 
     def reparse(self) -> None:
         """Reparse incrementally after edits, recording which rows changed"""
-        if self._paused:
+        if self._pause_depth:
             self._reparse_pending = True
             return
 

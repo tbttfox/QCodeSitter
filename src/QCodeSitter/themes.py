@@ -2,28 +2,20 @@
 
 A theme has an optional "palette" of named colors, "gui" colors for the editor
 and its behaviors (see gui_colors.py), and "syntax" specs keyed by tree-sitter
-capture name. Gui and syntax colors can be hex colors or palette names.
+capture name (see syntax_specs.py for their format). Gui and syntax colors can
+be hex colors or palette names.
 """
 
 from __future__ import annotations
 
 import warnings
 from collections.abc import Mapping
-from typing import TypedDict, TypeVar
+from typing import TypedDict
 
 from Qt import QtGui
 
-from ..gui_colors import GuiColors
-
-
-class SyntaxSpec(TypedDict, total=False):
-    color: str
-    italic: bool
-    bold: bool
-
-
-# Tree-sitter capture name -> format
-SyntaxSpecs = dict[str, SyntaxSpec]
+from .gui_colors import GuiColors
+from .syntax_specs import SyntaxSpecs
 
 
 class _RequiredThemeSections(TypedDict):
@@ -34,8 +26,6 @@ class _RequiredThemeSections(TypedDict):
 class Theme(_RequiredThemeSections, total=False):
     palette: dict[str, str]
 
-
-T = TypeVar("T")
 
 # fmt: off
 
@@ -242,27 +232,13 @@ LIGHT_THEME: Theme = {
 
 
 def read_theme(theme: Theme) -> tuple[GuiColors, SyntaxSpecs]:
-    """Read a palette/gui/syntax theme and produce a color palette and syntax palette
+    """Resolve a theme's palette names into gui colors and syntax specs
 
-    Themes are structured in json with 3 keys: palette/gui/syntax
-
-    "palette" is the optional color palette. This dictionary allows you to have one place
-    to define the actual colors and give them nice names. The values of this dict must be
-    hex #RRGGBB or #AARRGGBB. As long as you can pass it as a single argument to QColor.
-
-    "gui" are the color requirements for the gui along with any Behavior specific colors
-    You can define custom gui colors in the hex format, or reference a key in the palette
-
-    "syntax" are the syntax highlighting formats. The values in this dictionary
-    are SyntaxSpec dictionaries with "color", "italic" and "bold" keys
-
-    Args:
-        theme: A json theme as defined above
+    See the module docstring for the theme format.
 
     Returns:
-        guicolors: A dictionary mapping gui color names to hex color strings. Also includes
-            the palette color names, unless a gui entry has the same name
-        syntaxcolors: A dictionary mapping treesitter syntax range names to format settings
+        The gui colors, which also include the palette's names unless a gui
+        color has the same name, and the syntax specs
     """
     pal = theme.get("palette", {})
 
@@ -291,48 +267,3 @@ def _resolve_color(where: str, value: str, names: Mapping[str, str]) -> str:
             stacklevel=3,
         )
     return value
-
-
-def resolve_capture(name: str, specs: Mapping[str, T]) -> T | None:
-    """Look up a treesitter capture name, falling back to its parent groups
-
-    For example "function.method.call" will check "function.method.call", then
-    "function.method", then "function". This mirrors how nvim resolves highlight groups
-
-    Args:
-        name: The dotted treesitter capture name
-        specs: A dictionary keyed by capture names
-
-    Returns:
-        The value of the most specific matching key, or None if nothing matches
-    """
-    parts = name.split(".")
-    while parts:
-        val = specs.get(".".join(parts))
-        if val is not None:
-            return val
-        parts.pop()
-    return None
-
-
-def overlay_syntax(base: SyntaxSpecs, overrides: SyntaxSpecs) -> SyntaxSpecs:
-    """Overlay syntax specs onto a base set of syntax specs
-
-    Overrides are resolved hierarchically, so an override for "keyword" will replace
-    the base "keyword.return" unless there is also an override for "keyword.return".
-
-    Args:
-        base: A syntax spec dictionary as returned by read_theme
-        overrides: A partial syntax spec dictionary
-
-    Returns:
-        A new syntax spec dictionary
-    """
-    names = set(base) | set(overrides)
-    out: SyntaxSpecs = {}
-    for name in names:
-        spec = resolve_capture(name, overrides)
-        if spec is None:
-            spec = base[name]
-        out[name] = spec.copy()
-    return out

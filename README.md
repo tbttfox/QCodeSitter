@@ -31,7 +31,7 @@ import tree_sitter_python as tspython
 from Qt import QtGui
 
 from QCodeSitter import CodeEditor, EditorOptions
-from QCodeSitter.highlighting.themes import DARK_THEME, read_theme
+from QCodeSitter.themes import DARK_THEME, read_theme
 from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
 from QCodeSitter.behaviors.smart_indent import SmartIndent
 from QCodeSitter.behaviors.line_numbers import LineNumbers

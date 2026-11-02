@@ -5,19 +5,16 @@ from typing import Literal
 from preditor.gui.workbox_mixin import WorkboxMixin
 from Qt import QtCore, QtGui, QtWidgets
 
-from .. import CodeEditor, default_options, install_default_behaviors
+from .. import CodeEditor
 from ..behaviors.tab_completion import TabCompletion
-from ..defaults import install_tab_completion
-from ..gui_colors import GuiColors, gui_color
-from ..highlighting.themes import (
-    DARK_THEME,
-    LIGHT_THEME,
-    SyntaxSpecs,
-    Theme,
-    overlay_syntax,
-    read_theme,
-    resolve_capture,
+from ..defaults import (
+    default_options,
+    install_default_behaviors,
+    install_tab_completion,
 )
+from ..gui_colors import GuiColors, gui_color
+from ..syntax_specs import SyntaxSpecs, overlay_syntax, resolve_capture
+from ..themes import DARK_THEME, LIGHT_THEME, Theme, read_theme
 from ..utils import MM, MO
 
 ThemeSection = Literal["gui", "syntax", "style"]
@@ -306,7 +303,7 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         self._theme_update_timer.start()
 
     # fmt: off
-    # GUI colors. See highlighting/themes.py for how these are used
+    # GUI colors. See themes.py for how these are used
     guiBg                  = _theme_property("gui", "bg")
     guiBgDim               = _theme_property("gui", "bg_dim")
     guiFg                  = _theme_property("gui", "fg")

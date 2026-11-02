@@ -11,6 +11,7 @@ node text it is given, which TrackedDocument.node_text reads from the document.
 
 from __future__ import annotations
 
+import functools
 import re
 import warnings
 from collections.abc import Callable
@@ -84,6 +85,19 @@ def lua_to_regex(pattern: str) -> str:
     return "".join(out)
 
 
+@functools.lru_cache(maxsize=256)
+def _compile_pattern(pattern: str) -> re.Pattern | None:
+    """Compile a #match? pattern once, or warn once and give None if it's invalid"""
+    try:
+        return re.compile(lua_to_regex(pattern))
+    except re.error as err:
+        warnings.warn(
+            f"Invalid #match? pattern {pattern!r} in a tree-sitter query: {err}",
+            stacklevel=2,
+        )
+        return None
+
+
 class QueryPredicates:
     """A predicate callback for QueryCursor.captures that evaluates the renamed
     text predicates using the text from a document
@@ -94,19 +108,6 @@ class QueryPredicates:
 
     def __init__(self, get_text: Callable[[Node], str]) -> None:
         self.get_text = get_text
-        self._regex_cache: dict[str, re.Pattern | None] = {}
-
-    def _regex(self, pattern: str) -> re.Pattern | None:
-        if pattern not in self._regex_cache:
-            try:
-                self._regex_cache[pattern] = re.compile(lua_to_regex(pattern))
-            except re.error as err:
-                warnings.warn(
-                    f"Invalid #match? pattern {pattern!r} in a highlight query: {err}",
-                    stacklevel=2,
-                )
-                self._regex_cache[pattern] = None
-        return self._regex_cache[pattern]
 
     def _eq_check(
         self, rest: PredicateArgs, captures: Captures
@@ -121,7 +122,7 @@ class QueryPredicates:
         return lambda text: text == other
 
     def _match_check(self, rest: PredicateArgs) -> Callable[[str], bool]:
-        regex = self._regex(rest[0][0])
+        regex = _compile_pattern(rest[0][0])
         if regex is None:
             # An invalid pattern can't match anything
             return lambda _text: False

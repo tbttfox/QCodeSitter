@@ -1,8 +1,8 @@
 """A tree-sitter powered code editor widget for Qt
 
 `default_options` and `install_default_behaviors` come from the defaults module,
-which is only imported when one of them is used, because it loads every
-built-in behavior and the python grammar
+which is only imported when one of them is used, because it imports every
+built-in behavior. Using the editor with your own behaviors doesn't need them
 """
 
 from __future__ import annotations

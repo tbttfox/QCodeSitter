@@ -16,7 +16,7 @@ from Qt import QtCore, QtGui
 from tree_sitter import Language
 
 from .gui_colors import GuiColors
-from .highlighting.themes import SyntaxSpecs
+from .syntax_specs import SyntaxSpecs
 
 
 class OptionsDict(TypedDict, total=False):

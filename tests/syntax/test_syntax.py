@@ -114,6 +114,26 @@ class TestTreeManager:
         assert reparses == [1]
         assert str(editor.tree_manager.root_node) == fresh_tree_str(editor)
 
+    def test_edits_inside_a_pause_wait_for_it(self, editor):
+        """An edit session inside a pause doesn't end the pause"""
+        editor.setPlainText("x = 1")
+        reparses = []
+        editor.tree_manager.reparsed.connect(lambda: reparses.append(1))
+
+        editor.tree_manager.pause()
+        set_cursor_position(editor, 5)
+        editor.insert_text("2")
+        editor.insert_text("3")
+        assert editor.tree_manager.is_paused
+        assert reparses == []
+
+        editor.tree_manager.unpause()
+        assert not editor.tree_manager.is_paused
+        assert reparses == [1]
+        assert str(editor.tree_manager.root_node) == fresh_tree_str(editor)
+        editor.tree_manager.unpause()
+        assert reparses == [1]
+
     def test_set_language_none(self, editor):
         changes = []
         editor.tree_manager.languageChanged.connect(lambda: changes.append(1))
@@ -133,7 +153,7 @@ class TestPythonIndentRules:
     @staticmethod
     def rules(editor, text: str) -> PythonIndentRules:
         editor.setPlainText(text)
-        return PythonIndentRules(editor.tree_manager, editor.document())
+        return PythonIndentRules(editor.tree_manager)
 
     def test_language_spec(self, editor):
         spec = language_spec(editor.tree_manager.language)
@@ -168,8 +188,7 @@ class TestPythonIndentRules:
         ],
     )
     def test_should_dedent_after(self, editor, text, row, col, expected):
-        line = text.split("\n")[row]
-        assert self.rules(editor, text).should_dedent_after(row, col, line) is expected
+        assert self.rules(editor, text).should_dedent_after(row, col) is expected
 
 
 class TestSyntaxHighlighting:
@@ -461,21 +480,25 @@ class TestTreeManagerQueries:
         second = query_byte_range(query, root, 12, root.end_byte)["name"]
         assert [n.start_point.row for n in second] == [1]
 
-    def test_query_byte_range_failure_is_empty(self, editor):
+    def test_predicate_errors_propagate(self, editor):
         editor.setPlainText("x = 1")
         query = Query(
             editor.tree_manager.language, '((identifier) @name (#qcs-eq? @name "x"))'
         )
         root = editor.tree_manager.root_node
 
-        def failing_predicate(*_args):
-            raise ValueError("bad predicate")
+        def failing_get_text(_node):
+            raise ValueError("bad text")
 
-        with pytest.warns(UserWarning, match="bad predicate"):
-            captures = query_byte_range(
-                query, root, 0, root.end_byte, failing_predicate
-            )
-        assert captures == {}
+        with pytest.raises(ValueError, match="bad text"):
+            query_byte_range(query, root, 0, root.end_byte, failing_get_text)
+
+    def test_reversed_byte_range_is_empty(self, editor):
+        editor.setPlainText("x = 1")
+        query = Query(editor.tree_manager.language, "(identifier) @name")
+        root = editor.tree_manager.root_node
+        with pytest.warns(UserWarning, match="reversed byte range 5..2"):
+            assert query_byte_range(query, root, 5, 2) == {}
 
     def test_invalid_query_warns_once(self, python_language):
         with pytest.warns(UserWarning, match="Invalid tree-sitter query for python"):

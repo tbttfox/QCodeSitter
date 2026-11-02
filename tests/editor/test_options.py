@@ -24,7 +24,7 @@ from QCodeSitter.editor_options import (
     register_option,
     unregister_option,
 )
-from QCodeSitter.highlighting.themes import LIGHT_THEME, read_theme
+from QCodeSitter.themes import LIGHT_THEME, read_theme
 
 
 class TestEditorOptions:

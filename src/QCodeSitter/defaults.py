@@ -20,7 +20,7 @@ from .behaviors.syntax_highlighting import SyntaxHighlighting
 from .behaviors.tab_completion import TabCompletion
 from .behaviors.tab_completion.providers import IdentifierProvider
 from .editor_options import EditorOptions
-from .highlighting.themes import DARK_THEME, Theme, read_theme
+from .themes import DARK_THEME, Theme, read_theme
 
 if TYPE_CHECKING:
     from .behaviors import Behavior
