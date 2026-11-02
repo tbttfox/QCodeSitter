@@ -42,17 +42,16 @@ class HighlightMatchingSelection(Behavior):
             fmt.setBackground(self._match_hl)
             doc = self.editor.document()
             search_cursor = QtGui.QTextCursor(doc)
+            case_sensitive = QtGui.QTextDocument.FindFlag.FindCaseSensitively
 
             while True:
-                search_cursor = doc.find(selected_text, search_cursor)
+                search_cursor = doc.find(selected_text, search_cursor, case_sensitive)
                 if search_cursor.isNull():
                     break
 
                 # Qt already highlights the selection itself
-                if (
-                    search_cursor.position() != cursor.position()
-                    or search_cursor.anchor() != cursor.anchor()
-                ):
+                found = (search_cursor.selectionStart(), search_cursor.selectionEnd())
+                if found != (cursor.selectionStart(), cursor.selectionEnd()):
                     selection = QtWidgets.QTextEdit.ExtraSelection()
                     selection.cursor = search_cursor
                     selection.format = fmt

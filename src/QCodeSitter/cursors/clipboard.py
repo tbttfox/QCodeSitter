@@ -49,8 +49,3 @@ def split_multi_copy(source: QtCore.QMimeData, cursor_count: int) -> list[str] |
         parts.append(text[ptr : ptr + length])
         ptr += length + 1
     return parts
-
-
-def has_multi_copy(source: QtCore.QMimeData) -> bool:
-    """Whether mime data holds text copied from several cursors"""
-    return source.hasFormat(MIME)

@@ -44,11 +44,6 @@ class CursorState:
         self.anchor = cursor.anchor()
         self.position = cursor.position()
 
-    def offset(self, offset: int) -> None:
-        """Shift this state by a number of code units"""
-        self.anchor += offset
-        self.position += offset
-
     def build_cursor(self, document: QtGui.QTextDocument) -> QtGui.QTextCursor:
         return self.apply(QtGui.QTextCursor(document))
 

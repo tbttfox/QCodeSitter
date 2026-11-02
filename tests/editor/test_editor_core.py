@@ -8,7 +8,7 @@ and document management.
 from __future__ import annotations
 
 import pytest
-from Qt import QtCore, QtGui
+from Qt import QtCore, QtGui, QtWidgets
 
 from QCodeSitter.cursors.state import CursorState
 from QCodeSitter.gui_colors import gui_color
@@ -253,6 +253,17 @@ class TestCursorMovement:
 
 @pytest.mark.usefixtures("clipboard")
 class TestClipboardOperations:
+    def test_paste_with_no_mime_data(self, editor, monkeypatch):
+        # A clipboard that was never used has none on some platforms
+        class EmptyClipboard:
+            def mimeData(self):
+                return None
+
+        monkeypatch.setattr(QtWidgets.QApplication, "clipboard", EmptyClipboard)
+        editor.setPlainText("Hello")
+        editor.paste()
+        assert editor.toPlainText() == "Hello"
+
     def test_copy_selection(self, editor, clipboard):
         editor.setPlainText("Hello World")
         set_cursor_selection(editor, 0, 5)
@@ -273,6 +284,20 @@ class TestClipboardOperations:
         )
         assert editor.toPlainText() == "World"
         assert clipboard.text() == "Hello "
+
+    @pytest.mark.parametrize("cursors", [[0], [0, 2]])
+    def test_copy_and_cut_without_selection_keep_clipboard(
+        self, editor, clipboard, cursors
+    ):
+        clipboard.setText("keep")
+        editor.setPlainText("abc")
+        editor.cursors.replace_all([CursorState(pos, pos) for pos in cursors])
+        for key in (QtCore.Qt.Key.Key_C, QtCore.Qt.Key.Key_X):
+            simulate_keypress(
+                editor, key, modifiers=QtCore.Qt.KeyboardModifier.ControlModifier
+            )
+        assert clipboard.text() == "keep"
+        assert editor.toPlainText() == "abc"
 
     def test_paste_text(self, editor, clipboard):
         editor.setPlainText("")
@@ -374,12 +399,6 @@ class TestDocumentState:
         assert state.selectionStart() == 5
         assert state.selectionEnd() == 5
 
-    def test_cursor_state_offset(self):
-        state = CursorState(0, 5)
-        state.offset(10)
-        assert state.anchor == 10
-        assert state.position == 15
-
 
 class TestEscapeKey:
     def test_escape_exits_multi_cursor(self, editor_with_multicursor):
@@ -387,6 +406,19 @@ class TestEscapeKey:
         assert len(editor.cursors.secondary) == 2
         simulate_keypress(editor, QtCore.Qt.Key.Key_Escape)
         assert len(editor.cursors.secondary) == 0
+
+    def test_escape_goes_on_without_secondary_cursors(self, editor):
+        editor.setPlainText("ab")
+        event = QtGui.QKeyEvent(
+            QtCore.QEvent.Type.KeyPress,
+            QtCore.Qt.Key.Key_Escape,
+            QtCore.Qt.KeyboardModifier.NoModifier,
+        )
+        # Not handled, so a parent like a dialog can close on it
+        assert editor.keys.handle_key_press(event) is False
+        editor.cursors.replace_all([CursorState(0, 0), CursorState(1, 1)])
+        assert editor.keys.handle_key_press(event) is True
+        assert editor.cursors.secondary == []
 
 
 KEY = QtCore.Qt.Key
@@ -456,3 +488,13 @@ class TestEditsOutsideTheKeyHandlers:
         assert editor.toPlainText() == "aé\nb"
         assert editor.cursors.secondary == []
         assert_tree_matches_fresh_parse(editor)
+
+
+class TestExtraSelections:
+    def test_selections_are_copied(self, bare_editor):
+        given = [QtWidgets.QTextEdit.ExtraSelection()]
+        bare_editor.set_selections("test", given)
+        given.append(QtWidgets.QTextEdit.ExtraSelection())
+        assert len(bare_editor.selections("test")) == 1
+        bare_editor.selections("test").clear()
+        assert len(bare_editor.selections("test")) == 1

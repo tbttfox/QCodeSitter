@@ -16,6 +16,7 @@ from QCodeSitter.behaviors.line_numbers import LineNumbers
 from QCodeSitter.behaviors.overscroll import Overscroll
 from QCodeSitter.behaviors.smart_indent import SmartIndent
 from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
+from QCodeSitter.behaviors.tab_completion import TabCompletion
 from QCodeSitter.cursors.state import CursorState
 from tests.helpers import (
     get_cursor_positions,
@@ -56,6 +57,20 @@ class TestAutoBracket:
         simulate_keypress(editor, QtCore.Qt.Key.Key_Apostrophe, "'")
         assert editor.toPlainText() == "''"
         assert editor.textCursor().position() == 1
+
+    def test_apostrophe_inside_a_word_is_not_paired(self, editor):
+        editor.setPlainText("# don")
+        set_cursor_position(editor, 5)
+        simulate_keypress(editor, QtCore.Qt.Key.Key_Apostrophe, "'")
+        assert editor.toPlainText() == "# don'"
+        assert editor.textCursor().position() == 6
+
+    def test_quote_after_a_string_prefix_is_paired(self, editor):
+        editor.setPlainText("x = f")
+        set_cursor_position(editor, 5)
+        simulate_keypress(editor, QtCore.Qt.Key.Key_Apostrophe, "'")
+        assert editor.toPlainText() == "x = f''"
+        assert editor.textCursor().position() == 6
 
     def test_skip_closing_paren(self, editor):
         editor.setPlainText("()")
@@ -117,6 +132,17 @@ class TestAutoBracket:
         simulate_keypress(editor, QtCore.Qt.Key.Key_Backspace)
         assert editor.toPlainText() == "()"
 
+    def test_ctrl_backspace_deletes_a_word_not_the_pair(self, editor):
+        editor.setPlainText("foo()")
+        set_cursor_position(editor, 4)
+        simulate_keypress(
+            editor,
+            QtCore.Qt.Key.Key_Backspace,
+            "",
+            QtCore.Qt.KeyboardModifier.ControlModifier,
+        )
+        assert editor.toPlainText() == "foo)"
+
 
 class TestSmartIndent:
     @pytest.mark.parametrize(
@@ -140,6 +166,20 @@ class TestSmartIndent:
         set_cursor_position(editor, 9)
         simulate_keypress(editor, QtCore.Qt.Key.Key_Return)
         assert editor.toPlainText() == "    x = 1\n    "
+
+    def test_newline_at_start_of_indented_line(self, editor):
+        """Enter at column 0 moves the line down without adding indent"""
+        editor.setPlainText("    x = 1\n    y = 2")
+        set_cursor_position(editor, 10)
+        simulate_keypress(editor, QtCore.Qt.Key.Key_Return)
+        assert editor.toPlainText() == "    x = 1\n\n    y = 2"
+        assert editor.textCursor().position() == 11
+
+    def test_newline_at_start_of_blank_indented_line(self, editor):
+        editor.setPlainText("    x = 1\n    ")
+        set_cursor_position(editor, 10)
+        simulate_keypress(editor, QtCore.Qt.Key.Key_Return)
+        assert editor.toPlainText() == "    x = 1\n\n    "
 
     def test_tab_inserts_spaces(self, editor):
         editor.setPlainText("")
@@ -224,6 +264,40 @@ class TestBehaviorManagement:
     def test_get_nonexistent_behavior(self, bare_editor):
         assert bare_editor.get_behavior(LineNumbers) is None
 
+    def test_get_behavior_finds_subclasses(self, bare_editor):
+        class MyHighlighting(SyntaxHighlighting):
+            pass
+
+        behavior = bare_editor.add_behavior(MyHighlighting)
+        assert bare_editor.get_behavior(SyntaxHighlighting) is behavior
+        assert bare_editor.get_behavior(MyHighlighting) is behavior
+
+    def test_registry_matches_subclasses(self, editor):
+        editor.remove_behavior(TabCompletion)
+
+        class MyCompletion(TabCompletion):
+            pass
+
+        mine = editor.add_behavior(MyCompletion)
+        assert editor.get_behavior(TabCompletion) is mine
+        assert editor.remove_behavior(TabCompletion) is mine
+        assert editor.get_behavior(TabCompletion) is None
+
+        # Adding the base type replaces an installed subclass
+        editor.add_behavior(MyCompletion)
+        plain = editor.add_behavior(TabCompletion)
+        assert type(plain) is TabCompletion
+        assert editor.get_behavior(MyCompletion) is None
+
+    def test_indent_commands_work_outside_key_presses(self, editor):
+        editor.setPlainText("a\nb")
+        set_cursor_selection(editor, 0, 3)
+        smart_indent = editor.get_behavior(SmartIndent)
+        smart_indent.insert_indent()
+        assert editor.toPlainText() == "    a\n    b"
+        smart_indent.unindent()
+        assert editor.toPlainText() == "a\nb"
+
     def test_removed_behavior_stops_listening(self, editor):
         editor.remove_behavior(HighlightMatchingSelection)
         editor.setPlainText("foo foo")
@@ -298,6 +372,13 @@ class TestOverscroll:
         editor.remove_behavior(Overscroll)
         assert scrollbar.maximum() < extended
 
+    def test_remove_with_a_short_document(self, editor):
+        editor.setPlainText("x")
+        scrollbar = editor.verticalScrollBar()
+        editor.remove_behavior(Overscroll)
+        assert scrollbar.minimum() == 0
+        assert scrollbar.maximum() >= 0
+
     def test_shades_below_the_document(self, editor):
         editor.options["colors"] = {**editor.options["colors"], "outside_bg": "#123456"}
         editor.setPlainText("x")
@@ -318,6 +399,16 @@ class TestHighlightMatchingSelection:
         set_cursor_selection(editor, 8, 11)
         # Not the selection itself, which Qt already highlights
         assert self.ranges(editor) == [(0, 3), (16, 19)]
+
+    def test_skips_a_backward_selection_itself(self, editor):
+        editor.setPlainText("foo bar foo")
+        set_cursor_selection(editor, 3, 0)
+        assert self.ranges(editor) == [(8, 11)]
+
+    def test_matches_case(self, editor):
+        editor.setPlainText("foo Foo foo")
+        set_cursor_selection(editor, 0, 3)
+        assert self.ranges(editor) == [(8, 11)]
 
     def test_clears_when_the_selection_goes(self, editor):
         editor.setPlainText("foo foo")

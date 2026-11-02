@@ -9,18 +9,14 @@ from Qt import QtCore, QtGui, QtWidgets
 from tree_sitter import Language
 
 from .behaviors import Behavior
-from .cursors.clipboard import (
-    encode_multi_copy,
-    has_multi_copy,
-    split_multi_copy,
-    tabs_to_spaces,
-)
+from .cursors.clipboard import encode_multi_copy, split_multi_copy, tabs_to_spaces
 from .cursors.iterator import CursorIterator
+from .cursors.line_edits import edit_joined_spans
 from .cursors.multi import MultiCursor
 from .cursors.state import CursorState
 from .cursors.tracked import TrackedCursor
 from .editing_keys import EditingKeys
-from .editor_options import EditorOptions
+from .editor_options import EditorOptions, check_option_keys
 from .gui_colors import GuiColors, gui_color
 from .gutters import GutterLayout
 from .tracked_document import TrackedDocument
@@ -33,7 +29,9 @@ T_Behavior = TypeVar("T_Behavior", bound=Behavior)
 class CodeEditor(QtWidgets.QPlainTextEdit):
     """A multi-cursor plain text editor that keeps a tree-sitter parse tree
 
-    Features beyond plain editing are Behaviors added with `add_behavior`
+    Features beyond plain editing are Behaviors added with `add_behavior`.
+    add_behavior, remove_behavior and get_behavior all match a type and its
+    subclasses
     """
 
     # Emitted with (QPaintEvent, QPainter) to let behaviors paint over the viewport
@@ -69,6 +67,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             "colors": self._set_colors,
             "tab_indent_width": lambda _width: self._update_tab_stop(),
         }
+        check_option_keys(self._option_handlers)
         self.options.apply(self._option_handlers, self._option_handlers)
         self.options.optionsUpdated.connect(self._on_options_updated)
 
@@ -169,7 +168,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         Every source's selections are shown together, ordered by source name
         """
-        self._selections[source] = selections
+        self._selections[source] = list(selections)
         self._update_editor_selections()
 
     def clear_selections(self, source: str) -> None:
@@ -178,8 +177,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             self._update_editor_selections()
 
     def selections(self, source: str) -> list[QtWidgets.QTextEdit.ExtraSelection]:
-        """Get the extra selections set by a source"""
-        return self._selections.get(source, [])
+        """Get a copy of the extra selections set by a source"""
+        return list(self._selections.get(source, []))
 
     def _update_editor_selections(self) -> None:
         merged = []
@@ -192,7 +191,12 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     # ------------------------------------------------------------------
 
     def add_behavior(self, behavior_cls: type[T_Behavior]) -> T_Behavior:
-        """Add a behavior, replacing any existing behavior of the same type"""
+        """Add a behavior, replacing any installed behavior of that type or of a
+        subclass of it
+
+        Adding a subclass doesn't replace its base class; call
+        remove_behavior(Base) first to swap one in
+        """
         self.remove_behavior(behavior_cls)
         behavior = behavior_cls(self)
         self._behaviors.append(behavior)
@@ -205,8 +209,10 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         return behavior
 
     def remove_behavior(self, behavior_cls: type[T_Behavior]) -> T_Behavior | None:
-        """Remove the behavior of the given type, and return it if there was one"""
-        removed = [bh for bh in self._behaviors if type(bh) is behavior_cls]
+        """Remove the behaviors of a type or of its subclasses, and return the
+        first one if there was one
+        """
+        removed = [bh for bh in self._behaviors if isinstance(bh, behavior_cls)]
         if not removed:
             return None
         if len(removed) > 1:
@@ -226,8 +232,9 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         return removed[0]
 
     def get_behavior(self, behavior_cls: type[T_Behavior]) -> T_Behavior | None:
+        """Get the behavior of a type, or of a subclass of it"""
         for bh in self._behaviors:
-            if type(bh) is behavior_cls:
+            if isinstance(bh, behavior_cls):
                 return bh
         return None
 
@@ -312,7 +319,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def dropEvent(self, event: QtGui.QDropEvent) -> None:
         """Drop text through a TrackedCursor, so the tree sees the edit"""
-        if not event.mimeData().hasText() and not has_multi_copy(event.mimeData()):
+        # insertFromMimeData only inserts text, which multi-copy data also has
+        if not event.mimeData().text():
             event.ignore()
             return
 
@@ -373,13 +381,10 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def _undo_redo(self, action: Callable[[], None]) -> None:
         # Qt's undo stack doesn't know about the secondary cursors, and its edits
         # don't go through a TrackedCursor. So drop the secondary cursors first,
-        # and rebuild the tree once Qt has finished applying the change
+        # and rebuild the tree after Qt applies the change
         self.cursors.clear_secondary()
         self.aboutToUndoRedo.emit()
         action()
-        QtCore.QTimer.singleShot(0, self._after_undo_redo)
-
-    def _after_undo_redo(self) -> None:
         self.tree_manager.parse_from_scratch()
         self.undoRedoFinished.emit()
 
@@ -388,27 +393,43 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def insert_text(self, text: str, join_edit: bool = False) -> None:
         """Type text at every cursor, replacing their selections"""
         with self.edit_session():
-            for cursor in self.citer.iterate_cursors(join_edit=join_edit):
+            for cursor in self.citer.iterate_cursors(
+                join_edit=join_edit, complete_all=True
+            ):
                 cursor.insertText(text)
-                self.citer.mark_cursor_completed()
 
     def delete(self, movement: MO) -> None:
         """Delete each cursor's selection, or the text it would move over
+
+        Spans that overlap are deleted together, so a cursor whose span another
+        cursor deleted doesn't go on to delete more
 
         Args:
             movement: Like MO.PreviousCharacter for Backspace, or MO.NextWord
                 for Ctrl+Delete
         """
+
+        def span(cursor: QtGui.QTextCursor) -> tuple[int, int]:
+            if not cursor.hasSelection():
+                cursor.movePosition(movement, MM.KeepAnchor)
+            return cursor.selectionStart(), cursor.selectionEnd()
+
+        def delete_join(
+            cursor: QtGui.QTextCursor, joined: tuple[int, int], shift: int
+        ) -> None:
+            cursor.setPosition(joined[0] + shift)
+            cursor.setPosition(joined[1] + shift, MM.KeepAnchor)
+            cursor.removeSelectedText()
+
         with self.edit_session():
-            for cursor in self.citer.iterate_cursors():
-                if not cursor.hasSelection():
-                    cursor.movePosition(movement, MM.KeepAnchor)
-                cursor.removeSelectedText()
-                self.citer.mark_cursor_completed()
+            edit_joined_spans(self.citer, span, delete_join)
 
     def copy(self) -> None:
         """Copy the text of every cursor to the clipboard, see cursors/clipboard.py"""
         texts = self.cursors.selected_texts()
+        # Like Qt, copying nothing leaves the clipboard alone
+        if not any(texts):
+            return
         if self.options["copy_indents_as_spaces"]:
             width = self.options["space_indent_width"]
             texts = [tabs_to_spaces(t, width) for t in texts]
@@ -417,13 +438,15 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def cut(self) -> None:
         self.copy()
         with self.edit_session():
-            for cursor in self.citer.iterate_cursors():
+            for cursor in self.citer.iterate_cursors(complete_all=True):
                 if cursor.hasSelection():
                     cursor.removeSelectedText()
-                self.citer.mark_cursor_completed()
 
     def paste(self) -> None:
-        self.insertFromMimeData(QtWidgets.QApplication.clipboard().mimeData())
+        # An empty clipboard has no mime data on some platforms
+        source = QtWidgets.QApplication.clipboard().mimeData()
+        if source is not None:
+            self.insertFromMimeData(source)
 
     def insertFromMimeData(self, source: QtCore.QMimeData) -> None:
         """Insert mime data at every cursor, through TrackedCursors"""
@@ -436,6 +459,5 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             return
         with self.edit_session():
             # There is a part for every cursor, so this never runs out
-            for i, cursor in enumerate(self.citer.iterate_cursors()):
+            for i, cursor in enumerate(self.citer.iterate_cursors(complete_all=True)):
                 cursor.insertText(parts[i])
-                self.citer.mark_cursor_completed()

@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from Qt import QtGui
 
 from ..tracked_document import len16, utf16_to_index
-from ..utils import KEY, MM, MO
+from ..utils import KEY, MM, MO, MOD
 from . import Behavior
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor
+
+# Python string prefixes, which still get a pair of quotes when typed before one
+_STRING_PREFIXES = frozenset({"r", "u", "b", "f", "br", "rb", "fr", "rf"})
 
 
 class AutoBracket(Behavior):
@@ -33,12 +37,15 @@ class AutoBracket(Behavior):
         """Handle the cursors next to pairs, and leave the rest to the editor"""
         text = event.text()
         if event.key() == KEY.Key_Backspace:
-            self.delete_pair()
+            if event.modifiers() & MOD.ControlModifier:
+                # Ctrl+Backspace deletes a word, which EditingKeys does
+                return False
+            self._delete_pair()
         elif text in self._closing or text in self.pairs:
             if text in self._closing:
-                self.skip_closing(text)
+                self._skip_closing(text)
             if text in self.pairs:
-                self.insert_pair(text)
+                self._insert_pair(text)
         else:
             return False
         return self.editor.citer.all_completed()
@@ -54,7 +61,7 @@ class AutoBracket(Behavior):
             return text[index - 1 : index + 1]
         return None
 
-    def delete_pair(self) -> None:
+    def _delete_pair(self) -> None:
         """Backspace both halves of an empty pair"""
         citer = self.editor.citer
         for cursor in citer.iterate_cursors():
@@ -73,15 +80,15 @@ class AutoBracket(Behavior):
             cursor.removeSelectedText()
             citer.mark_cursor_completed()
 
-    def insert_pair(self, open_char: str) -> None:
+    def _insert_pair(self, open_char: str) -> None:
         """Insert an opening character and its closing pair
 
-        This runs after skip_closing, so any cursor right before a matching
+        This runs after _skip_closing, so any cursor right before a matching
         closing character has already been handled
         """
         close_char = self.pairs[open_char]
         citer = self.editor.citer
-        for cursor in citer.iterate_cursors():
+        for cursor in citer.iterate_cursors(complete_all=True):
             if cursor.hasSelection():
                 # Wrap the selection, and keep it selected inside the pair
                 selected_text = cursor.selectedText()
@@ -95,10 +102,12 @@ class AutoBracket(Behavior):
                 # Close the docstring, with the cursor inside it
                 cursor.insertText(open_char * 4)
                 cursor.movePosition(MO.Left, MM.MoveAnchor, 3)
+            elif open_char == "'" and self._after_word(cursor):
+                # An apostrophe inside a word, like don't
+                cursor.insertText(open_char)
             else:
                 cursor.insertText(open_char + close_char)
                 cursor.movePosition(MO.Left, MM.MoveAnchor, 1)
-            citer.mark_cursor_completed()
 
     @staticmethod
     def _typing_triple_quote(cursor: QtGui.QTextCursor, quote: str) -> bool:
@@ -107,7 +116,15 @@ class AutoBracket(Behavior):
         index = utf16_to_index(text, cursor.positionInBlock())
         return index >= 2 and text[index - 2 : index] == quote * 2
 
-    def skip_closing(self, close_char: str) -> None:
+    @staticmethod
+    def _after_word(cursor: QtGui.QTextCursor) -> bool:
+        """Whether the cursor follows a word that is not a string prefix"""
+        text = cursor.block().text()
+        index = utf16_to_index(text, cursor.positionInBlock())
+        word = re.search(r"\w*$", text[:index]).group()
+        return bool(word) and word.lower() not in _STRING_PREFIXES
+
+    def _skip_closing(self, close_char: str) -> None:
         """Step over a closing character instead of typing a second one"""
         citer = self.editor.citer
         for cursor in citer.iterate_cursors():

@@ -20,7 +20,8 @@ from QCodeSitter.behaviors.tab_completion.providers import (
     MainPythonProvider,
 )
 from QCodeSitter.behaviors.tab_completion.types import Provider
-from tests.helpers import set_cursor_position, simulate_keypress
+from QCodeSitter.cursors.state import CursorState
+from tests.helpers import get_cursor_positions, set_cursor_position, simulate_keypress
 
 KEY = QtCore.Qt.Key
 
@@ -281,11 +282,25 @@ class TestCompletionPopupWidget:
             "property (class)",
             "print (function)",
         ]
+        editor.insert_text("i")
         popup.update_filter("pri")
         assert popup.count() == 1
         popup.accept_completion()
         assert editor.toPlainText() == "print"
         assert not popup.isVisible()
+        popup.deleteLater()
+
+    def test_accept_completes_every_cursor(self, editor):
+        editor.setPlainText("pr\npr\nx")
+        editor.cursors.replace_all(
+            [CursorState(2, 2), CursorState(5, 5), CursorState(7, 7)]
+        )
+        popup = CompletionPopup(editor)
+        popup.show_completions([Completion("print", "function", 1)], "pr")
+        popup.accept_completion()
+        # The last cursor has no prefix before it, so it only gets the rest
+        assert editor.toPlainText() == "print\nprint\nxint"
+        assert get_cursor_positions(editor) == [5, 11, 16]
         popup.deleteLater()
 
     def test_no_matches_hides(self, editor):

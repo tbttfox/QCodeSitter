@@ -120,6 +120,15 @@ class TestWorkboxSettings:
         workbox.__set_auto_complete_enabled__(True)
         assert workbox.get_behavior(TabCompletion) is not None
 
+    def test_auto_complete_toggle_removes_a_subclass(self, workbox):
+        class MyCompletion(TabCompletion):
+            pass
+
+        workbox.remove_behavior(TabCompletion)
+        workbox.add_behavior(MyCompletion)
+        workbox.__set_auto_complete_enabled__(False)
+        assert workbox.get_behavior(TabCompletion) is None
+
 
 class TestTheme:
     @pytest.mark.parametrize("name", ["guiBg", "hlKeyword", "hlItalic"])

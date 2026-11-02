@@ -62,6 +62,15 @@ class TestEditingKeys:
             key_event(KEY.Key_Z, modifiers=MOD.ControlModifier)
         )
         assert bare_editor.toPlainText() == "    "
+        # Ctrl+Shift+Z redoes, instead of matching Ctrl+Z
+        assert keys.handle_key_press(
+            key_event(KEY.Key_Z, modifiers=MOD.ControlModifier | MOD.ShiftModifier)
+        )
+        assert bare_editor.toPlainText() == "    \t"
+        # Extra modifiers don't run a command, so Ctrl+Alt+C doesn't copy
+        assert not keys.handle_key_press(
+            key_event(KEY.Key_C, modifiers=MOD.ControlModifier | MOD.AltModifier)
+        )
         # An unused Ctrl combination is left to Qt
         assert not keys.handle_key_press(
             key_event(KEY.Key_F, modifiers=MOD.ControlModifier)

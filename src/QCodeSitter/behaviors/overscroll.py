@@ -102,4 +102,4 @@ class Overscroll(Behavior):
         line_height = self.editor.fontMetrics().lineSpacing()
         visible_line_count = viewport_height // line_height
         total_line_count = self.editor.document().blockCount()
-        sb.setMaximum(total_line_count - visible_line_count)
+        sb.setMaximum(max(0, total_line_count - visible_line_count))
