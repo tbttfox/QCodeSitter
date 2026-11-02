@@ -24,7 +24,7 @@ class MultiCursorPaint(Behavior):
     def __init__(self, editor: CodeEditor) -> None:
         super().__init__(editor)
         self.cursor_width = 2
-        self._set_colors({})
+        self.watch_options({"colors": self._set_colors})
         self._qt_cursor_width = self.editor.cursorWidth()
         self.editor.setCursorWidth(0)
 
@@ -32,12 +32,12 @@ class MultiCursorPaint(Behavior):
         self.blink_timer = QtCore.QTimer(self.editor)
         self.blink_timer.timeout.connect(self._update_blink)
         self.blink_timer.start(QtWidgets.QApplication.instance().cursorFlashTime() // 2)
-        self.editor.behaviorPaint.connect(
-            self.paint_cursors, QtCore.Qt.ConnectionType.DirectConnection
+        self.connect(
+            self.editor.behaviorPaint,
+            self.paint_cursors,
+            QtCore.Qt.ConnectionType.DirectConnection,
         )
-        self.editor.cursors.changed.connect(self.on_cursors_changed)
-        self.watch_options({"colors": self._set_colors})
-        self.apply_all_options()
+        self.connect(self.editor.cursors.changed, self.on_cursors_changed)
 
     def _set_colors(self, colors: GuiColors) -> None:
         self.primary_cursor_color = gui_color(colors, "primary_cursor")
@@ -53,10 +53,8 @@ class MultiCursorPaint(Behavior):
 
     def _update_selections(self) -> None:
         """Show the selections of every cursor as extra selections"""
-        states = list(self.editor.cursors.secondary)
-        # Qt draws the primary selection itself unless we're in multi-cursor mode
-        if states:
-            states.append(self.editor.cursors.primary())
+        # In multi-cursor mode the primary selection is drawn like the others
+        states = [*self.editor.cursors.secondary, self.editor.cursors.primary()]
 
         fmt = QtGui.QTextCharFormat()
         fmt.setBackground(self.secondary_selection_color.lighter(150))
@@ -122,7 +120,5 @@ class MultiCursorPaint(Behavior):
         super().remove()
         self.blink_timer.stop()
         self.blink_timer.deleteLater()
-        self.editor.behaviorPaint.disconnect(self.paint_cursors)
-        self.editor.cursors.changed.disconnect(self.on_cursors_changed)
         self.editor.clear_selections(self.SOURCE)
         self.editor.setCursorWidth(self._qt_cursor_width)

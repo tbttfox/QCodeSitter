@@ -19,19 +19,14 @@ class AutoBracket(Behavior):
 
     def __init__(self, editor: CodeEditor) -> None:
         super().__init__(editor)
-        self._set_pairs(self.options["auto_bracket_pairs"])
         self.watch_options({"auto_bracket_pairs": self._set_pairs})
 
-    def _set_pairs(self, pair_str: str) -> None:
-        """Set the pairs from a string of opening and closing characters. ie: "()[]" """
-        # Map of opening characters to their closing pairs
-        self.pairs = {pair_str[i]: pair_str[i + 1] for i in range(0, len(pair_str), 2)}
+    def _set_pairs(self, pairs: list[str]) -> None:
+        """Set the pairs from strings of an opening and closing character, ie "()" """
+        self.pairs = {pair[0]: pair[1] for pair in pairs}
         self._closing = set(self.pairs.values())
         # Characters that open and close themselves, like quotes
         self._self_closing = {k for k, v in self.pairs.items() if k == v}
-
-    def has_key_press(self) -> bool:
-        return True
 
     def handle_key_press(self, event: QtGui.QKeyEvent) -> bool:
         """Handle the cursors next to pairs, and leave the rest to the editor"""
@@ -75,7 +70,7 @@ class AutoBracket(Behavior):
             cursor.setPosition(pos - half)
             cursor.setPosition(pos + half, MM.KeepAnchor)
             cursor.removeSelectedText()
-            citer.cursor_completed()
+            citer.mark_cursor_completed()
 
     def insert_pair(self, open_char: str) -> None:
         """Insert an opening character and its closing pair
@@ -102,7 +97,7 @@ class AutoBracket(Behavior):
             else:
                 cursor.insertText(open_char + close_char)
                 cursor.movePosition(MO.Left, MM.MoveAnchor, 1)
-            citer.cursor_completed()
+            citer.mark_cursor_completed()
 
     @staticmethod
     def _typing_triple_quote(cursor: QtGui.QTextCursor, quote: str) -> bool:
@@ -121,7 +116,7 @@ class AutoBracket(Behavior):
             cursor.movePosition(MO.Right, MM.KeepAnchor, 1)
             if cursor.selectedText() == close_char:
                 cursor.setPosition(cursor.position())
-                citer.cursor_completed()
+                citer.mark_cursor_completed()
             else:
                 # Go back to where it started. At the end of the document it never moved
                 cursor.setPosition(cursor.anchor())

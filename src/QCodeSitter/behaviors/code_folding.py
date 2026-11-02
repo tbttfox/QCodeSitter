@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from Qt import QtCore, QtGui, QtWidgets
@@ -9,32 +10,31 @@ from tree_sitter import Node, Tree
 from ..gui_colors import GuiColors, gui_color
 from ..gutters import GutterWidget
 from ..languages import foldable_query, language_spec
-from ..tree_manager import query_byte_range
-from ..utils import make_shortcut_action
+from ..queries import query_byte_range
+from ..utils import event_pos, make_shortcut_action
 from . import Behavior
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor
 
 
+@dataclass(eq=False)
 class FoldableRegion:
-    """A range of lines that can be folded under its first line"""
+    """A range of lines that can be folded under its first line
 
-    def __init__(
-        self,
-        start_line: int,
-        end_line: int,
-        node: Node | None = None,
-        hide_last_line: bool = True,
-        depth: int = 0,
-    ) -> None:
-        self.start_line = start_line  # 0-indexed
-        self.end_line = end_line  # 0-indexed
-        # The folded tree-sitter node, or None for a fold the user made
-        self.node = node
-        self.is_folded = False
-        self.hide_last_line = hide_last_line
-        self.depth = depth  # Nesting depth (0 = top level)
+    Regions compare by identity, because their fold state changes
+    """
+
+    start_line: int  # 0-indexed
+    end_line: int  # 0-indexed
+    # The folded tree-sitter node, or None for a fold the user made
+    node: Node | None = None
+    hide_last_line: bool = True
+    depth: int = 0  # Nesting depth (0 = top level)
+    # Cursors on the first and last lines of a fold the user made. Qt moves
+    # them with the text, so the fold follows its lines when lines above change
+    anchors: tuple[QtGui.QTextCursor, QtGui.QTextCursor] | None = None
+    is_folded: bool = field(default=False, init=False)
 
     @property
     def is_manual(self) -> bool:
@@ -51,6 +51,15 @@ class FoldableRegion:
 
     def hides_line(self, line: int) -> bool:
         return self.is_folded and self.start_line < line <= self.hidden_end
+
+    def follow_anchors(self) -> bool:
+        """Move a manual fold to the lines its anchors are on now
+
+        Returns whether it still spans more than one line
+        """
+        if self.anchors is not None:
+            self.start_line, self.end_line = (c.blockNumber() for c in self.anchors)
+        return self.end_line > self.start_line
 
     def state_key(self) -> tuple[str, int, int] | None:
         """Identifies the same tree-sitter region across reparses"""
@@ -100,7 +109,7 @@ class FoldingGutterArea(GutterWidget):
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
-            click_y = event.pos().y()
+            click_y = event_pos(event).y()
             for block, top, bottom in self.visible_blocks(click_y):
                 if top <= click_y < bottom:
                     region = self.region_starts.get(block.blockNumber())
@@ -127,19 +136,18 @@ class CodeFolding(Behavior):
 
         self.folding_area = FoldingGutterArea(self.editor)
         self.folding_area.regionClicked.connect(self.toggle_fold)
-        self._set_colors({})
-
-        if self.editor.tree_manager.tree is not None:
-            self._update_foldable_regions()
-        self.editor.tree_manager.reparsed.connect(self._update_foldable_regions)
-        self.editor.behaviorPaint.connect(
-            self.paint_folded_lines, QtCore.Qt.ConnectionType.DirectConnection
-        )
-
         self.watch_options(
             {"font": self.folding_area.setFont, "colors": self._set_colors}
         )
-        self.apply_all_options()
+
+        if self.editor.tree_manager.tree is not None:
+            self._update_foldable_regions()
+        self.connect(self.editor.tree_manager.reparsed, self._update_foldable_regions)
+        self.connect(
+            self.editor.behaviorPaint,
+            self.paint_folded_lines,
+            QtCore.Qt.ConnectionType.DirectConnection,
+        )
 
     def _set_colors(self, colors: GuiColors) -> None:
         self.folding_area.set_gutter_colors(
@@ -159,7 +167,9 @@ class CodeFolding(Behavior):
         self.regions = regions
         starts: dict[int, FoldableRegion] = {}
         for region in regions:
-            starts.setdefault(region.start_line, region)
+            # A fold the user made wins over the tree's region on the same line
+            if region.is_manual or region.start_line not in starts:
+                starts[region.start_line] = region
         self.folding_area.region_starts = starts
         self.folding_area.update()
 
@@ -178,7 +188,7 @@ class CodeFolding(Behavior):
             if region.state_key() in folded_keys:
                 region.is_folded = True
                 restored += 1
-        manual = [r for r in folded if r.is_manual]
+        manual = [r for r in folded if r.is_manual and r.follow_anchors()]
         self._set_regions(regions + manual)
 
         # A folded region that moved or changed can't be matched up, so it unfolds.
@@ -321,8 +331,14 @@ class CodeFolding(Behavior):
         if end_line <= start_line:
             return False
 
+        anchors = (
+            QtGui.QTextCursor(doc.findBlockByNumber(start_line)),
+            QtGui.QTextCursor(doc.findBlockByNumber(end_line)),
+        )
         # Manual folds keep their last line showing, like a closing bracket
-        region = FoldableRegion(start_line, end_line, hide_last_line=False)
+        region = FoldableRegion(
+            start_line, end_line, hide_last_line=False, anchors=anchors
+        )
         self._set_regions([*self.regions, region])
         self.set_folded(region, True)
         return True
@@ -373,8 +389,6 @@ class CodeFolding(Behavior):
 
     def remove(self) -> None:
         super().remove()
-        self.editor.tree_manager.reparsed.disconnect(self._update_foldable_regions)
-        self.editor.behaviorPaint.disconnect(self.paint_folded_lines)
         for region in self.regions:
             region.is_folded = False
         self._sync_block_visibility()

@@ -39,11 +39,9 @@ class LineNumber(Behavior):
     def __init__(self, editor: CodeEditor) -> None:
         super().__init__(editor)
         self.line_number_area = LineNumberArea(self.editor)
-        self._set_colors({})
         self.watch_options(
             {"font": self.line_number_area.setFont, "colors": self._set_colors}
         )
-        self.apply_all_options()
 
     def _set_colors(self, colors: GuiColors) -> None:
         self.line_number_area.set_gutter_colors(

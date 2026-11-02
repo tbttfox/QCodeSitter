@@ -27,13 +27,16 @@ class Completion:
 
 @dataclass
 class CompletionContext:
-    """Where the cursor is, and what it is completing"""
+    """Where the cursor is, and what it is completing
+
+    The columns are str indexes into `line`, not Qt positions
+    """
 
     line_num: int  # 0-indexed line number
-    char_col: int  # str index of the cursor in the line
+    index: int  # The cursor's column
     prefix: str  # The identifier being completed, before the cursor
-    start: int  # str index of the start of the prefix
-    full_line: str
+    start: int  # The column the prefix starts at
+    line: str  # The text of the cursor's line
     node: Node | None  # Tree-sitter node at the cursor
 
 
@@ -43,5 +46,10 @@ class Provider:
     def __init__(self, editor: CodeEditor) -> None:
         self.editor = editor
 
-    def provide(self) -> set[Completion]:
+    def provide(self, context: CompletionContext) -> set[Completion]:
+        """The completions for the identifier at the cursor
+
+        The popup only shows the ones that start with `context.prefix`, so
+        returning more is fine
+        """
         raise NotImplementedError("A Provider must override the .provide() method")

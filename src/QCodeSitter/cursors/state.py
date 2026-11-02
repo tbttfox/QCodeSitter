@@ -52,9 +52,6 @@ class CursorState:
     def build_cursor(self, document: QtGui.QTextDocument) -> QtGui.QTextCursor:
         return self.apply(QtGui.QTextCursor(document))
 
-    def __hash__(self) -> int:
-        return hash((self.anchor, self.position))
-
 
 def primary_first(states: list[CursorState], primary_index: int) -> list[CursorState]:
     """Copy the states, moving the primary cursor's state to the front"""

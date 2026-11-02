@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import tree_sitter_python as tspython
 from Qt import QtGui
 from tree_sitter import Language
 
@@ -56,13 +55,19 @@ def default_options(
 
     Args:
         theme: The color theme
-        language: The tree-sitter language. Defaults to python
+        language: The tree-sitter language. Defaults to python, which needs
+            the tree-sitter-python package
         font: Defaults to an 11pt system font
     """
     if language is None:
-        language = Language(tspython.language())
+        import tree_sitter_python
+
+        language = Language(tree_sitter_python.language())
     if font is None:
-        font = QtGui.QFont("MS Shell Dlg 2", pointSize=11)
+        font = QtGui.QFontDatabase.systemFont(
+            QtGui.QFontDatabase.SystemFont.GeneralFont
+        )
+        font.setPointSize(11)
     colors, syntax = read_theme(theme)
     return EditorOptions(
         {"language": language, "syntax": syntax, "colors": colors, "font": font}

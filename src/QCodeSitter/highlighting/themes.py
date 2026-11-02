@@ -89,7 +89,6 @@ DARK_THEME: Theme = {
         "secondary_cursor":    "half_mid_gray",
         "selection":           "mid_light_slate",
         "secondary_selection": "half_mid_gray",
-        "visual":              "slate",
     },
 
     "syntax" : {
@@ -190,7 +189,6 @@ LIGHT_THEME: Theme = {
         "secondary_cursor":    "true_black",
         "selection":           "filled_blue",
         "secondary_selection": "blue",
-        "visual":              "grey_dim",
     },
 
     "syntax" : {

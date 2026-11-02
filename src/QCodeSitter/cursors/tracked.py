@@ -51,7 +51,7 @@ class TrackedCursor(QtGui.QTextCursor):
 
     def insertText(self, text, format: QtGui.QTextCharFormat | None = None) -> None:
         position, removed = self._replaced_span()
-        if format:
+        if format is not None:
             super().insertText(text, format)
         else:
             super().insertText(text)

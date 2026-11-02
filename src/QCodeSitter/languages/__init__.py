@@ -8,24 +8,40 @@ Syntax highlighting asks when the language or the "syntax" option changes.
 
 from __future__ import annotations
 
-import functools
 from typing import TYPE_CHECKING
 
-from tree_sitter import Query
-
-from ..highlighting.predicates import prepare_query_source
+from ..queries import compile_query
+from ..queries.predicates import prepare_query_source
 from .base import IndentRules, LanguageSpec
 from .python import PYTHON
 
 if TYPE_CHECKING:
-    from tree_sitter import Language
+    from tree_sitter import Language, Query
+
+# The languages that are registered when QCodeSitter is imported
+BUILTIN_LANGUAGES = (
+    PYTHON,
+    LanguageSpec("bash", comment_prefix="# "),
+    LanguageSpec("c", comment_prefix="// "),
+    LanguageSpec("cpp", comment_prefix="// "),
+    LanguageSpec("lua", comment_prefix="-- "),
+)
 
 
 class LanguageRegistry:
-    """The LanguageSpecs the behaviors use, by tree-sitter grammar name"""
+    """The LanguageSpecs the behaviors use, by tree-sitter grammar name
+
+    There is one registry for the process, LANGUAGES, so registering a
+    language adds it to every editor
+    """
 
     def __init__(self, specs: tuple[LanguageSpec, ...] = ()) -> None:
+        self._initial = specs
         self._specs = {spec.name: spec for spec in specs}
+
+    def reset(self) -> None:
+        """Go back to the specs the registry was made with"""
+        self._specs = {spec.name: spec for spec in self._initial}
 
     def register(self, spec: LanguageSpec) -> None:
         """Add a language, or replace the spec of one with the same name"""
@@ -40,35 +56,21 @@ class LanguageRegistry:
         return spec if spec is not None else LanguageSpec(name)
 
 
-LANGUAGES = LanguageRegistry(
-    (
-        PYTHON,
-        LanguageSpec("bash", comment_prefix="# "),
-        LanguageSpec("c", comment_prefix="// "),
-        LanguageSpec("cpp", comment_prefix="// "),
-        LanguageSpec("lua", comment_prefix="-- "),
-    )
-)
+LANGUAGES = LanguageRegistry(BUILTIN_LANGUAGES)
 register_language = LANGUAGES.register
 language_spec = LANGUAGES.spec_for
-
-
-@functools.cache
-def _compile(language: Language, source: str) -> Query:
-    """Compile a query once, and share it between every editor and behavior"""
-    return Query(language, source)
 
 
 def highlight_query(language: Language) -> Query | None:
     """The language's highlight query, ready for QueryPredicates to evaluate"""
     source = language_spec(language).highlight_query
-    return _compile(language, prepare_query_source(source)) if source else None
+    return compile_query(language, prepare_query_source(source)) if source else None
 
 
 def identifier_query(language: Language) -> Query | None:
     """The query that captures the names defined in a document"""
     source = language_spec(language).identifier_query
-    return _compile(language, source) if source else None
+    return compile_query(language, source) if source else None
 
 
 def foldable_query(language: Language) -> Query | None:
@@ -80,10 +82,12 @@ def foldable_query(language: Language) -> Query | None:
     ]
     if not types:
         return None
-    return _compile(language, "[{}] @fold".format(" ".join(f"({t})" for t in types)))
+    patterns = " ".join(f"({t})" for t in types)
+    return compile_query(language, f"[{patterns}] @fold")
 
 
 __all__ = [
+    "BUILTIN_LANGUAGES",
     "LANGUAGES",
     "IndentRules",
     "LanguageRegistry",

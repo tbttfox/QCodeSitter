@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Literal
 
 from preditor.gui.workbox_mixin import WorkboxMixin
-from Qt import QtCore, QtGui
+from Qt import QtCore, QtGui, QtWidgets
 
 from .. import CodeEditor, default_options, install_default_behaviors
 from ..behaviors.tab_completion import TabCompletion
@@ -63,11 +63,11 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
 
     def __init__(
         self,
-        console=None,
-        core_name=None,
-        delayable_engine="default",
-        parent=None,
-        **kwargs,
+        console: object | None = None,
+        core_name: str | None = None,
+        delayable_engine: str = "default",
+        parent: QtWidgets.QWidget | None = None,
+        **kwargs: object,
     ) -> None:
         self.options = default_options(LIGHT_THEME)
         super().__init__(
@@ -86,7 +86,7 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         self._theme_update_timer.timeout.connect(self.rebuild_theme)
         self._theme_values: dict[ThemeKey, ThemeValue] = {}
 
-        self._encoding = None
+        self._encoding: str | None = None
         self.__set_console__(console)
         install_default_behaviors(self)
 
@@ -105,8 +105,8 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
 
     def _base_theme(self) -> Theme:
         """Pick the built-in theme that stylesheet properties are layered on top of"""
-        bg: QtGui.QColor = self.guiBg
-        if bg.isValid():
+        bg = self._theme_values.get(("gui", "bg"))
+        if isinstance(bg, QtGui.QColor) and bg.isValid():
             return DARK_THEME if bg.lightness() < 128 else LIGHT_THEME
         if str(self._window_stylesheet).lower() == "dark":
             return DARK_THEME
@@ -125,10 +125,10 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         syn_colors: SyntaxSpecs = {}
         styles: dict[str, set[str]] = {}
         for (section, key), value in self._theme_values.items():
-            if isinstance(value, str):
-                # Only the "style" section holds capture name lists
-                styles[key] = set(value.replace(",", " ").split())
-            elif not value.isValid():
+            if section == "style":
+                styles[key] = set(str(value).replace(",", " ").split())
+            elif not isinstance(value, QtGui.QColor) or not value.isValid():
+                # The color sections only hold colors, and invalid means unset
                 continue
             elif section == "gui":
                 col[key] = _color_to_hex(value)
@@ -151,12 +151,8 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
 
     def rebuild_theme(self) -> None:
         col, syn = self.build_theme()
-
-        # Only update the options if they changed, because that redraws the editor
-        if self.options["syntax"] != syn:
-            self.options["syntax"] = syn
-        if self.options["colors"] != col:
-            self.options["colors"] = col
+        # This only redraws the editor if the theme changed
+        self.options.update({"syntax": syn, "colors": col})
 
         # Make sure that preditor doesn't override the colors with its stylesheet
         bg, fg, sel = (
@@ -179,7 +175,12 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
     def __num_lines__(self) -> int:
         return self.document().blockCount()
 
-    def __text_part__(self, lineNum=None, start=None, end=None) -> str:
+    def __text_part__(
+        self,
+        lineNum: int | None = None,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> str:
         doc = self.document()
         if lineNum is not None:
             block = doc.findBlockByNumber(lineNum)
@@ -233,7 +234,7 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
     def __set_font__(self, font: QtGui.QFont) -> None:
         self.options["font"] = font
 
-    def __goto_line__(self, line) -> None:
+    def __goto_line__(self, line: int) -> None:
         self.cursors.clear_secondary()
         cursor = QtGui.QTextCursor(self.document().findBlockByNumber(line - 1))
         self.setTextCursor(cursor)
@@ -245,7 +246,8 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         self.options["indent_using_tabs"] = state
 
     def __margins_font__(self) -> QtGui.QFont:
-        return QtGui.QFont()
+        """The gutters use the editor font"""
+        return self.options.get("font", self.font())
 
     def __set_margins_font__(self, font: QtGui.QFont) -> None:
         """The gutters use the editor font, so there is no separate margin font"""
@@ -257,14 +259,22 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         return self.toPlainText()
 
     def __selected_text__(
-        self, start_of_line=False, selectText=False
+        self, start_of_line: bool = False, selectText: bool = False
     ) -> tuple[str, int]:
+        """The selected text, or the cursor's line if nothing is selected
+
+        Args:
+            start_of_line: Extend the selection back to the start of its first line
+            selectText: Select the cursor's line, when nothing is selected
+
+        Returns:
+            The text, and the line it starts on
+        """
         cursor = self.textCursor()
 
         # The line the selection starts on, counting wrapped and folded lines as one
         line = self.document().findBlock(cursor.selectionStart()).blockNumber()
 
-        # If no selection, return the current line
         if cursor.selection().isEmpty():
             text = cursor.block().text()
 
@@ -274,7 +284,6 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
 
             return text, line
 
-        # Otherwise return the selected text
         if start_of_line:
             sc = QtGui.QTextCursor(self.document())
             sc.setPosition(cursor.selectionStart())
@@ -285,10 +294,9 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
 
         return self.textCursor().selection().toPlainText(), line
 
-    def keyPressEvent(self, event) -> None:
-        if self.process_shortcut(event):
-            return
-        else:
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
+        # PrEditor's own shortcuts come before the editor's keys
+        if not self.process_shortcut(event):
             super().keyPressEvent(event)
 
     def _set_theme_value(self, theme_key: ThemeKey, value: ThemeValue) -> None:
@@ -314,7 +322,6 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
     guiSecondaryCursor     = _theme_property("gui", "secondary_cursor")
     guiSelection           = _theme_property("gui", "selection")
     guiSecondarySelection  = _theme_property("gui", "secondary_selection")
-    guiVisual              = _theme_property("gui", "visual")
 
     # Syntax colors named after the treesitter captures. Unset captures fall back to
     # their parent group, so hlKeywordReturn falls back to hlKeyword

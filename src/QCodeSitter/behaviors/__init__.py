@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from ..editor_options import check_option_keys
 
 if TYPE_CHECKING:
-    from Qt import QtGui, QtWidgets
+    from Qt import QtCore, QtGui, QtWidgets
 
     from ..code_editor import CodeEditor
     from ..editor_options import EditorOptions, OptionHandlers
@@ -15,54 +15,72 @@ if TYPE_CHECKING:
 class Behavior:
     """A feature that plugs into a CodeEditor
 
-    Subclasses usually call `watch_options` and then `apply_all_options` in
-    their __init__, and undo everything they connected in `remove`.
+    Subclasses get their options with `watch_options`, and connect to the
+    editor's signals with `connect` so that `remove` disconnects them.
+    Behaviors that handle keys override `handle_key_press`.
     """
+
+    # The editor passes key presses to the behaviors with the highest priority first.
+    # Behaviors of the same priority get them in the order they were added
+    KEY_PRIORITY = 0
 
     def __init__(self, editor: CodeEditor) -> None:
         self.editor: CodeEditor = editor
         self.options: EditorOptions = editor.options
         self._option_handlers: dict[str, Callable[[Any], object]] = {}
-        self.options.optionsUpdated.connect(self._on_options_updated)
+        self._connections: list[tuple[QtCore.SignalInstance, Callable[..., Any]]] = []
         self.shortcut_actions: list[QtWidgets.QAction] = []
+        self.connect(self.options.optionsUpdated, self._on_options_updated)
+
+    @classmethod
+    def handles_key_presses(cls) -> bool:
+        """Whether the editor should pass key presses to `handle_key_press`"""
+        return cls.handle_key_press is not Behavior.handle_key_press
+
+    def connect(
+        self,
+        signal: QtCore.SignalInstance,
+        slot: Callable[..., Any],
+        conn_type: QtCore.Qt.ConnectionType | None = None,
+    ) -> None:
+        """Connect a signal to a slot until the behavior is removed"""
+        if conn_type is None:
+            signal.connect(slot)
+        else:
+            signal.connect(slot, conn_type)
+        self._connections.append((signal, slot))
 
     def watch_options(self, handlers: OptionHandlers) -> None:
-        """Call these handlers with the new value whenever their option changes
+        """Call these handlers with their option's value now, and whenever it changes
 
-        Keep a default for each option, because handlers are only called for
-        options that are set. Raises a KeyError for unknown option keys
+        Every option has a value except the language and font, whose handlers
+        wait until they are set. Raises a KeyError for unknown option keys
         """
         check_option_keys(handlers)
         self._option_handlers.update(handlers)
-
-    def apply_all_options(self) -> None:
-        """Call every option handler, once the editor has applied its own options"""
-        if self.editor.is_loaded:
-            self.options.apply(self._option_handlers, list(self._option_handlers))
+        self.options.apply(handlers, handlers)
 
     def _on_options_updated(self, keys: Collection[str]) -> None:
         self.options.apply(self._option_handlers, keys)
 
     def remove(self) -> None:
         """Disconnect from the editor. Subclasses should call this too"""
-        self.options.optionsUpdated.disconnect(self._on_options_updated)
+        for signal, slot in reversed(self._connections):
+            signal.disconnect(slot)
+        self._connections.clear()
 
     def get_hotkeys(self) -> list[QtWidgets.QAction]:
         """The shortcut actions to add to the editor"""
         return []
 
-    def has_key_press(self) -> bool:
-        """Whether the editor should pass key presses to `handle_key_press`"""
-        return False
-
     def handle_key_press(self, event: QtGui.QKeyEvent) -> bool:
         """Handle a key press, before the editor's own key handling
 
         This runs inside an edit session. A behavior can handle the key for
-        some cursors and not others: calling `editor.citer.cursor_completed()`
+        some cursors and not others: calling `editor.citer.mark_cursor_completed()`
         for a cursor stops the handlers after this one from editing it.
 
         Returns:
             True to consume the key, so the handlers after this one never see it
         """
-        raise NotImplementedError("Behaviors with has_key_press must implement this")
+        return False

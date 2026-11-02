@@ -37,7 +37,7 @@ class Greeter:
 
 def _load(editor, text=SAMPLE):
     editor.setPlainText(text)
-    editor.tree_manager.full_update()
+    editor.tree_manager.parse_from_scratch()
     editor.remove_behavior(AutoBracket)
 
 

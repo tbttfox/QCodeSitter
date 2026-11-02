@@ -7,7 +7,9 @@ Parsing and highlighting happen synchronously, so no test needs to wait.
 
 from __future__ import annotations
 
+import logging
 import re
+import warnings
 
 import pytest
 from Qt import QtCore, QtGui
@@ -16,18 +18,19 @@ from tree_sitter import Point, Query
 from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
 from QCodeSitter.constants import ENC
 from QCodeSitter.cursors.tracked import TrackedCursor
-from QCodeSitter.highlighting.predicates import (
+from QCodeSitter.languages import (
+    language_spec,
+)
+from QCodeSitter.languages.python import PythonIndentRules
+from QCodeSitter.queries import compile_query, query_byte_range
+from QCodeSitter.queries.predicates import (
     PREFIX,
     QueryPredicates,
     lua_to_regex,
     prepare_query_source,
 )
-from QCodeSitter.languages import (
-    language_spec,
-)
-from QCodeSitter.languages.python import PythonIndentRules
 from QCodeSitter.tracked_document import TrackedDocument
-from QCodeSitter.tree_manager import TreeManager, query_byte_range
+from QCodeSitter.tree_manager import TreeManager
 from tests.helpers import (
     assert_tree_matches_fresh_parse,
     fresh_tree_str,
@@ -260,7 +263,7 @@ class TestSyntaxHighlighting:
         editor.tree_manager.set_language(None)
         assert editor.get_behavior(SyntaxHighlighting).highlighter is None
         assert not editor.document().firstBlock().layout().formats()
-        editor.options["language"] = python_language
+        editor.tree_manager.set_language(python_language)
         assert self._token_color(editor, 0, "def") is not None
 
     def test_syntax_set_before_language(self, bare_editor, python_language):
@@ -465,7 +468,36 @@ class TestTreeManagerQueries:
         second = query_byte_range(query, root, 12, root.end_byte)["name"]
         assert [n.start_point.row for n in second] == [1]
 
-    def test_query_byte_range_failure_is_empty(self, editor):
+    def test_query_byte_range_failure_is_empty(self, editor, caplog):
         editor.setPlainText("x = 1")
-        query = Query(editor.tree_manager.language, "(identifier) @name")
-        assert query_byte_range(query, editor.tree_manager.root_node, 10, 0) == {}
+        query = Query(
+            editor.tree_manager.language, '((identifier) @name (#qcs-eq? @name "x"))'
+        )
+        root = editor.tree_manager.root_node
+
+        def failing_predicate(*_args):
+            raise ValueError("bad predicate")
+
+        with caplog.at_level(logging.DEBUG, logger="QCodeSitter.queries"):
+            for _ in range(2):
+                captures = query_byte_range(
+                    query, root, 0, root.end_byte, failing_predicate
+                )
+                assert captures == {}
+        # Only the first failure of a query is a warning
+        assert [r.levelno for r in caplog.records] == [logging.WARNING, logging.DEBUG]
+
+    def test_invalid_query_warns_once(self, python_language):
+        with pytest.warns(UserWarning, match="Invalid tree-sitter query for python"):
+            assert compile_query(python_language, "(not_a_node) @x") is None
+        # The failure is cached, so it doesn't warn again
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert compile_query(python_language, "(not_a_node) @x") is None
+
+    def test_tree_manager_only_needs_a_document(self, python_language):
+        document = TrackedDocument()
+        document.setPlainText("x = 1\n")
+        manager = TreeManager(document)
+        manager.set_language(python_language)
+        assert manager.node_at_char(0).type == "identifier"

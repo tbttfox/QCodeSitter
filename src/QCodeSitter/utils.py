@@ -69,6 +69,12 @@ def replace_lines(
     cursor.setPosition(start + len16(new_text), MM.KeepAnchor)
 
 
+def event_pos(event: QtGui.QMouseEvent | QtGui.QDropEvent) -> QtCore.QPoint:
+    """The event position as a QPoint in both Qt5 and Qt6"""
+    position = getattr(event, "position", None)
+    return position().toPoint() if position is not None else event.pos()
+
+
 def make_shortcut_action(
     parent: QtWidgets.QWidget,
     shortcut: str,

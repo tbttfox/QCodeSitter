@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import dataclasses
+from types import SimpleNamespace
 
 import pytest
 from tree_sitter import Language
 
 from QCodeSitter.behaviors.code_folding import CodeFolding
 from QCodeSitter.behaviors.comment_toggle import CommentToggle
+from QCodeSitter.behaviors.tab_completion import context_at_cursor
 from QCodeSitter.behaviors.tab_completion.providers import IdentifierProvider
 from QCodeSitter.languages import (
+    BUILTIN_LANGUAGES,
+    LANGUAGES,
     LanguageRegistry,
     LanguageSpec,
     foldable_query,
@@ -25,9 +29,9 @@ from QCodeSitter.languages.python import PYTHON
 
 @pytest.fixture
 def python_spec():
-    """Restore the python spec after a test registers another one"""
+    """Restore the built-in specs after a test registers another one"""
     yield PYTHON
-    register_language(PYTHON)
+    LANGUAGES.reset()
 
 
 class TestLanguages:
@@ -39,6 +43,16 @@ class TestLanguages:
         assert editor.get_behavior(CommentToggle).comment_prefix == "// "
         register_language(python_spec)
         assert editor.get_behavior(CommentToggle).comment_prefix == "# "
+
+    def test_reset_restores_the_builtin_specs(self, python_language, python_spec):
+        register_language(LanguageSpec("python"))
+        register_language(LanguageSpec("rust", comment_prefix="// "))
+        LANGUAGES.reset()
+        assert language_spec(python_language) is PYTHON
+        # Only the language's name is used to look up its spec
+        rust = SimpleNamespace(name="rust")
+        assert language_spec(rust) == LanguageSpec("rust")
+        assert "rust" not in {spec.name for spec in BUILTIN_LANGUAGES}
 
     def test_foldable_types(self, python_language: Language):
         spec = language_spec(python_language)
@@ -69,9 +83,10 @@ class TestLanguageQueries:
                 fold_hide_last_line=frozenset(),
             )
         )
-        names = {c.text for c in IdentifierProvider(editor).provide()}
+        context = context_at_cursor(editor)
+        names = {c.text for c in IdentifierProvider(editor).provide(context)}
         assert names == {"x"}
-        editor.tree_manager.full_update()
+        editor.tree_manager.parse_from_scratch()
         folding = editor.get_behavior(CodeFolding)
         assert [r.node.type for r in folding.regions] == ["list"]
 

@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from typing import TypeVar
 
 from Qt import QtCore, QtGui, QtWidgets
+from tree_sitter import Language
 
 from .behaviors import Behavior
 from .clipboard import encode_multi_copy, split_multi_copy, tabs_to_spaces
@@ -19,7 +20,7 @@ from .gui_colors import GuiColors, gui_color
 from .gutters import GutterLayout
 from .tracked_document import TrackedDocument
 from .tree_manager import TreeManager
-from .utils import KEY, MO, MOD, make_shortcut_action
+from .utils import KEY, MM, MO, MOD, event_pos, make_shortcut_action
 
 T_Behavior = TypeVar("T_Behavior", bound=Behavior)
 
@@ -29,11 +30,21 @@ _DELETE_OPS: dict[KEY, tuple[MO, MO]] = {
     KEY.Key_Delete: (MO.NextCharacter, MO.NextWord),
 }
 
+# Movement key -> (move operation, move operation with Ctrl held)
+# None is smart home, which toggles between the indent and column 0
+_MOVE_OPS: dict[KEY, tuple[MO | None, MO]] = {
+    KEY.Key_Left: (MO.Left, MO.WordLeft),
+    KEY.Key_Right: (MO.Right, MO.WordRight),
+    KEY.Key_Up: (MO.Up, MO.Up),
+    KEY.Key_Down: (MO.Down, MO.Down),
+    KEY.Key_Home: (None, MO.Start),
+    KEY.Key_End: (MO.EndOfLine, MO.End),
+}
 
-def _event_pos(event: QtGui.QMouseEvent | QtGui.QDropEvent) -> QtCore.QPoint:
-    """The event position as a QPoint in both Qt5 and Qt6"""
-    position = getattr(event, "position", None)
-    return position().toPoint() if position is not None else event.pos()
+# The modifiers that can be held while typing text, besides Shift: the
+# numpad, and AltGr, which is Ctrl+Alt on Windows and Group Switch elsewhere
+_TEXT_MODIFIERS = MOD.ShiftModifier | MOD.KeypadModifier | MOD.GroupSwitchModifier
+_ALTGR = MOD.ControlModifier | MOD.AltModifier
 
 
 class CodeEditor(QtWidgets.QPlainTextEdit):
@@ -66,16 +77,17 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self._loaded = False
         self._can_join = False
 
-        self.tree_manager = TreeManager(self)
+        self.tree_manager = TreeManager(self._doc)
         self._doc.byteContentsChange.connect(self.tree_manager.apply_edit)
 
         # The indent and clipboard options are read from self.options when used
         self._option_handlers = {
             "font": self._set_font,
-            "language": self.tree_manager.set_language,
+            "language": self._set_language,
             "colors": self._set_colors,
             "tab_indent_width": lambda _width: self._update_tab_stop(),
         }
+        self.options.apply(self._option_handlers, self._option_handlers)
         self.options.optionsUpdated.connect(self._on_options_updated)
 
         # (modifier, action) pairs for the keys that run editor commands
@@ -97,11 +109,6 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             ("Ctrl+Shift+L", self.cursors.add_to_line_ends),
         ):
             self.addAction(make_shortcut_action(self, shortcut, slot))
-
-    @property
-    def is_loaded(self) -> bool:
-        """Whether the editor has been shown, and has applied its options"""
-        return self._loaded
 
     def textCursor(self) -> TrackedCursor:
         return TrackedCursor(self._doc, super().textCursor())
@@ -133,10 +140,22 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     # Options
     # ------------------------------------------------------------------
 
+    def load(self) -> None:
+        """Set the language, which parses and highlights the document
+
+        Those are the expensive part of making an editor, so they wait until
+        the editor is first shown. Call this to load an editor that isn't shown
+        """
+        if not self._loaded:
+            self._loaded = True
+            self.options.apply(self._option_handlers, ["language"])
+
     def _on_options_updated(self, keylist: Collection[str]) -> None:
-        # Everything gets applied when the editor is first shown
+        self.options.apply(self._option_handlers, keylist)
+
+    def _set_language(self, language: Language) -> None:
         if self._loaded:
-            self.options.apply(self._option_handlers, keylist)
+            self.tree_manager.set_language(language)
 
     def _set_font(self, font: QtGui.QFont) -> None:
         self.setFont(font)
@@ -162,11 +181,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def showEvent(self, event: QtGui.QShowEvent) -> None:
         super().showEvent(event)
-        if not self._loaded:
-            self._loaded = True
-            self.options.apply(self._option_handlers, list(self.options.keys()))
-            for bh in self._behaviors:
-                bh.apply_all_options()
+        self.load()
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
         super().resizeEvent(event)
@@ -210,8 +225,10 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.remove_behavior(behavior_cls)
         behavior = behavior_cls(self)
         self._behaviors.append(behavior)
-        if behavior.has_key_press():
+        if behavior.handles_key_presses():
             self._keypress_behaviors.append(behavior)
+            # The sort is stable, so the same priorities keep the order they were added
+            self._keypress_behaviors.sort(key=lambda bh: -bh.KEY_PRIORITY)
         behavior.shortcut_actions = behavior.get_hotkeys()
         self.addActions(behavior.shortcut_actions)
         return behavior
@@ -249,7 +266,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
         if event.modifiers() & MOD.AltModifier:
-            self.cursors.add_at(self.cursorForPosition(_event_pos(event)).position())
+            self.cursors.add_at(self.cursorForPosition(event_pos(event)).position())
             event.accept()
             return
         self.cursors.clear_secondary()
@@ -272,7 +289,56 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                     return
             if not self._apply_editing_key(event):
                 # Let Qt handle the keys we don't, like Ctrl+A
-                super().keyPressEvent(event)
+                with self._qt_edits():
+                    super().keyPressEvent(event)
+
+    def inputMethodEvent(self, event: QtGui.QInputMethodEvent) -> None:
+        with self._qt_edits():
+            super().inputMethodEvent(event)
+
+    @contextmanager
+    def _qt_edits(self) -> Iterator[None]:
+        """Rebuild the tree if Qt edits the document itself, without a TrackedCursor"""
+        revision = self._doc.revision()
+        yield
+        if self._doc.revision() != revision:
+            self.cursors.clear_secondary()
+            self.tree_manager.parse_from_scratch()
+
+    def contextMenuEvent(self, event: QtGui.QContextMenuEvent) -> None:
+        self.create_context_menu().exec_(event.globalPos())
+
+    def create_context_menu(self) -> QtWidgets.QMenu:
+        """Make the right click menu
+
+        Its actions call this editor's methods. Qt's standard menu calls the
+        C++ slots instead, which only edit the primary cursor, and don't
+        update the tree
+        """
+        menu = QtWidgets.QMenu(self)
+        doc = self.document()
+        selected = self.textCursor().hasSelection()
+        sections = (
+            (
+                ("&Undo", self.undo, doc.isUndoAvailable()),
+                ("&Redo", self.redo, doc.isRedoAvailable()),
+            ),
+            (
+                ("Cu&t", self.cut, selected),
+                ("&Copy", self.copy, selected),
+                ("&Paste", self.paste, self.canPaste()),
+                ("Delete", lambda: self.delete(MO.NextCharacter), selected),
+            ),
+            (("Select All", self.selectAll, not doc.isEmpty()),),
+        )
+        for i, section in enumerate(sections):
+            if i:
+                menu.addSeparator()
+            for text, slot, enabled in section:
+                action = menu.addAction(text)
+                action.setEnabled(enabled)
+                action.triggered.connect(slot)
+        return menu
 
     def _apply_editing_key(self, event: QtGui.QKeyEvent) -> bool:
         """Apply the built-in editing keys to all the cursors
@@ -286,10 +352,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             self.cursors.clear_secondary()
             return True
 
-        typed = self._type_text(event)
-        # Typing a word is a single undo step, so remember if this can join the next
-        self._can_join = typed and (event.text().isalnum() or event.text() == "_")
-        if typed:
+        if self._type_text(event):
             return True
 
         if modifiers == MOD.ControlModifier and key == KEY.Key_A:
@@ -305,9 +368,16 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         if modifiers & MOD.AltModifier:
             return False
 
+        move_ops = _MOVE_OPS.get(key)
+        if move_ops is None:
+            return self._run_command_key(event)
         select = bool(modifiers & MOD.ShiftModifier)
-        word_mode = bool(modifiers & MOD.ControlModifier)
-        return self.cursors.move(key, select, word_mode) or self._run_command_key(event)
+        move_op = move_ops[bool(modifiers & MOD.ControlModifier)]
+        if move_op is None:
+            self.cursors.smart_home(select)
+        else:
+            self.cursors.move(move_op, select)
+        return True
 
     def _type_text(self, event: QtGui.QKeyEvent) -> bool:
         """Insert the text of a typing key at every cursor
@@ -315,12 +385,18 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         Returns whether the key typed text
         """
         text = event.text()
-        if not text or not text.isprintable():
+        typing = (
+            text
+            and text.isprintable()
+            and event.modifiers() & ~_TEXT_MODIFIERS in (MOD.NoModifier, _ALTGR)
+        )
+        if not typing:
+            self._can_join = False
             return False
-        if event.modifiers() not in (MOD.NoModifier, MOD.ShiftModifier):
-            return False
-        join = self._can_join and (text.isalnum() or text == "_")
-        self.insert_text(text, join_edit=join)
+        # Typing a word is a single undo step, so each character joins the last
+        is_word = text.isalnum() or text == "_"
+        self.insert_text(text, join_edit=self._can_join and is_word)
+        self._can_join = is_word
         return True
 
     def _run_command_key(self, event: QtGui.QKeyEvent) -> bool:
@@ -333,7 +409,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                 self.insert_text(" " * self.options["space_indent_width"])
             return True
         # Key_Enter is the numpad
-        if key == KEY.Key_Return:
+        if key in (KEY.Key_Return, KEY.Key_Enter):
             self.insert_text("\n")
             return True
         for modifier, command in self._command_keys.get(key, ()):
@@ -354,7 +430,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             and event.dropAction() == QtCore.Qt.DropAction.MoveAction
             and main_cursor.hasSelection()
         )
-        target_pos = self.cursorForPosition(_event_pos(event)).position()
+        target_pos = self.cursorForPosition(event_pos(event)).position()
 
         sel_start = main_cursor.selectionStart()
         sel_end = main_cursor.selectionEnd()
@@ -381,7 +457,17 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.cursors.clear_secondary()
         super().setPlainText(text)
         # This doesn't go through a TrackedCursor, so the tree has to be rebuilt
-        self.tree_manager.full_update()
+        self.tree_manager.parse_from_scratch()
+
+    def insertPlainText(self, text: str) -> None:
+        """Type text at every cursor, like `insert_text`"""
+        self.insert_text(text)
+
+    def appendPlainText(self, text: str) -> None:
+        """Add a line of text to the end of the document"""
+        self.cursors.clear_secondary()
+        super().appendPlainText(text)
+        self.tree_manager.parse_from_scratch()
 
     def clear(self) -> None:
         self.setPlainText("")
@@ -402,7 +488,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         QtCore.QTimer.singleShot(0, self._after_undo_redo)
 
     def _after_undo_redo(self) -> None:
-        self.tree_manager.full_update()
+        self.tree_manager.parse_from_scratch()
         self.undoRedoFinished.emit()
 
     # The public editing methods each make one undo step and one reparse
@@ -412,7 +498,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         with self.edit_session():
             for cursor in self.citer.iterate_cursors(join_edit=join_edit):
                 cursor.insertText(text)
-                self.citer.cursor_completed()
+                self.citer.mark_cursor_completed()
 
     def delete(self, movement: MO) -> None:
         """Delete each cursor's selection, or the text it would move over
@@ -424,9 +510,9 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         with self.edit_session():
             for cursor in self.citer.iterate_cursors():
                 if not cursor.hasSelection():
-                    cursor.movePosition(movement, QtGui.QTextCursor.MoveMode.KeepAnchor)
+                    cursor.movePosition(movement, MM.KeepAnchor)
                 cursor.removeSelectedText()
-                self.citer.cursor_completed()
+                self.citer.mark_cursor_completed()
 
     def copy(self) -> None:
         """Copy the text of every cursor to the clipboard, see clipboard.py"""
@@ -442,7 +528,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             for cursor in self.citer.iterate_cursors():
                 if cursor.hasSelection():
                     cursor.removeSelectedText()
-                self.citer.cursor_completed()
+                self.citer.mark_cursor_completed()
 
     def paste(self) -> None:
         self.insertFromMimeData(QtWidgets.QApplication.clipboard().mimeData())
@@ -460,4 +546,4 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             # There is a part for every cursor, so this never runs out
             for i, cursor in enumerate(self.citer.iterate_cursors()):
                 cursor.insertText(parts[i])
-                self.citer.cursor_completed()
+                self.citer.mark_cursor_completed()

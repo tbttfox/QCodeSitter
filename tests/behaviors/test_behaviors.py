@@ -106,7 +106,7 @@ class TestAutoBracket:
 
     def test_pairs_option(self, editor, qtbot):
         """Test the auto_bracket_pairs option changes which pairs are inserted."""
-        editor.options["auto_bracket_pairs"] = "()"
+        editor.options["auto_bracket_pairs"] = ["()"]
         editor.setPlainText("")
         simulate_keypress(qtbot, editor, QtCore.Qt.Key.Key_BracketLeft, "[")
         assert editor.toPlainText() == "["

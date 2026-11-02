@@ -33,7 +33,7 @@ class CommentToggle(Behavior):
         with self.editor.edit_session():
             for cursor in citer.iterate_cursors():
                 replace_lines(cursor, lambda lines: self.toggle_lines(lines, prefix))
-                citer.cursor_completed()
+                citer.mark_cursor_completed()
 
     @classmethod
     def toggle_lines(cls, lines: list[str], prefix: str) -> list[str]:

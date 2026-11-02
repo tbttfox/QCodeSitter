@@ -86,20 +86,42 @@ class TestCursorIteratorPasses:
             for cursor in citer.iterate_cursors():
                 if cursor.block().text() == "b":
                     cursor.insertText("1")
-                    citer.cursor_completed()
+                    citer.mark_cursor_completed()
             assert not citer.all_completed()
             for cursor in citer.iterate_cursors():
                 cursor.insertText("2")
-                citer.cursor_completed()
+                citer.mark_cursor_completed()
             assert citer.all_completed()
         assert editor.toPlainText() == "2a\n1b\n2c"
 
-    def test_read_only_pass_leaves_the_cursors(self, editor):
+    def test_read_cursors_leaves_the_cursors(self, editor):
         editor.setPlainText("abc def")
         editor.cursors.replace_all([CursorState(1, 1), CursorState(5, 5)])
-        for cursor in editor.citer.iterate_cursors(no_position_update=True):
+        changes = []
+        editor.cursors.changed.connect(lambda: changes.append(1))
+        positions = []
+        for cursor in editor.citer.read_cursors():
+            positions.append(cursor.position())
             cursor.movePosition(QtGui.QTextCursor.MoveOperation.End)
+        assert positions == [1, 5]
         assert get_cursor_positions(editor) == [1, 5]
+        assert changes == []
+
+    def test_replacing_the_cursors_ends_the_pass(self, editor):
+        editor.setPlainText("a\nb\nc")
+        editor.cursors.replace_all(
+            [CursorState(1, 1), CursorState(3, 3), CursorState(5, 5)]
+        )
+        citer = editor.citer
+        with editor.edit_session():
+            for cursor in citer.iterate_cursors():
+                cursor.insertText("!")
+                citer.mark_cursor_completed()
+                editor.cursors.replace_all([CursorState(0, 0)])
+            # The new cursor starts out not completed
+            assert not citer.all_completed()
+        assert editor.toPlainText() == "a!\nb\nc"
+        assert get_cursor_positions(editor) == [0]
 
     def test_a_pass_is_one_undo_step(self, editor):
         editor.setPlainText("a\nb")
@@ -130,7 +152,7 @@ class TestMultiCursorController:
     def test_move_keeps_the_primary(self, editor):
         editor.setPlainText("abc\nabc")
         editor.cursors.replace_all([CursorState(5, 5), CursorState(1, 1)])
-        editor.cursors.move(QtCore.Qt.Key.Key_Right)
+        editor.cursors.move(QtGui.QTextCursor.MoveOperation.Right)
         assert editor.cursors.primary() == CursorState(6, 6)
 
     def test_add_next_occurrence_wraps(self, editor):
@@ -139,6 +161,20 @@ class TestMultiCursorController:
         assert editor.cursors.add_next_occurrence()
         assert editor.cursors.secondary == [CursorState(0, 3)]
         assert not editor.cursors.add_next_occurrence()
+
+    def test_add_commands_say_whether_they_added(self, editor):
+        cursors: MultiCursor = editor.cursors
+        editor.setPlainText("ab\ncd")
+        cursors.replace_all([CursorState(0, 0)])
+        assert not cursors.add_above()
+        assert cursors.add_below()
+        assert not cursors.add_at(0)
+        assert cursors.add_at(1)
+        cursors.replace_all([CursorState(0, 0)])
+        assert not cursors.add_to_line_ends()
+        cursors.replace_all([CursorState(0, 5)])
+        assert cursors.add_to_line_ends()
+        assert get_cursor_positions(editor) == [2, 5]
 
     def test_add_next_occurrence_with_no_other_match(self, editor):
         editor.setPlainText("foo bar")

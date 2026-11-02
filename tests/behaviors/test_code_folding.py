@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from Qt import QtCore
+
 from QCodeSitter.behaviors.code_folding import (
     CodeFolding,
     FoldableRegion,
@@ -71,6 +73,24 @@ class TestCodeFolding:
         assert _hidden_lines(editor_with_text) == [2, 3]
         assert any(r.is_manual and r.is_folded for r in folding.regions)
 
+    def test_manual_fold_follows_its_lines(self, editor_with_text):
+        folding = editor_with_text.get_behavior(CodeFolding)
+        doc = editor_with_text.document()
+        set_cursor_selection(
+            editor_with_text,
+            doc.findBlockByNumber(1).position(),
+            doc.findBlockByNumber(4).position(),
+        )
+        folding.create_manual_fold()
+        # A new line above the fold moves its lines down
+        set_cursor_position(editor_with_text, 0)
+        editor_with_text.insert_text("\n")
+        assert _hidden_lines(editor_with_text) == [3, 4]
+        manual = next(r for r in folding.regions if r.is_manual)
+        assert (manual.start_line, manual.end_line) == (2, 5)
+        # The gutter toggles the manual fold, not the tree's region on its line
+        assert folding.folding_area.region_starts[2] is manual
+
     def test_manual_fold_needs_two_lines(self, editor_with_text):
         folding = editor_with_text.get_behavior(CodeFolding)
         set_cursor_selection(editor_with_text, 0, 3)
@@ -114,6 +134,32 @@ class TestCodeFolding:
         regions = {(r.node.type, r.start_line) for r in folding.regions}
         assert ("function_definition", 0) in regions
         assert ("class_definition", 7) in regions
+
+    def test_gutter_click_toggles_the_fold(self, editor_with_text, qtbot):
+        folding = editor_with_text.get_behavior(CodeFolding)
+        greeter = _region(folding, "class_definition", 7)
+        block = editor_with_text.document().findBlockByNumber(7)
+        top = editor_with_text.blockBoundingGeometry(block).translated(
+            editor_with_text.contentOffset()
+        )
+        point = QtCore.QPoint(folding.folding_area.width() // 2, int(top.center().y()))
+        qtbot.mouseClick(
+            folding.folding_area, QtCore.Qt.MouseButton.LeftButton, pos=point
+        )
+        assert greeter.is_folded
+        assert _hidden_lines(editor_with_text) == [8, 9, 10, 11, 12]
+        qtbot.mouseClick(
+            folding.folding_area, QtCore.Qt.MouseButton.LeftButton, pos=point
+        )
+        assert not greeter.is_folded
+
+    def test_unfold_to_level(self, editor_with_text):
+        folding = editor_with_text.get_behavior(CodeFolding)
+        folding.fold_all()
+        folding.unfold_to_level(0)
+        assert all(r.is_folded == (r.depth > 0) for r in folding.regions)
+        # Greeter's methods stay folded inside the unfolded class
+        assert _hidden_lines(editor_with_text) == [3, 4, 5, 9, 12]
 
     def test_fold_to_level_shortcut(self, editor_with_text, qtbot):
         """Test the fold to level shortcuts fold to their own level."""

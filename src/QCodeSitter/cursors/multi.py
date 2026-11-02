@@ -1,25 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from Qt import QtCore, QtGui
 
-from ..utils import KEY, MM, MO, leading_whitespace, len16
+from ..utils import MM, MO, leading_whitespace, len16
 from .state import CursorState, primary_first
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor
-
-# Arrow key -> (move operation, move operation with Ctrl held)
-# None is smart home, which toggles between the indent and column 0
-_MOVE_OPS: dict[KEY, tuple[MO | None, MO]] = {
-    KEY.Key_Left: (MO.Left, MO.WordLeft),
-    KEY.Key_Right: (MO.Right, MO.WordRight),
-    KEY.Key_Up: (MO.Up, MO.Up),
-    KEY.Key_Down: (MO.Down, MO.Down),
-    KEY.Key_Home: (None, MO.Start),
-    KEY.Key_End: (MO.EndOfLine, MO.End),
-}
 
 
 def _merge_overlapping(cursors: list[CursorState]) -> list[CursorState]:
@@ -49,7 +39,7 @@ def _merge_overlapping(cursors: list[CursorState]) -> list[CursorState]:
     return primary_first(merged, primary_index)
 
 
-def _smart_home(qt_cursor: QtGui.QTextCursor, select: bool) -> CursorState:
+def _smart_home(qt_cursor: QtGui.QTextCursor, mode: MM) -> None:
     """Move to the first non-whitespace character, or column 0 if already there"""
     block = qt_cursor.block()
     line_start = block.position()
@@ -59,15 +49,15 @@ def _smart_home(qt_cursor: QtGui.QTextCursor, select: bool) -> CursorState:
 
     at_indent = qt_cursor.position() == indent_end
     target = line_start if at_indent or indent_end == line_start else indent_end
-    qt_cursor.setPosition(target, MM.KeepAnchor if select else MM.MoveAnchor)
-    return CursorState.from_cursor(qt_cursor)
+    qt_cursor.setPosition(target, mode)
 
 
 class MultiCursor(QtCore.QObject):
     """The editor's cursors, and the commands that add and move them
 
     Qt only knows about the primary cursor. The others are kept here as
-    CursorStates, and drawn by the MultiCursorPaint behavior.
+    CursorStates, and drawn by the MultiCursorPaint behavior. The commands that
+    add cursors return whether they added one.
     """
 
     changed = QtCore.Signal()
@@ -144,37 +134,29 @@ class MultiCursor(QtCore.QObject):
         found = document.find(search_text, cursor)
         return -1 if found.isNull() else found.selectionStart()
 
-    def move(
-        self, direction: KEY, select: bool = False, word_mode: bool = False
-    ) -> bool:
-        """Move every cursor
+    def move(self, operation: MO, select: bool = False) -> None:
+        """Move every cursor, like QTextCursor.movePosition
 
         Args:
-            direction: An arrow key, Home or End
+            operation: Where to move each cursor to
             select: Extend the selections, like holding Shift
-            word_mode: Move by word, or to the document start/end for Home/End,
-                like holding Ctrl
-
-        Returns:
-            Whether direction is a key that moves the cursors
         """
-        ops = _MOVE_OPS.get(direction)
-        if ops is None:
-            return False
-        move_op = ops[word_mode]
         mode = MM.KeepAnchor if select else MM.MoveAnchor
+        self._move_each(lambda qt_cursor: qt_cursor.movePosition(operation, mode))
 
+    def smart_home(self, select: bool = False) -> None:
+        """Move every cursor to its line's indent, or to column 0 if it's there"""
+        mode = MM.KeepAnchor if select else MM.MoveAnchor
+        self._move_each(lambda qt_cursor: _smart_home(qt_cursor, mode))
+
+    def _move_each(self, move: Callable[[QtGui.QTextCursor], object]) -> None:
         qt_cursor = QtGui.QTextCursor(self.editor.document())
         moved = []
         for state in self._primary_first():
             state.apply(qt_cursor)
-            if move_op is None:
-                moved.append(_smart_home(qt_cursor, select))
-            else:
-                qt_cursor.movePosition(move_op, mode)
-                moved.append(CursorState.from_cursor(qt_cursor))
+            move(qt_cursor)
+            moved.append(CursorState.from_cursor(qt_cursor))
         self.replace_all(moved)
-        return True
 
     def selected_texts(self) -> list[str]:
         """Get the selected text of every cursor, in document order"""
@@ -185,13 +167,13 @@ class MultiCursor(QtCore.QObject):
             for state in all_cursors
         ]
 
-    def _add_adjacent(self, above: bool) -> None:
+    def _add_adjacent(self, above: bool) -> bool:
         """Move the primary cursor up or down a line, leaving a cursor behind"""
         current_position = self.primary().position
         block = self.editor.document().findBlock(current_position)
         adj_block = block.previous() if above else block.next()
         if not block.isValid() or not adj_block.isValid():
-            return
+            return False
 
         col = min(current_position - block.position(), len16(adj_block.text()))
         new_primary_pos = adj_block.position() + col
@@ -202,20 +184,21 @@ class MultiCursor(QtCore.QObject):
                 CursorState(current_position, current_position),
             ]
         )
+        return True
 
-    def add_above(self) -> None:
+    def add_above(self) -> bool:
         """Move the primary cursor up a line, leaving a cursor behind"""
-        self._add_adjacent(True)
+        return self._add_adjacent(True)
 
-    def add_below(self) -> None:
+    def add_below(self) -> bool:
         """Move the primary cursor down a line, leaving a cursor behind"""
-        self._add_adjacent(False)
+        return self._add_adjacent(False)
 
-    def add_to_line_ends(self) -> None:
+    def add_to_line_ends(self) -> bool:
         """Replace the selection with a cursor at the end of each of its lines"""
         cursor = self.editor.textCursor()
         if not cursor.hasSelection():
-            return
+            return False
 
         doc = self.editor.document()
         block = doc.findBlock(cursor.selectionStart())
@@ -228,7 +211,11 @@ class MultiCursor(QtCore.QObject):
                 break
             block = block.next()
         self.replace_all(cursors)
+        return True
 
-    def add_at(self, position: int) -> None:
+    def add_at(self, position: int) -> bool:
         """Add a cursor at a position, like Alt+Click"""
+        count = len(self.secondary)
         self.replace_all([*self._primary_first(), CursorState(position, position)])
+        # A cursor on top of another one merges into it
+        return len(self.secondary) > count
