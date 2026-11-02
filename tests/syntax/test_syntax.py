@@ -30,6 +30,7 @@ from QCodeSitter.queries.predicates import (
 from QCodeSitter.tracked_document import ENC, TrackedDocument
 from QCodeSitter.tree_manager import TreeManager
 from tests.helpers import (
+    assert_matches_full_highlight,
     assert_tree_matches_fresh_parse,
     fresh_tree_str,
     set_cursor_position,
@@ -244,6 +245,15 @@ class TestSyntaxHighlighting:
             lambda: str(editor.tree_manager.root_node) == fresh_tree_str(editor)
         )
         assert editor.toPlainText() == "x = 1\n"
+
+    def test_undo_and_redo_rehighlight_straight_away(self, editor):
+        editor.setPlainText("def f():\n    return 1\n")
+        set_cursor_position(editor, 9)
+        editor.insert_text('x = """\n')
+        for action in (editor.undo, editor.redo):
+            action()
+            assert_tree_matches_fresh_parse(editor)
+            assert_matches_full_highlight(editor)
 
     def test_follows_language_changes(self, editor, python_language):
         """The query comes from the language, so changing it changes the highlighting"""

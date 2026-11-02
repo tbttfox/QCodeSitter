@@ -9,8 +9,12 @@ if TYPE_CHECKING:
 
 
 class TrackedCursor(QtGui.QTextCursor):
-    """A subclass of the QTextCursor that provides richer information about
-    the changes it makes back to its document"""
+    """A QTextCursor that reports its text edits to its TrackedDocument
+
+    insertText, insertBlock, removeSelectedText, deleteChar and
+    deletePreviousChar are reported, so the tree can follow them. The rich text
+    inserts, like insertHtml, raise instead of editing behind the tree's back
+    """
 
     def __init__(self, document: TrackedDocument, cursor: QtGui.QTextCursor) -> None:
         self._doc = document
@@ -56,6 +60,33 @@ class TrackedCursor(QtGui.QTextCursor):
         else:
             super().insertText(text)
         self._doc.report_edit(position, removed, text)
+
+    def _untracked(self, name: str) -> None:
+        raise NotImplementedError(
+            f"TrackedCursor.{name} would edit the document without updating "
+            "the tree, use insertText"
+        )
+
+    def insertFragment(self, *args, **kwargs) -> None:
+        self._untracked("insertFragment")
+
+    def insertFrame(self, *args, **kwargs) -> None:
+        self._untracked("insertFrame")
+
+    def insertHtml(self, *args, **kwargs) -> None:
+        self._untracked("insertHtml")
+
+    def insertImage(self, *args, **kwargs) -> None:
+        self._untracked("insertImage")
+
+    def insertList(self, *args, **kwargs) -> None:
+        self._untracked("insertList")
+
+    def insertMarkdown(self, *args, **kwargs) -> None:
+        self._untracked("insertMarkdown")
+
+    def insertTable(self, *args, **kwargs) -> None:
+        self._untracked("insertTable")
 
     def _replaced_span(self) -> tuple[int, str]:
         """Where an insert starts, and the selected text it replaces"""

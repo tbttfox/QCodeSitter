@@ -2,16 +2,77 @@
 
 from __future__ import annotations
 
-from Qt import QtCore, QtGui
+import pytest
+from Qt import QtCore, QtGui, QtWidgets
 
+from QCodeSitter.code_editor import CodeEditor
 from QCodeSitter.cursors.iterator import CursorIterator
 from QCodeSitter.cursors.multi import MultiCursor
 from QCodeSitter.cursors.state import CursorState
+from QCodeSitter.cursors.tracked import TrackedCursor
 from tests.helpers import (
     get_cursor_positions,
     set_cursor_position,
     simulate_keypress,
 )
+
+# The rich text inserts, which TrackedCursor blocks instead of tracking
+RICH_TEXT_INSERTS = [
+    "insertFragment",
+    "insertFrame",
+    "insertHtml",
+    "insertImage",
+    "insertList",
+    "insertMarkdown",
+    "insertTable",
+]
+
+# Qt methods that look like they edit the document, but don't
+CURSOR_ALLOWED = {"clearSelection": "only moves the anchor"}
+EDITOR_ALLOWED = {
+    "redoAvailable": "a signal",
+    "undoAvailable": "a signal",
+    "setPlaceholderText": "not document text",
+}
+
+
+def is_mutator(name: str) -> bool:
+    edits = ("insert", "append", "delete", "remove", "clear", "cut", "paste")
+    return name.startswith((*edits, "undo", "redo")) or (
+        name.startswith("set") and name.endswith("Text")
+    )
+
+
+class TestQtMutatorCoverage:
+    """Every Qt method that edits the document is tracked, blocked or allowed
+
+    A Qt upgrade that adds one fails here, instead of editing behind the tree
+    """
+
+    def test_cursor_mutators(self):
+        misses = [
+            name
+            for name in vars(QtGui.QTextCursor)
+            if is_mutator(name)
+            and name not in vars(TrackedCursor)
+            and name not in CURSOR_ALLOWED
+        ]
+        assert misses == []
+
+    def test_editor_mutators(self):
+        misses = [
+            name
+            for name in vars(QtWidgets.QPlainTextEdit)
+            if is_mutator(name)
+            and name not in vars(CodeEditor)
+            and name not in EDITOR_ALLOWED
+        ]
+        assert misses == []
+
+    @pytest.mark.parametrize("name", RICH_TEXT_INSERTS)
+    def test_rich_text_inserts_raise(self, editor, name):
+        with pytest.raises(NotImplementedError):
+            getattr(editor.textCursor(), name)("")
 
 
 class TestCursorMerging:
@@ -188,6 +249,23 @@ class TestMultiCursorController:
         editor.cursors.replace_all([CursorState(0, 3)])
         assert not editor.cursors.add_next_occurrence()
         assert editor.cursors.secondary == []
+
+    def test_add_next_occurrence_of_a_multi_line_selection(self, editor):
+        editor.setPlainText("ab\ncd\nab\ncd")
+        editor.cursors.replace_all([CursorState(0, 5)])
+        assert editor.cursors.add_next_occurrence()
+        assert editor.cursors.secondary == [CursorState(6, 11)]
+
+    def test_add_next_occurrence_counts_utf16_positions(self, editor):
+        """A surrogate pair before the match shifts it by two Qt positions"""
+        editor.setPlainText("ab \U0001f600 ab")
+        editor.cursors.replace_all([CursorState(0, 2)])
+        assert editor.cursors.add_next_occurrence()
+        assert editor.cursors.secondary == [CursorState(6, 8)]
+        # Wrapping around starts from the beginning of the document
+        editor.cursors.replace_all([CursorState(6, 8)])
+        assert editor.cursors.add_next_occurrence()
+        assert editor.cursors.secondary == [CursorState(0, 2)]
 
     def test_replacing_cursors_mid_session_starts_over(self, editor):
         """Cursors replaced inside an edit session are the ones the next pass edits"""

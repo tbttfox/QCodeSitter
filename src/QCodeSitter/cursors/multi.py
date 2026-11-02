@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from Qt import QtCore, QtGui
 
-from ..tracked_document import len16
+from ..tracked_document import len16, utf16_to_index
 from ..utils import MM, MO, leading_whitespace
 from .state import CursorState, primary_first
 
@@ -135,14 +135,15 @@ class MultiCursor(QtCore.QObject):
         return self._add([*all_cursors, CursorState(next_pos, end)])
 
     def _find(self, search_text: str, start_pos: int) -> int:
-        """Find the position of search_text after start_pos, or -1 if there is none"""
-        document = self.editor.document()
-        cursor = QtGui.QTextCursor(document)
-        cursor.setPosition(start_pos)
-        found = document.find(
-            search_text, cursor, QtGui.QTextDocument.FindFlag.FindCaseSensitively
-        )
-        return -1 if found.isNull() else found.selectionStart()
+        """Find the position of search_text after start_pos, or -1 if there is none
+
+        QTextDocument.find only matches within one block, so search the raw
+        text instead. Like selectedText, it separates blocks with U+2029, so
+        multi-line selections match too
+        """
+        text = self.editor.document().toRawText()
+        found = text.find(search_text, utf16_to_index(text, start_pos))
+        return -1 if found < 0 else len16(text[:found])
 
     def move(self, operation: MO, select: bool = False) -> None:
         """Move every cursor, like QTextCursor.movePosition
