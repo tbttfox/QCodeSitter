@@ -13,24 +13,16 @@ import tree_sitter_python as tspython
 from Qt import QtGui, QtWidgets
 from tree_sitter import Language
 
-from QCodeSitter import CodeEditor, EditorOptions, defaults
+from QCodeSitter import CodeEditor, EditorOptions
 from QCodeSitter.cursors.state import CursorState
 from QCodeSitter.themes import DARK_THEME, read_theme
+from tests.helpers import install_test_behaviors, make_test_options
 
 
 @pytest.fixture(scope="session")
 def python_language():
     """Provide the Python tree-sitter language for the session."""
     return Language(tspython.language())
-
-
-def make_test_options(python_language: Language) -> EditorOptions:
-    """The default options, with a fixed font and no completion delay"""
-    options = defaults.default_options(
-        DARK_THEME, python_language, QtGui.QFont("Monospace", pointSize=10)
-    )
-    options.update({"vim_completion_keys": False, "debounce_delay": 0})
-    return options
 
 
 @pytest.fixture
@@ -44,11 +36,6 @@ def clipboard(qapp):
     board.clear()
     yield board
     board.setText(saved)
-
-
-def install_test_behaviors(editor: CodeEditor):
-    """Every built-in behavior, including the ones that are off by default"""
-    defaults.install_default_behaviors(editor, optional=True)
 
 
 @pytest.fixture
