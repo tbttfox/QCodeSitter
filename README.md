@@ -206,13 +206,14 @@ The `TrackedDocument` (a `QTextDocument` subclass) and `TrackedCursor` (a `QText
 
 - Python 3.10+
 
-- [Qt.py](https://github.com/mottosso/Qt.py), and a Qt binding for it: PySide2, PySide6,
-  PyQt5, or PyQt6. `pip install QCodeSitter[pyside6]` installs PySide6
+- [Qt.py](https://github.com/mottosso/Qt.py), and a Qt binding for it. The tests run on
+  PySide6 (`tox`) and PyQt6 (`tox -e pyqt6`); PySide2 and PyQt5 are untested.
+  `pip install QCodeSitter[pyside6]` installs PySide6
 - [tree-sitter](https://github.com/tree-sitter/py-tree-sitter)
 - A tree-sitter language grammar (e.g., `tree-sitter-python`)
 
 ### Running Tests
 
-Tests are set up to be run with `tox`. `python examples/demo.py` opens a window with the
-default editor.
+Tests are set up to be run with `tox`, and `tox -e fuzz` runs the slower Hypothesis fuzz
+tests. `python examples/demo.py` opens a window with the default editor.
 

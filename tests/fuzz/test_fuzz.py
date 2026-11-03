@@ -5,7 +5,7 @@ These tests generate random sequences of editor operations to find
 hangs, crashes, and invariant violations. Run with:
 
     tox -e fuzz
-    pytest tests/test_fuzz.py -x --timeout=10
+    pytest tests/fuzz -m fuzz -x --timeout=30
 """
 
 from __future__ import annotations
@@ -18,13 +18,16 @@ from hypothesis import strategies as st
 from Qt import QtCore, QtWidgets
 
 from QCodeSitter import CodeEditor, EditorOptions
+from QCodeSitter.behaviors.code_folding import CodeFolding
+from QCodeSitter.behaviors.comment_toggle import CommentToggle
 from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
 from QCodeSitter.tracked_document import len16
 from QCodeSitter.utils import MO
-from tests.conftest import install_test_behaviors, make_test_options
 from tests.helpers import (
     assert_matches_full_highlight,
     assert_tree_matches_fresh_parse,
+    install_test_behaviors,
+    make_test_options,
     simulate_keypress,
 )
 
@@ -95,6 +98,17 @@ keypress_strategy = st.tuples(
 )
 
 
+# Operations that call a behavior's command directly, because their shortcuts
+# never fire from synthetic key events. A bare editor skips them
+FOLD_AND_COMMENT_OPS = [
+    "fold_all",
+    "unfold_all",
+    "toggle_fold",
+    "manual_fold",
+    "toggle_comment",
+]
+
+
 # An "operation" is one of several things the fuzzer can do to the editor.
 @st.composite
 def operation(draw):
@@ -114,6 +128,7 @@ def operation(draw):
                 "add_cursor_above",
                 "add_cursor_below",
                 "move_cursors",
+                *FOLD_AND_COMMENT_OPS,
             ]
         )
     )
@@ -152,6 +167,9 @@ def operation(draw):
     if kind == "add_cursor_below":
         return ("add_cursor_below",)
 
+    if kind in FOLD_AND_COMMENT_OPS:
+        return (kind,)
+
     if kind == "move_cursors":
         # None is smart home
         operation = draw(
@@ -174,11 +192,38 @@ def operation(draw):
         return ("move_cursors", operation, select)
 
 
+def apply_fold_or_comment(editor, kind):
+    """Run a folding or comment command, if the editor has the behavior"""
+    if kind == "toggle_comment":
+        comments = editor.get_behavior(CommentToggle)
+        if comments is not None:
+            comments.toggle_comment()
+        return
+
+    folding = editor.get_behavior(CodeFolding)
+    if folding is None:
+        return
+    if kind == "fold_all":
+        folding.fold_all()
+    elif kind == "unfold_all":
+        folding.unfold_all()
+    elif kind == "toggle_fold":
+        line = editor.textCursor().blockNumber()
+        region = next((r for r in folding.regions if r.start_line == line), None)
+        if region is not None:
+            folding.toggle_fold(region)
+    elif kind == "manual_fold":
+        folding.create_manual_fold()
+
+
 def apply_operation(editor, op):
     """Apply a single fuzz operation to the editor."""
     kind = op[0]
 
-    if kind == "keypress":
+    if kind in FOLD_AND_COMMENT_OPS:
+        apply_fold_or_comment(editor, kind)
+
+    elif kind == "keypress":
         _, key, text, mod = op
         simulate_keypress(editor, key, text, mod)
 
@@ -230,7 +275,10 @@ def apply_operation(editor, op):
 def fuzz_editor(python_language, full: bool):
     """A fresh shown editor with its own options, closed and deleted afterwards
 
-    Hypothesis runs many examples in one test, so editors must not pile up
+    Hypothesis runs many examples in one test, so editors must not pile up.
+    The clipboard is emptied too, so one example's copy can't reach the next
+    one's paste, and the offscreen platform doesn't crash at exit on the
+    copied mime data
     """
     if full:
         editor = CodeEditor(make_test_options(python_language))
@@ -241,6 +289,7 @@ def fuzz_editor(python_language, full: bool):
     try:
         yield editor
     finally:
+        QtWidgets.QApplication.clipboard().clear()
         editor.close()
         editor.deleteLater()
         QtWidgets.QApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
@@ -265,6 +314,19 @@ def check_invariants(editor):
     assert_tree_matches_fresh_parse(editor)
     if editor.get_behavior(SyntaxHighlighting) is not None:
         assert_matches_full_highlight(editor)
+
+    # A line is hidden exactly when a folded region hides it
+    folding = editor.get_behavior(CodeFolding)
+    if folding is not None:
+        block = editor.document().firstBlock()
+        while block.isValid():
+            line = block.blockNumber()
+            hidden = any(r.hides_line(line) for r in folding.regions)
+            assert block.isVisible() == (not hidden), (
+                f"line {line} is {'visible' if block.isVisible() else 'hidden'}, "
+                f"but its folds say it should be {'hidden' if hidden else 'visible'}"
+            )
+            block = block.next()
 
 
 FUZZ_SETTINGS = settings(

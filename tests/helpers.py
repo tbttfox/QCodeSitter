@@ -5,11 +5,27 @@ Helper functions for QCodeSitter tests.
 from __future__ import annotations
 
 from Qt import QtCore, QtGui
-from tree_sitter import Parser
+from tree_sitter import Language, Parser
 
+from QCodeSitter import EditorOptions, defaults
 from QCodeSitter.behaviors.syntax_highlighting import SyntaxHighlighting
 from QCodeSitter.code_editor import CodeEditor
+from QCodeSitter.themes import DARK_THEME
 from QCodeSitter.tracked_document import ENC
+
+
+def make_test_options(python_language: Language) -> EditorOptions:
+    """The default options, with a fixed font and no completion delay"""
+    options = defaults.default_options(
+        DARK_THEME, python_language, QtGui.QFont("Monospace", pointSize=10)
+    )
+    options.update({"vim_completion_keys": False, "debounce_delay": 0})
+    return options
+
+
+def install_test_behaviors(editor: CodeEditor):
+    """Every built-in behavior, including the ones that are off by default"""
+    defaults.install_default_behaviors(editor, optional=True)
 
 
 def get_cursor_positions(editor: CodeEditor) -> list[int]:

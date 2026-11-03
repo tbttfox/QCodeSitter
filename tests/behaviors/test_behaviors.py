@@ -360,8 +360,8 @@ class TestOverscroll:
         scrollbar = editor.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
         # Resizing makes Qt recompute the normal scroll range
-        editor.resize(editor.width(), editor.height() + 40)
-        qtbot.wait(10)
+        with qtbot.waitSignal(scrollbar.rangeChanged, timeout=1000):
+            editor.resize(editor.width(), editor.height() + 40)
         assert scrollbar.maximum() == editor.document().blockCount() - 1
         assert scrollbar.value() == scrollbar.maximum()
 
