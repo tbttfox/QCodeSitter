@@ -121,7 +121,8 @@ class AutoBracket(Behavior):
         """Whether the cursor follows a word that is not a string prefix"""
         text = cursor.block().text()
         index = utf16_to_index(text, cursor.positionInBlock())
-        word = re.search(r"\w*$", text[:index]).group()
+        match = re.search(r"\w*$", text[:index])
+        word = match.group() if match else ""
         return bool(word) and word.lower() not in _STRING_PREFIXES
 
     def _skip_closing(self, close_char: str) -> None:

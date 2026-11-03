@@ -28,6 +28,17 @@ QCodeSitter = "QCodeSitter.integrations.preditor_interface:CodeSitterTextEdit"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+QCodeSitter = ["py.typed"]
+
+[tool.mypy]
+python_version = "3.10"
+
+[[tool.mypy.overrides]]
+# PrEditor ships no stubs or py.typed marker
+module = ["preditor.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

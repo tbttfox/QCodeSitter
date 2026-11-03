@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from Qt import QtGui
 
@@ -48,12 +48,14 @@ class TrackedCursor(QtGui.QTextCursor):
         super().removeSelectedText()
         self._doc.report_edit(position, removed, "")
 
-    def insertBlock(self, *args, **kwargs) -> None:
+    def insertBlock(self, *args: Any, **kwargs: Any) -> None:
         position, removed = self._replaced_span()
         super().insertBlock(*args, **kwargs)
         self._doc.report_edit(position, removed, "\n")
 
-    def insertText(self, text, format: QtGui.QTextCharFormat | None = None) -> None:
+    def insertText(
+        self, text: str, format: QtGui.QTextCharFormat | None = None
+    ) -> None:
         position, removed = self._replaced_span()
         if format is not None:
             super().insertText(text, format)
@@ -61,31 +63,31 @@ class TrackedCursor(QtGui.QTextCursor):
             super().insertText(text)
         self._doc.report_edit(position, removed, text)
 
-    def _untracked(self, name: str) -> None:
+    def _untracked(self, name: str) -> NoReturn:
         raise NotImplementedError(
             f"TrackedCursor.{name} would edit the document without updating "
             "the tree, use insertText"
         )
 
-    def insertFragment(self, *args, **kwargs) -> None:
+    def insertFragment(self, *args: object, **kwargs: object) -> NoReturn:
         self._untracked("insertFragment")
 
-    def insertFrame(self, *args, **kwargs) -> None:
+    def insertFrame(self, *args: object, **kwargs: object) -> NoReturn:
         self._untracked("insertFrame")
 
-    def insertHtml(self, *args, **kwargs) -> None:
+    def insertHtml(self, *args: object, **kwargs: object) -> NoReturn:
         self._untracked("insertHtml")
 
-    def insertImage(self, *args, **kwargs) -> None:
+    def insertImage(self, *args: object, **kwargs: object) -> NoReturn:
         self._untracked("insertImage")
 
-    def insertList(self, *args, **kwargs) -> None:
+    def insertList(self, *args: object, **kwargs: object) -> NoReturn:
         self._untracked("insertList")
 
-    def insertMarkdown(self, *args, **kwargs) -> None:
+    def insertMarkdown(self, *args: object, **kwargs: object) -> NoReturn:
         self._untracked("insertMarkdown")
 
-    def insertTable(self, *args, **kwargs) -> None:
+    def insertTable(self, *args: object, **kwargs: object) -> NoReturn:
         self._untracked("insertTable")
 
     def _replaced_span(self) -> tuple[int, str]:

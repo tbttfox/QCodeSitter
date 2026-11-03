@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from ..editor_options import check_option_keys
 
 if TYPE_CHECKING:
-    from Qt import QtCore, QtGui, QtWidgets
+    from Qt import QtCore, QtGui
 
     from ..code_editor import CodeEditor
     from ..editor_options import EditorOptions, OptionHandlers
@@ -30,7 +30,7 @@ class Behavior:
         self.options: EditorOptions = editor.options
         self._option_handlers: dict[str, Callable[[Any], object]] = {}
         self._connections: list[tuple[QtCore.SignalInstance, Callable[..., Any]]] = []
-        self.shortcut_actions: list[QtWidgets.QAction] = []
+        self.shortcut_actions: list[QtGui.QAction] = []
         self.connect(self.options.optionsUpdated, self._on_options_updated)
 
     @classmethod
@@ -81,7 +81,7 @@ class Behavior:
         disconnected, so the cleanup can't trigger the behavior's own handlers
         """
 
-    def get_hotkeys(self) -> list[QtWidgets.QAction]:
+    def get_hotkeys(self) -> list[QtGui.QAction]:
         """The shortcut actions to add to the editor"""
         return []
 

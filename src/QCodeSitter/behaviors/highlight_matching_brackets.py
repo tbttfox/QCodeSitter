@@ -98,7 +98,7 @@ class HighlightMatchingBrackets(Behavior):
     ) -> list[tuple[int, int]]:
         """Get the ranges of the quote at match_pos, and the other end of its string"""
         spec = language_spec(self.editor.tree_manager.language)
-        string_node = node
+        string_node: Node | None = node
         while string_node is not None and string_node.type != spec.string_type:
             string_node = string_node.parent
         if string_node is None:

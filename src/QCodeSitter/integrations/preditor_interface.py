@@ -75,7 +75,9 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         self._theme_update_timer.setSingleShot(True)
         self._theme_update_timer.setInterval(0)
 
-        super().__init__(
+        # WorkboxMixin takes console, core_name and delayable_engine. PrEditor has
+        # no type information, so mypy only sees CodeEditor's __init__
+        super().__init__(  # type: ignore[call-arg]
             parent=parent,
             console=console,
             core_name=core_name,

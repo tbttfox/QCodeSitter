@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from Qt import QtCore, QtGui, QtWidgets
+from Qt import QtCore, QtGui
 from tree_sitter import Node, Tree
 
 from ..gui_colors import GuiColors, gui_color
@@ -72,7 +72,7 @@ class FoldableRegion:
 class FoldingGutterArea(GutterWidget):
     """The gutter column that shows fold indicators and toggles them on click"""
 
-    regionClicked = QtCore.Signal(object)
+    regionClicked = QtCore.Signal(FoldableRegion)
     ICON_SIZE = 9
     PADDING = 2
 
@@ -396,7 +396,7 @@ class CodeFolding(Behavior):
         self._sync_block_visibility()
         self.folding_area.remove()
 
-    def get_hotkeys(self) -> list[QtWidgets.QAction]:
+    def get_hotkeys(self) -> list[QtGui.QAction]:
         actions = [
             make_shortcut_action(
                 self.editor, "Ctrl+Shift+[", self.fold_all, "Fold All"

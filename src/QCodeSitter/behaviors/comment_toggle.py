@@ -8,7 +8,7 @@ from ..utils import leading_whitespace, make_shortcut_action
 from . import Behavior
 
 if TYPE_CHECKING:
-    from Qt import QtWidgets
+    from Qt import QtGui
 
 
 class CommentToggle(Behavior):
@@ -21,7 +21,7 @@ class CommentToggle(Behavior):
     def comment_prefix(self) -> str:
         return language_spec(self.editor.tree_manager.language).comment_prefix
 
-    def get_hotkeys(self) -> list[QtWidgets.QAction]:
+    def get_hotkeys(self) -> list[QtGui.QAction]:
         return [
             make_shortcut_action(
                 self.editor, "Ctrl+/", self.toggle_comment, "Toggle Comment"
