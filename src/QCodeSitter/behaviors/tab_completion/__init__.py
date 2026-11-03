@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, TypeVar
 
 from Qt import QtCore, QtGui
@@ -223,7 +223,8 @@ class TabCompletion(Behavior):
         # The keys only act on a showing popup, and otherwise go to the next handler
         if not self.completion_popup.isVisible():
             return False
-        actions = {
+        # Keyed by int, since event.key() is an int and not every key is in the enum
+        actions: dict[int, Callable[[], bool]] = {
             KEY.Key_Return: self.accept_item,
             KEY.Key_Enter: self.accept_item,
             KEY.Key_Tab: self.accept_item,

@@ -13,14 +13,14 @@ if TYPE_CHECKING:
     from .code_editor import CodeEditor
 
 # Delete key -> (move operation, move operation with Ctrl held)
-_DELETE_OPS: dict[KEY, tuple[MO, MO]] = {
+_DELETE_OPS: dict[int, tuple[MO, MO]] = {
     KEY.Key_Backspace: (MO.PreviousCharacter, MO.PreviousWord),
     KEY.Key_Delete: (MO.NextCharacter, MO.NextWord),
 }
 
 # Movement key -> (move operation, move operation with Ctrl held)
 # None is smart home, which toggles between the indent and column 0
-_MOVE_OPS: dict[KEY, tuple[MO | None, MO]] = {
+_MOVE_OPS: dict[int, tuple[MO | None, MO]] = {
     KEY.Key_Left: (MO.Left, MO.WordLeft),
     KEY.Key_Right: (MO.Right, MO.WordRight),
     KEY.Key_Up: (MO.Up, MO.Up),
@@ -46,7 +46,7 @@ class EditingKeys:
         # Whether the next word character joins the last one's undo step
         self._can_join = False
         # (modifier, action) pairs for the keys that run editor commands
-        self._command_keys: dict[KEY, tuple[tuple[MOD, Callable[[], None]], ...]] = {
+        self._command_keys: dict[int, tuple[tuple[MOD, Callable[[], None]], ...]] = {
             KEY.Key_C: ((MOD.ControlModifier, editor.copy),),
             KEY.Key_Insert: (
                 (MOD.ControlModifier, editor.copy),

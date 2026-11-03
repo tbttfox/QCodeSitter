@@ -407,6 +407,22 @@ class TestEditsOutsideTheKeyHandlers:
         assert editor.toPlainText() == "b\nb"
         assert_tree_matches_fresh_parse(editor)
 
+    def test_right_click_opens_the_context_menu(self, editor, monkeypatch):
+        # QMenu.exec_ doesn't exist on PyQt6, so this runs the event handler
+        shown = []
+
+        class RecordingMenu(QtWidgets.QMenu):
+            def exec(self, pos):
+                shown.append(pos)
+
+        monkeypatch.setattr(editor, "create_context_menu", lambda: RecordingMenu())
+        pos = QtCore.QPoint(5, 5)
+        event = QtGui.QContextMenuEvent(
+            QtGui.QContextMenuEvent.Reason.Mouse, pos, editor.mapToGlobal(pos)
+        )
+        editor.contextMenuEvent(event)
+        assert shown == [editor.mapToGlobal(pos)]
+
     def test_input_method_text_rebuilds_the_tree(self, editor):
         self.two_cursors(editor)
         # Qt types input method text with its own cursor, at the primary only

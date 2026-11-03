@@ -55,14 +55,16 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
         # parent group. ie: "keyword.return" -> "keyword"
         for name in self.query_capture_names():
             if name not in out:
-                fmt = resolve_capture(name, out)
-                if fmt is not None:
-                    out[name] = fmt
+                fallback = resolve_capture(name, out)
+                if fallback is not None:
+                    out[name] = fallback
 
         return out
 
     def query_capture_names(self) -> list[str]:
-        return [self.query.capture_name(i) for i in range(self.query.capture_count)]
+        # capture_count is a property, but tree-sitter's stubs call it a method
+        count: int = self.query.capture_count  # type: ignore[assignment]
+        return [self.query.capture_name(i) for i in range(count)]
 
     def _block_byte_range(
         self, block: QtGui.QTextBlock, text_len: int

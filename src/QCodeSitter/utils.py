@@ -39,9 +39,9 @@ def make_shortcut_action(
     shortcut: str,
     slot: Callable[..., object],
     name: str = "",
-) -> QtWidgets.QAction:
+) -> QtGui.QAction:
     """Create an action for a keyboard shortcut that only fires in the parent widget"""
-    action = QtWidgets.QAction(name, parent)
+    action = QtGui.QAction(name, parent)
     action.setShortcut(QtGui.QKeySequence(shortcut))
     action.setShortcutContext(QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut)
     action.triggered.connect(slot)

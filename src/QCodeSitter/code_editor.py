@@ -20,7 +20,7 @@ from .cursors.multi import MultiCursor
 from .cursors.state import CursorState
 from .cursors.tracked import TrackedCursor
 from .editing_keys import EditingKeys
-from .editor_options import EditorOptions, check_option_keys
+from .editor_options import EditorOptions, OptionHandlers, check_option_keys
 from .gui_colors import GuiColors, gui_color
 from .gutters import GutterLayout
 from .tracked_document import TrackedDocument
@@ -65,7 +65,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self._doc.byteContentsChange.connect(self.tree_manager.apply_edit)
 
         # The indent and clipboard options are read from self.options when used
-        self._option_handlers = {
+        self._option_handlers: OptionHandlers = {
             "font": self._set_font,
             "language": self._set_language,
             "colors": self._set_colors,
@@ -298,7 +298,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                 self.tree_manager.parse_from_scratch()
 
     def contextMenuEvent(self, event: QtGui.QContextMenuEvent) -> None:
-        self.create_context_menu().exec_(event.globalPos())
+        self.create_context_menu().exec(event.globalPos())
 
     def create_context_menu(self) -> QtWidgets.QMenu:
         """Make the right click menu

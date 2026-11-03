@@ -145,8 +145,14 @@ class QueryPredicates:
         return None
 
     def __call__(
-        self, name: str, args: PredicateArgs, _pattern_index: int, captures: Captures
+        self,
+        predicate: str,
+        args: PredicateArgs,
+        pattern_index: int,
+        captures: Captures,
     ) -> bool:
+        # The names match tree-sitter's QueryPredicate protocol
+        name = predicate
         if not name.startswith(PREFIX):
             # Not one of ours. Don't filter anything out
             return True

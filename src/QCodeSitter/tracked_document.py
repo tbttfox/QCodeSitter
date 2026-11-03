@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from Qt import QtCore, QtGui, QtWidgets
 from tree_sitter import Point
@@ -36,9 +36,11 @@ class TrackedDocument(QtGui.QTextDocument):
     `byteContentsChange` with those byte offsets.
     """
 
-    byteContentsChange = QtCore.Signal(int, int, int, Point, Point, Point)
+    byteContentsChange: QtCore.Signal[tuple[int, int, int, Point, Point, Point]] = (
+        QtCore.Signal(int, int, int, Point, Point, Point)
+    )
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.setDocumentLayout(QtWidgets.QPlainTextDocumentLayout(self))
 
