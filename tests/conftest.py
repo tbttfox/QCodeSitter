@@ -8,6 +8,12 @@ syntax highlighting, behaviors, and more.
 
 from __future__ import annotations
 
+import os
+
+# Render to an offscreen buffer so test windows never show up on screen.
+# setdefault lets QT_QPA_PLATFORM=windows (or xcb, etc.) override it when debugging
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 import pytest
 import tree_sitter_python as tspython
 from Qt import QtGui, QtWidgets
