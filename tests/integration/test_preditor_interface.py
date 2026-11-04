@@ -8,6 +8,7 @@ from Qt import QtGui, QtWidgets
 pytest.importorskip("preditor")
 
 from QCodeSitter.behaviors.tab_completion import TabCompletion
+from QCodeSitter.gui_colors import DERIVED_GUI_COLORS, GUI_COLOR_DEFAULTS
 from QCodeSitter.integrations.preditor_interface import (
     CodeSitterTextEdit,
 )
@@ -55,7 +56,8 @@ class TestWorkboxText:
 
     def test_text_part(self, workbox):
         assert workbox.__text_part__(lineNum=1) == "    second line"
-        assert workbox.__text_part__(start=0, end=2) == "first line\n    second line"
+        # start and end are character offsets, like PrEditor's selection offsets
+        assert workbox.__text_part__(start=6, end=15) == "line\n    "
         assert workbox.__text_part__() == TEXT
         with pytest.raises(ValueError):
             workbox.__text_part__(start=1)
@@ -87,6 +89,44 @@ class TestWorkboxText:
         assert workbox.__text__() == ""
         assert_tree_matches_fresh_parse(workbox)
 
+    def test_set_cursor_position(self, workbox):
+        workbox.__set_cursor_position__(1, 4)
+        assert workbox.__cursor_position__() == (1, 4)
+        # An index past the end of the line stops at its end
+        workbox.__set_cursor_position__(0, 99)
+        assert workbox.__cursor_position__() == (0, len("first line"))
+
+    @pytest.mark.parametrize(
+        ("line", "index", "expected"),
+        [(-5, -3, (0, 0)), (99, 0, (3, 0)), (2, -1, (2, 0))],
+    )
+    def test_set_cursor_position_clamps(self, workbox, line, index, expected):
+        workbox.__set_cursor_position__(line, index)
+        assert workbox.__cursor_position__() == expected
+
+    @pytest.mark.parametrize(("line", "expected"), [(0, (0, 0)), (99, (3, 0))])
+    def test_goto_line_clamps(self, workbox, line, expected):
+        """Lines are 1-based, and out of range lines stop at the first or last"""
+        set_cursor_selection(workbox, 15, 15)
+        workbox.__goto_line__(line)
+        assert workbox.__cursor_position__() == expected
+
+    def test_replace_selection_like_logger_window(self, workbox):
+        """LoggerWindow removes the selection, inserts text, then moves past it"""
+        set_cursor_selection(workbox, 0, 5)
+        workbox.__remove_selected_text__()
+        workbox.__insert_text__("last")
+        line, index = workbox.__cursor_position__()
+        workbox.__set_cursor_position__(line, index)
+        assert workbox.__text__().startswith("last line\n")
+        assert workbox.__cursor_position__() == (0, 4)
+        assert_tree_matches_fresh_parse(workbox)
+
+    def test_comment_toggle(self, workbox):
+        set_cursor_selection(workbox, 0, 0)
+        workbox.__comment_toggle__()
+        assert workbox.__text_part__(lineNum=0) == "# first line"
+
 
 class TestWorkboxSettings:
     def test_options_are_per_editor(self, tabs, workbox):
@@ -107,6 +147,9 @@ class TestWorkboxSettings:
 
     def test_tab_width(self, workbox):
         assert workbox.__tab_width__() == 4
+        workbox.__set_tab_width__(2)
+        assert workbox.__tab_width__() == 2
+        assert workbox.options["space_indent_width"] == 2
 
     def test_margins_font_is_the_editor_font(self, workbox):
         font = QtGui.QFont("Courier", 17)
@@ -131,6 +174,20 @@ class TestWorkboxSettings:
 
 
 class TestTheme:
+    def test_gui_properties_match_the_gui_colors(self):
+        """There is a gui property for each gui color, and no others"""
+        meta = CodeSitterTextEdit.staticMetaObject
+        names = {
+            meta.property(i).name()
+            for i in range(meta.propertyOffset(), meta.propertyCount())
+        }
+        gui = {name for name in names if name.startswith("gui")}
+        expected = {
+            "gui" + "".join(part.title() for part in color.split("_"))
+            for color in {*GUI_COLOR_DEFAULTS, *DERIVED_GUI_COLORS}
+        }
+        assert gui == expected
+
     @pytest.mark.parametrize("name", ["guiBg", "hlKeyword", "hlItalic"])
     def test_theme_properties_are_qt_properties(self, name):
         """Stylesheets can only set properties Qt knows about"""
@@ -172,6 +229,17 @@ class TestTheme:
         assert syntax["comment"]["italic"] is True
         assert syntax["keyword.return"]["italic"] is True
         assert syntax["string"]["italic"] is False
+
+    def test_parent_stylesheet_applies_on_creation(self, qtbot, tabs):
+        """Theme properties a stylesheet sets while the widget is built are kept"""
+        tabs.setStyleSheet(
+            "CodeSitterTextEdit { qproperty-hlKeyword: rgb(255, 0, 0); }"
+        )
+        box = CodeSitterTextEdit(parent=tabs, workbox_id="qcodesitter_styled")
+        tabs.addTab(box, "styled")
+        tabs.show()
+        qtbot.waitExposed(tabs)
+        qtbot.waitUntil(lambda: box.options["syntax"]["keyword"]["color"] == "#ff0000")
 
     def test_rebuild_theme_updates_options(self, qtbot, workbox):
         workbox.guiBg = QtGui.QColor("#101010")
