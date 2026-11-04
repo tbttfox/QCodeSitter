@@ -14,7 +14,7 @@ from Qt import QtCore
 MIME = "text/multi_copy_lengths"
 
 
-def tabs_to_spaces(text: str, width: int) -> str:
+def indent_tabs_to_spaces(text: str, width: int) -> str:
     """Replace the tabs in the indent of each line with spaces"""
     spaces = " " * width
     return re.sub(r"(?m)^\t+", lambda m: spaces * len(m.group()), text)

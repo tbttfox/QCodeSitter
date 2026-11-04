@@ -8,8 +8,8 @@ from Qt import QtCore
 from QCodeSitter.cursors.clipboard import (
     MIME,
     encode_multi_copy,
+    indent_tabs_to_spaces,
     split_multi_copy,
-    tabs_to_spaces,
 )
 from QCodeSitter.tracked_document import len16, utf16_to_index
 from QCodeSitter.utils import dedent_string, leading_whitespace
@@ -51,8 +51,8 @@ class TestClipboardFormat:
         data.setText("a\nb")
         assert split_multi_copy(data, 2) is None
 
-    def test_tabs_to_spaces(self):
-        assert tabs_to_spaces("\t\tx\n\ty\tz", 2) == "    x\n  y\tz"
+    def test_indent_tabs_to_spaces(self):
+        assert indent_tabs_to_spaces("\t\tx\n\ty\tz", 2) == "    x\n  y\tz"
 
 
 class TestLeadingWhitespace:

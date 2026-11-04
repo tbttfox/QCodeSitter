@@ -119,7 +119,10 @@ class HighlightMatchingBrackets(Behavior):
         )
         if opening[0] <= match_pos < opening[1]:
             return [opening, closing]
-        return [closing, opening]
+        if closing[0] <= match_pos < closing[1]:
+            return [closing, opening]
+        # A quote inside the string, like the apostrophe in "don't"
+        return []
 
     def _matching_bracket_ranges(
         self, node: Node, match_char: str

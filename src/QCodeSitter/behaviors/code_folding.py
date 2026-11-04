@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -55,11 +56,11 @@ class FoldableRegion:
     def follow_anchors(self) -> bool:
         """Move a manual fold to the lines its anchors are on now
 
-        Returns whether it still spans more than one line
+        Returns whether it still hides a line
         """
         if self.anchors is not None:
             self.start_line, self.end_line = (c.blockNumber() for c in self.anchors)
-        return self.end_line > self.start_line
+        return self.num_hidden > 0
 
     def state_key(self) -> tuple[str, int, int] | None:
         """Identifies the same tree-sitter region across reparses"""
@@ -179,11 +180,15 @@ class CodeFolding(Behavior):
             return
 
         folded = [r for r in self.regions if r.is_folded]
-        folded_keys = {r.state_key() for r in folded}
+        # Nested regions of the same type on the same lines share a key, so
+        # each folded key folds as many new regions as it had, parents first
+        folded_keys = Counter(r.state_key() for r in folded if not r.is_manual)
         regions = self._find_foldable_regions(tree)
         restored = 0
         for region in regions:
-            if region.state_key() in folded_keys:
+            key = region.state_key()
+            if folded_keys[key] > 0:
+                folded_keys[key] -= 1
                 region.is_folded = True
                 restored += 1
         manual = [r for r in folded if r.is_manual and r.follow_anchors()]
@@ -197,7 +202,7 @@ class CodeFolding(Behavior):
             for region in self.regions:
                 if region.is_folded:
                     self._apply_region(region)
-            self._relayout()
+            self._repaint()
 
     def _find_foldable_regions(self, tree: Tree) -> list[FoldableRegion]:
         """Find the foldable regions in the tree
@@ -226,13 +231,14 @@ class CodeFolding(Behavior):
             depth = len(parent_ends)
             parent_ends.append(node.end_byte)
 
-            start_line = node.start_point.row
-            end_line = node.end_point.row
-            if end_line > start_line:
-                hide_last = node.type in hide_last_types
-                regions.append(
-                    FoldableRegion(start_line, end_line, node, hide_last, depth)
-                )
+            hide_last = node.type in hide_last_types
+            region = FoldableRegion(
+                node.start_point.row, node.end_point.row, node, hide_last, depth
+            )
+            # Single line nodes, and two line nodes that keep their last line,
+            # have nothing to hide
+            if region.num_hidden > 0:
+                regions.append(region)
         return regions
 
     # ------------------------------------------------------------------
@@ -262,9 +268,9 @@ class CodeFolding(Behavior):
             line = block.blockNumber()
             block.setVisible(not any(r.hides_line(line) for r in self.regions))
             block = block.next()
-        self._relayout()
+        self._repaint()
 
-    def _relayout(self) -> None:
+    def _repaint(self) -> None:
         """Repaint the text and the gutters after lines were shown or hidden"""
         self.editor.viewport().update()
         self.editor.gutters.update()
@@ -273,15 +279,15 @@ class CodeFolding(Behavior):
         if region.is_folded != folded:
             region.is_folded = folded
             self._apply_region(region)
-            self._relayout()
+            self._repaint()
 
     def toggle_fold(self, region: FoldableRegion) -> None:
         self.set_folded(region, not region.is_folded)
 
-    def _set_all_folded(
+    def _set_fold_states(
         self, should_fold: Callable[[FoldableRegion], bool | None]
     ) -> None:
-        """Fold or unfold every region
+        """Fold, unfold or leave each region, as should_fold says
 
         Args:
             should_fold: Whether to fold a region, or None to leave it as is
@@ -291,7 +297,7 @@ class CodeFolding(Behavior):
             if fold is not None and region.is_folded != fold:
                 region.is_folded = fold
                 self._apply_region(region)
-        self._relayout()
+        self._repaint()
 
     def fold_to_level(self, min_depth: int) -> None:
         """Fold the regions at or deeper than a depth, and unfold the rest
@@ -300,7 +306,7 @@ class CodeFolding(Behavior):
             min_depth: The depth to start folding at. 0 folds everything,
                 1 keeps the top level unfolded, etc.
         """
-        self._set_all_folded(lambda r: r.depth >= min_depth)
+        self._set_fold_states(lambda r: r.depth >= min_depth)
 
     def unfold_to_level(self, max_depth: int) -> None:
         """Unfold the regions up to and including a depth
@@ -309,24 +315,25 @@ class CodeFolding(Behavior):
             max_depth: 0 unfolds the top level only, 1 unfolds the top
                 and next level, etc.
         """
-        self._set_all_folded(lambda r: False if r.depth <= max_depth else None)
+        self._set_fold_states(lambda r: False if r.depth <= max_depth else None)
 
     def fold_all(self) -> None:
-        self._set_all_folded(lambda r: True)
+        self._set_fold_states(lambda r: True)
 
     def unfold_all(self) -> None:
-        self._set_all_folded(lambda r: False)
+        self._set_fold_states(lambda r: False)
 
     def create_manual_fold(self) -> bool:
         """Fold the lines of the selection under its first line
 
-        Returns whether a fold was made, which needs at least 2 selected lines
+        Returns whether a fold was made. The last line keeps showing, so it needs
+        at least 3 selected lines
         """
         cursor = self.editor.textCursor()
         doc = self.editor.document()
         start_line = doc.findBlock(cursor.selectionStart()).blockNumber()
         end_line = doc.findBlock(cursor.selectionEnd()).blockNumber()
-        if end_line <= start_line:
+        if end_line - start_line < 2:
             return False
 
         anchors = (
@@ -368,8 +375,6 @@ class CodeFolding(Behavior):
                 top, height = int(geom.top()), int(geom.height())
                 painter.fillRect(0, top, width, height, self.fold_line_bg_color)
 
-                if region.num_hidden <= 0:
-                    continue
                 plural = "s" if region.num_hidden > 1 else ""
                 text = f"... ({region.num_hidden} hidden line{plural})"
                 x = metrics.horizontalAdvance(block.text() + " ")

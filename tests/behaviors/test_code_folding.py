@@ -97,6 +97,54 @@ class TestCodeFolding:
         assert not folding.create_manual_fold()
         assert _hidden_lines(editor_with_text) == []
 
+    def test_two_line_manual_fold_is_refused(self, editor_with_text):
+        # The last line keeps showing, so two lines would hide nothing
+        folding = editor_with_text.get_behavior(CodeFolding)
+        doc = editor_with_text.document()
+        set_cursor_selection(editor_with_text, 0, doc.findBlockByNumber(1).position())
+        assert not folding.create_manual_fold()
+        assert not any(r.is_manual for r in folding.regions)
+
+    def test_manual_fold_shrunk_to_two_lines_is_dropped(self, editor_with_text):
+        folding = editor_with_text.get_behavior(CodeFolding)
+        doc = editor_with_text.document()
+        set_cursor_selection(
+            editor_with_text,
+            doc.findBlockByNumber(1).position(),
+            doc.findBlockByNumber(4).position(),
+        )
+        folding.create_manual_fold()
+        # Delete lines 2 and 3, the two hidden lines
+        set_cursor_selection(
+            editor_with_text,
+            doc.findBlockByNumber(2).position(),
+            doc.findBlockByNumber(4).position(),
+        )
+        editor_with_text.insert_text("")
+        assert not any(r.is_manual for r in folding.regions)
+        assert _hidden_lines(editor_with_text) == []
+
+    def test_two_line_bracket_has_no_region(self, editor):
+        # A bracket keeps its last line showing, so there is nothing to fold
+        editor.setPlainText("x = [\n]\n")
+        folding = editor.get_behavior(CodeFolding)
+        assert folding.regions == []
+
+    def test_nested_regions_on_the_same_lines_restore_once(self, editor):
+        # Both argument lists span lines 0-3, so they share a state key
+        editor.setPlainText("foo(bar(\n    1,\n    2,\n))\n")
+        folding = editor.get_behavior(CodeFolding)
+        outer, inner = (r for r in folding.regions if r.node.type == "argument_list")
+        folding.set_folded(outer, True)
+        # Reparse by editing after the regions
+        set_cursor_position(editor, len(editor.toPlainText()))
+        editor.insert_text("y = 1")
+        outer, inner = (r for r in folding.regions if r.node.type == "argument_list")
+        assert outer.is_folded
+        assert not inner.is_folded
+        folding.set_folded(outer, False)
+        assert _hidden_lines(editor) == []
+
     def test_fold_survives_edit_elsewhere(self, editor_with_text):
         folding = editor_with_text.get_behavior(CodeFolding)
         folding.set_folded(_region(folding, "function_definition", 11), True)

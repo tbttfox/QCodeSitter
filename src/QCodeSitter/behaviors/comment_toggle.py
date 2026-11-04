@@ -47,7 +47,8 @@ class CommentToggle(Behavior):
 
     @staticmethod
     def _line_is_commented(line: str, prefix: str) -> bool:
-        return line.lstrip().startswith((prefix, prefix.rstrip()))
+        # Without its trailing space, so "#foo" counts as commented too
+        return line.lstrip().startswith(prefix.rstrip())
 
     @staticmethod
     def _comment_line(line: str, prefix: str, min_indent: int) -> str:

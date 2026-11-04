@@ -9,7 +9,11 @@ from Qt import QtCore, QtGui, QtWidgets
 from tree_sitter import Language
 
 from .behaviors import Behavior
-from .cursors.clipboard import encode_multi_copy, split_multi_copy, tabs_to_spaces
+from .cursors.clipboard import (
+    encode_multi_copy,
+    indent_tabs_to_spaces,
+    split_multi_copy,
+)
 from .cursors.iterator import CursorIterator
 from .cursors.line_edits import edit_joined_spans
 from .cursors.multi import MultiCursor
@@ -441,7 +445,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             return
         if self.options["copy_indents_as_spaces"]:
             width = self.options["space_indent_width"]
-            texts = [tabs_to_spaces(t, width) for t in texts]
+            texts = [indent_tabs_to_spaces(t, width) for t in texts]
         QtWidgets.QApplication.clipboard().setMimeData(encode_multi_copy(texts))
 
     def cut(self) -> None:

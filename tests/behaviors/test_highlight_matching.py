@@ -85,6 +85,9 @@ class TestQuoteMatching:
             ("x = 'abc'", 9, ["'", "'"]),
             ('x = """doc"""', 7, ['"""', '"""']),
             ('x = f"{y}"', 6, ['f"', '"']),
+            # A quote inside a string isn't one of its delimiters
+            ('x = "don\'t"', 8, []),
+            ('x = "don\'t"', 9, []),
         ],
     )
     def test_matching_quotes(self, bracket_editor, text, cursor, expected):
