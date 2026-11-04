@@ -6,6 +6,7 @@ from preditor.gui.workbox_mixin import WorkboxMixin
 from Qt import QtCore, QtGui, QtWidgets
 
 from .. import CodeEditor
+from ..behaviors.comment_toggle import CommentToggle
 from ..behaviors.tab_completion import TabCompletion
 from ..defaults import (
     default_options,
@@ -66,22 +67,24 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         parent: QtWidgets.QWidget | None = None,
         **kwargs: object,
     ) -> None:
-        self.options = default_options(LIGHT_THEME)
+        # Stylesheets set the theme properties one at a time, so collect them all
+        # and rebuild the theme once they're done. This exists before the widget
+        # does, so the property setters work whenever Qt calls them
+        self._theme_values: dict[ThemeKey, ThemeValue] = {}
+        self._theme_update_timer = QtCore.QTimer()
+        self._theme_update_timer.setSingleShot(True)
+        self._theme_update_timer.setInterval(0)
+
         super().__init__(
             parent=parent,
             console=console,
             core_name=core_name,
             delayable_engine=delayable_engine,
-            options=self.options,
+            options=default_options(LIGHT_THEME),
             **kwargs,
         )
-        # Stylesheets set the theme properties one at a time, so collect them all
-        # and rebuild the theme once they're done
-        self._theme_update_timer = QtCore.QTimer(self)
-        self._theme_update_timer.setSingleShot(True)
-        self._theme_update_timer.setInterval(0)
+        self._theme_update_timer.setParent(self)
         self._theme_update_timer.timeout.connect(self.rebuild_theme)
-        self._theme_values: dict[ThemeKey, ThemeValue] = {}
 
         self._encoding: str | None = None
         self.__set_console__(console)
@@ -165,36 +168,11 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
             self.setStyleSheet(ss)
 
     def setText(self, text: str) -> None:
-        """The WorkboxMixin assumes a QTextEdit, not a QPlainTextEdit
-        So I have to reroute setText to setPlainText"""
+        """Replace the text. WorkboxMixin calls the QTextEdit method name"""
         self.setPlainText(text)
 
     def __num_lines__(self) -> int:
         return self.document().blockCount()
-
-    def __text_part__(
-        self,
-        lineNum: int | None = None,
-        start: int | None = None,
-        end: int | None = None,
-    ) -> str:
-        doc = self.document()
-        if lineNum is not None:
-            block = doc.findBlockByNumber(lineNum)
-            return block.text()
-        if start is not None and end is not None:
-            block = doc.findBlockByNumber(start)
-            lines = []
-            for _ in range(start, end):
-                lines.append(block.text())
-                block = block.next()
-                if not block.isValid():
-                    break
-            return "\n".join(lines)
-        if start is None and end is None:
-            return self.__text__()
-
-        raise ValueError("You must pass start and end if you pass either.")
 
     def __auto_complete_enabled__(self) -> bool:
         return self.get_behavior(TabCompletion) is not None
@@ -211,8 +189,13 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         self.clear()
         self.__set_last_saved_text__(self.__text__())
 
+    def __comment_toggle__(self) -> None:
+        behavior = self.get_behavior(CommentToggle)
+        if behavior is not None:
+            behavior.toggle_comment()
+
     def __copy_indents_as_spaces__(self) -> bool:
-        """When copying code, should it convert leading tabs to spaces?"""
+        """Whether copying code converts its leading tabs to spaces"""
         return self.options["copy_indents_as_spaces"]
 
     def __set_copy_indents_as_spaces__(self, state: bool) -> None:
@@ -225,6 +208,28 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         sc.setPosition(cursor.selectionStart())
         return sc.blockNumber(), sc.positionInBlock()
 
+    def _clamped_block(self, line: int) -> QtGui.QTextBlock:
+        """Get the block of a 0-based line, clamped to the document's lines"""
+        doc = self.document()
+        return doc.findBlockByNumber(max(0, min(line, doc.blockCount() - 1)))
+
+    def __set_cursor_position__(self, line: int, index: int) -> None:
+        """Put a single cursor at an index into a 0-based line
+
+        The line is clamped to the document, and the index to the line
+        """
+        self.cursors.clear_secondary()
+        block = self._clamped_block(line)
+        cursor = QtGui.QTextCursor(block)
+        cursor.setPosition(block.position() + max(0, min(index, block.length() - 1)))
+        self.setTextCursor(cursor)
+
+    def __insert_text__(self, txt: str) -> None:
+        self.insert_text(txt)
+
+    def __remove_selected_text__(self) -> None:
+        self.insert_text("")
+
     def __font__(self) -> QtGui.QFont:
         return self.options["font"]
 
@@ -232,9 +237,9 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         self.options["font"] = font
 
     def __goto_line__(self, line: int) -> None:
+        """Put a single cursor at the start of a 1-based line, clamped to the document"""
         self.cursors.clear_secondary()
-        cursor = QtGui.QTextCursor(self.document().findBlockByNumber(line - 1))
-        self.setTextCursor(cursor)
+        self.setTextCursor(QtGui.QTextCursor(self._clamped_block(line - 1)))
 
     def __indentations_use_tabs__(self) -> bool:
         return self.options["indent_using_tabs"]
@@ -251,6 +256,9 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
 
     def __tab_width__(self) -> int:
         return self.options["space_indent_width"]
+
+    def __set_tab_width__(self, width: int) -> None:
+        self.options["space_indent_width"] = width
 
     def __text__(self) -> str:
         return self.toPlainText()
@@ -289,7 +297,7 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
 
             return sc.selection().toPlainText(), line
 
-        return self.textCursor().selection().toPlainText(), line
+        return cursor.selection().toPlainText(), line
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         # PrEditor's own shortcuts come before the editor's keys
@@ -303,7 +311,8 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         self._theme_update_timer.start()
 
     # fmt: off
-    # GUI colors. See themes.py for how these are used
+    # GUI colors, named after GUI_COLOR_DEFAULTS and DERIVED_GUI_COLORS in
+    # gui_colors.py
     guiBg                  = _theme_property("gui", "bg")
     guiBgDim               = _theme_property("gui", "bg_dim")
     guiFg                  = _theme_property("gui", "fg")
