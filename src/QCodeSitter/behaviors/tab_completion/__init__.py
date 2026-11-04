@@ -88,7 +88,7 @@ class TabCompletion(Behavior):
         self.connect(self.editor.textChanged, self.on_text_changed)
 
         # Wait for a pause in typing before asking the providers
-        self.debounce_timer = QtCore.QTimer()
+        self.debounce_timer = QtCore.QTimer(self.editor)
         self.debounce_timer.setSingleShot(True)
         self.debounce_timer.timeout.connect(self.refresh_completions)
 
@@ -102,6 +102,7 @@ class TabCompletion(Behavior):
 
     def on_remove(self) -> None:
         self.debounce_timer.stop()
+        self.debounce_timer.deleteLater()
         self.completion_popup.hide()
         self.completion_popup.deleteLater()
 
