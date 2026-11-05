@@ -10,12 +10,19 @@ from __future__ import annotations
 from QCodeSitter.behaviors.comment_toggle import CommentToggle
 from QCodeSitter.cursors.state import CursorState
 from tests.helpers import (
+    menu_actions,
     set_cursor_position,
     set_cursor_selection,
 )
 
 
 class TestSingleLineComment:
+    def test_context_menu_toggles_comment(self, editor):
+        editor.setPlainText("x = 1")
+        set_cursor_position(editor, 2)
+        menu_actions(editor.create_context_menu())["Toggle Comment"].trigger()
+        assert editor.toPlainText() == "# x = 1"
+
     def test_comment_single_line(self, editor):
         editor.setPlainText("x = 1")
         set_cursor_position(editor, 2)

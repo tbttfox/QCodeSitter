@@ -4,7 +4,7 @@ Helper functions for QCodeSitter tests.
 
 from __future__ import annotations
 
-from Qt import QtCore, QtGui
+from Qt import QtCore, QtGui, QtWidgets
 from tree_sitter import Language, Parser
 
 from QCodeSitter import EditorOptions, defaults
@@ -26,6 +26,30 @@ def make_test_options(python_language: Language) -> EditorOptions:
 def install_test_behaviors(editor: CodeEditor):
     """Every built-in behavior, including the ones that are off by default"""
     defaults.install_default_behaviors(editor, optional=True)
+
+
+def menu_actions(menu: QtWidgets.QMenu) -> dict[str, QtGui.QAction]:
+    """The actions of a menu and its submenus, by their text before the shortcut
+
+    A submenu's actions are keyed as "Submenu/Label"
+    """
+    out = {}
+    for action in menu.actions():
+        if action.isSeparator():
+            continue
+        label = action.text().split("\t")[0]
+        out[label] = action
+        submenu = action.menu()
+        if submenu is not None:
+            for sub_label, sub_action in menu_actions(submenu).items():
+                out[f"{label}/{sub_label}"] = sub_action
+    return out
+
+
+def line_pos(editor: CodeEditor, line: int) -> QtCore.QPoint:
+    """A viewport point on a line, like where a right click would be"""
+    cursor = QtGui.QTextCursor(editor.document().findBlockByNumber(line))
+    return editor.cursorRect(cursor).center()
 
 
 def get_cursor_positions(editor: CodeEditor) -> list[int]:

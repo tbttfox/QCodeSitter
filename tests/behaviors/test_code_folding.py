@@ -9,6 +9,8 @@ from QCodeSitter.behaviors.code_folding import (
     FoldableRegion,
 )
 from tests.helpers import (
+    line_pos,
+    menu_actions,
     set_cursor_position,
     set_cursor_selection,
 )
@@ -35,6 +37,47 @@ class TestCodeFolding:
     The sample text has hello() on lines 0-5, and class Greeter on lines 7-12
     with __init__ on lines 8-9 and greet() on lines 11-12
     """
+
+    def test_context_menu_folds_here(self, editor_with_text):
+        editor = editor_with_text
+        menu = editor.create_context_menu(line_pos(editor, 8))
+        menu_actions(menu)["Folding/Fold Here"].trigger()
+        assert _hidden_lines(editor) == [9]
+
+        # The folded line offers to unfold it
+        menu = editor.create_context_menu(line_pos(editor, 8))
+        menu_actions(menu)["Folding/Unfold Here"].trigger()
+        assert _hidden_lines(editor) == []
+
+    def test_context_menu_folds_all(self, editor_with_text):
+        editor = editor_with_text
+        menu_actions(editor.create_context_menu())["Folding/Fold All"].trigger()
+        assert 1 in _hidden_lines(editor)
+        menu_actions(editor.create_context_menu())["Folding/Unfold All"].trigger()
+        assert _hidden_lines(editor) == []
+
+    def test_context_menu_folds_to_level(self, editor_with_text):
+        editor = editor_with_text
+        menu_actions(editor.create_context_menu())["Folding/Fold to Level/1"].trigger()
+        # The top level hello() and Greeter stay open, and the regions in them fold
+        assert _hidden_lines(editor) == [3, 4, 5, 9, 12]
+
+    def test_context_menu_manual_fold_needs_three_lines(self, editor_with_text):
+        editor = editor_with_text
+        doc = editor.document()
+        start = doc.findBlockByNumber(1).position()
+        set_cursor_selection(editor, start, doc.findBlockByNumber(2).position())
+        actions = menu_actions(editor.create_context_menu())
+        assert not actions["Create Manual Fold"].isEnabled()
+
+        set_cursor_selection(editor, start, doc.findBlockByNumber(4).position())
+        actions = menu_actions(editor.create_context_menu())
+        actions["Create Manual Fold"].trigger()
+        assert _hidden_lines(editor) == [2, 3]
+
+    def test_folding_menu_is_disabled_without_regions(self, editor):
+        editor.setPlainText("x = 1")
+        assert not menu_actions(editor.create_context_menu())["Folding"].isEnabled()
 
     def test_fold_hides_the_body(self, editor_with_text):
         folding = editor_with_text.get_behavior(CodeFolding)

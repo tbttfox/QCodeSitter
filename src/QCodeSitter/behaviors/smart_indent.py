@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from Qt import QtGui
+from Qt import QtCore, QtGui, QtWidgets
 
 from ..cursors.line_edits import replace_lines_at_cursors
 from ..languages import IndentRules, language_spec
 from ..tracked_document import utf16_to_index
-from ..utils import KEY, MM, MO, dedent_string, leading_whitespace
+from ..utils import KEY, MM, MO, add_menu_action, dedent_string, leading_whitespace
 from . import Behavior
 
 CLOSING_BRACKETS = ("]", ")", "}")
@@ -25,6 +25,12 @@ class SmartIndent(Behavior):
     @property
     def _width(self) -> int:
         return self.options["space_indent_width"]
+
+    def add_context_menu_actions(
+        self, menu: QtWidgets.QMenu, pos: QtCore.QPoint
+    ) -> None:
+        add_menu_action(menu, "Indent", self.insert_indent, "Tab")
+        add_menu_action(menu, "Unindent", self.unindent, "Shift+Tab")
 
     def indent_rules(self) -> IndentRules:
         spec = language_spec(self.editor.tree_manager.language)

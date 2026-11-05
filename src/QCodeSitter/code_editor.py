@@ -25,7 +25,15 @@ from .gui_colors import GuiColors, gui_color
 from .gutters import GutterLayout
 from .tracked_document import TrackedDocument
 from .tree_manager import TreeManager
-from .utils import MM, MO, MOD, event_pos, make_shortcut_action
+from .utils import (
+    MM,
+    MO,
+    MOD,
+    add_menu_action,
+    event_pos,
+    make_shortcut_action,
+    tidy_separators,
+)
 
 T_Behavior = TypeVar("T_Behavior", bound=Behavior)
 
@@ -76,13 +84,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.options.optionsUpdated.connect(self._on_options_updated)
 
         self.keys = EditingKeys(self)
-        for shortcut, slot in (
-            ("Ctrl+D", self.cursors.add_next_occurrence),
-            ("Ctrl+Alt+Up", self.cursors.add_above),
-            ("Ctrl+Alt+Down", self.cursors.add_below),
-            ("Ctrl+Shift+L", self.cursors.add_to_line_ends),
-        ):
-            self.addAction(make_shortcut_action(self, shortcut, slot))
+        for label, shortcut, slot, _ in self._multi_cursor_commands():
+            self.addAction(make_shortcut_action(self, shortcut, slot, label))
 
     def textCursor(self) -> TrackedCursor:
         return TrackedCursor(self._doc, super().textCursor())
@@ -298,38 +301,80 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                 self.tree_manager.parse_from_scratch()
 
     def contextMenuEvent(self, event: QtGui.QContextMenuEvent) -> None:
-        self.create_context_menu().exec(event.globalPos())
+        self.create_context_menu(event.pos()).exec(event.globalPos())
 
-    def create_context_menu(self) -> QtWidgets.QMenu:
-        """Make the right click menu
+    def _multi_cursor_commands(
+        self,
+    ) -> tuple[tuple[str, str, Callable[[], object], bool], ...]:
+        """The (label, shortcut, slot, needs a selection) of each multi-cursor
+        command, for both the hotkeys and the right click menu
+        """
+        cursors = self.cursors
+        return (
+            ("Add Next Occurrence", "Ctrl+D", cursors.add_next_occurrence, False),
+            ("Add Cursor Above", "Ctrl+Alt+Up", cursors.add_above, False),
+            ("Add Cursor Below", "Ctrl+Alt+Down", cursors.add_below, False),
+            ("Cursors to Line Ends", "Ctrl+Shift+L", cursors.add_to_line_ends, True),
+        )
+
+    def create_context_menu(self, pos: QtCore.QPoint | None = None) -> QtWidgets.QMenu:
+        """Make the right click menu, with the editing commands and then each
+        behavior's actions
 
         Its actions call this editor's methods. Qt's standard menu calls the
         C++ slots instead, which only edit the primary cursor, and don't
         update the tree
+
+        Args:
+            pos: Where the menu opens, in viewport coordinates. Defaults to the
+                text cursor
         """
+        if pos is None:
+            pos = self.cursorRect().center()
         menu = QtWidgets.QMenu(self)
         doc = self.document()
         selected = self.textCursor().hasSelection()
         sections = (
             (
-                ("&Undo", self.undo, doc.isUndoAvailable()),
-                ("&Redo", self.redo, doc.isRedoAvailable()),
+                ("&Undo", self.undo, "Ctrl+Z", doc.isUndoAvailable()),
+                ("&Redo", self.redo, "Ctrl+Y", doc.isRedoAvailable()),
             ),
             (
-                ("Cu&t", self.cut, selected),
-                ("&Copy", self.copy, selected),
-                ("&Paste", self.paste, self.canPaste()),
-                ("Delete", lambda: self.delete(MO.NextCharacter), selected),
+                ("Cu&t", self.cut, "Ctrl+X", selected),
+                ("&Copy", self.copy, "Ctrl+C", selected),
+                ("&Paste", self.paste, "Ctrl+V", self.canPaste()),
+                (
+                    "Delete",
+                    lambda: self.delete(MO.NextCharacter),
+                    "Del",
+                    selected,
+                ),
             ),
-            (("Select All", self.selectAll, not doc.isEmpty()),),
+            (("Select All", self.selectAll, "Ctrl+A", not doc.isEmpty()),),
         )
         for i, section in enumerate(sections):
             if i:
                 menu.addSeparator()
-            for text, slot, enabled in section:
-                action = menu.addAction(text)
-                action.setEnabled(enabled)
-                action.triggered.connect(slot)
+            for text, slot, shortcut, enabled in section:
+                add_menu_action(menu, text, slot, shortcut, enabled)
+
+        menu.addSeparator()
+        cursor_menu = menu.addMenu("Multi-Cursor")
+        for label, shortcut, command, needs_selection in self._multi_cursor_commands():
+            enabled = selected or not needs_selection
+            add_menu_action(cursor_menu, label, command, shortcut, enabled)
+        add_menu_action(
+            cursor_menu,
+            "Clear Extra Cursors",
+            self.cursors.clear_secondary,
+            "Esc",
+            bool(self.cursors.secondary),
+        )
+
+        for behavior in self._behaviors:
+            menu.addSeparator()
+            behavior.add_context_menu_actions(menu, pos)
+        tidy_separators(menu)
         return menu
 
     def dropEvent(self, event: QtGui.QDropEvent) -> None:

@@ -46,3 +46,39 @@ def make_shortcut_action(
     action.setShortcutContext(QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut)
     action.triggered.connect(slot)
     return action
+
+
+def add_menu_action(
+    menu: QtWidgets.QMenu,
+    text: str,
+    slot: Callable[[], object],
+    shortcut: str = "",
+    enabled: bool = True,
+) -> QtGui.QAction:
+    """Add an action to a menu, showing the shortcut that runs it elsewhere
+
+    The shortcut is only shown, not bound, so it doesn't clash with the editor's
+    own shortcut action while the menu is open
+    """
+    if shortcut:
+        native = QtGui.QKeySequence(shortcut).toString(
+            QtGui.QKeySequence.SequenceFormat.NativeText
+        )
+        text = f"{text}\t{native}"
+    action = menu.addAction(text)
+    action.setEnabled(enabled)
+    # triggered passes a `checked` bool, which the slot doesn't take
+    action.triggered.connect(lambda _checked=False: slot())
+    return action
+
+
+def tidy_separators(menu: QtWidgets.QMenu) -> None:
+    """Remove the separators at the start or end of a menu, or next to another"""
+    previous_was_separator = True
+    for action in menu.actions():
+        if action.isSeparator() and previous_was_separator:
+            menu.removeAction(action)
+        previous_was_separator = action.isSeparator()
+    actions = menu.actions()
+    if actions and actions[-1].isSeparator():
+        menu.removeAction(actions[-1])

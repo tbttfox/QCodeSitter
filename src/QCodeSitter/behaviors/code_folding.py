@@ -3,20 +3,26 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING
 
-from Qt import QtCore, QtGui
+from Qt import QtCore, QtGui, QtWidgets
 from tree_sitter import Node, Tree
 
 from ..gui_colors import GuiColors, gui_color
 from ..gutters import GutterWidget
 from ..languages import foldable_query, language_spec
 from ..queries import query_byte_range
-from ..utils import event_pos, make_shortcut_action
+from ..utils import add_menu_action, event_pos, make_shortcut_action
 from . import Behavior
 
 if TYPE_CHECKING:
     from ..code_editor import CodeEditor
+
+FOLD_ALL_SHORTCUT = "Ctrl+Shift+["
+UNFOLD_ALL_SHORTCUT = "Ctrl+Shift+]"
+MANUAL_FOLD_SHORTCUT = "Ctrl+Shift+."
+FOLD_LEVELS = range(10)  # Ctrl+0 to Ctrl+9
 
 
 @dataclass(eq=False)
@@ -329,13 +335,11 @@ class CodeFolding(Behavior):
         Returns whether a fold was made. The last line keeps showing, so it needs
         at least 3 selected lines
         """
-        cursor = self.editor.textCursor()
-        doc = self.editor.document()
-        start_line = doc.findBlock(cursor.selectionStart()).blockNumber()
-        end_line = doc.findBlock(cursor.selectionEnd()).blockNumber()
-        if end_line - start_line < 2:
+        lines = self._manual_fold_lines()
+        if lines is None:
             return False
-
+        start_line, end_line = lines
+        doc = self.editor.document()
         anchors = (
             QtGui.QTextCursor(doc.findBlockByNumber(start_line)),
             QtGui.QTextCursor(doc.findBlockByNumber(end_line)),
@@ -347,6 +351,28 @@ class CodeFolding(Behavior):
         self._set_regions([*self.regions, region])
         self.set_folded(region, True)
         return True
+
+    def _manual_fold_lines(self) -> tuple[int, int] | None:
+        """The first and last line of the selection, if it can be folded by hand"""
+        cursor = self.editor.textCursor()
+        doc = self.editor.document()
+        start_line = doc.findBlock(cursor.selectionStart()).blockNumber()
+        end_line = doc.findBlock(cursor.selectionEnd()).blockNumber()
+        if end_line - start_line < 2:
+            return None
+        return start_line, end_line
+
+    def region_at_line(self, line: int) -> FoldableRegion | None:
+        """The region to fold or unfold from a line
+
+        That is a folded region that starts on the line, since its first line
+        is the one that shows, or else the innermost region containing the line
+        """
+        containing = [r for r in self.regions if r.start_line <= line <= r.end_line]
+        for region in containing:
+            if region.is_folded and region.start_line == line:
+                return region
+        return containing[-1] if containing else None
 
     # ------------------------------------------------------------------
     # Painting
@@ -399,19 +425,19 @@ class CodeFolding(Behavior):
     def get_hotkeys(self) -> list[QtGui.QAction]:
         actions = [
             make_shortcut_action(
-                self.editor, "Ctrl+Shift+[", self.fold_all, "Fold All"
+                self.editor, FOLD_ALL_SHORTCUT, self.fold_all, "Fold All"
             ),
             make_shortcut_action(
-                self.editor, "Ctrl+Shift+]", self.unfold_all, "Unfold All"
+                self.editor, UNFOLD_ALL_SHORTCUT, self.unfold_all, "Unfold All"
             ),
             make_shortcut_action(
                 self.editor,
-                "Ctrl+Shift+.",
+                MANUAL_FOLD_SHORTCUT,
                 self.create_manual_fold,
                 "Create Manual Fold",
             ),
         ]
-        for i in range(10):
+        for i in FOLD_LEVELS:
             # triggered passes a `checked` bool, so take that before the level
             actions.append(
                 make_shortcut_action(
@@ -422,3 +448,32 @@ class CodeFolding(Behavior):
                 )
             )
         return actions
+
+    def add_context_menu_actions(
+        self, menu: QtWidgets.QMenu, pos: QtCore.QPoint
+    ) -> None:
+        fold_menu = menu.addMenu("Folding")
+        fold_menu.setEnabled(bool(self.regions))
+
+        line = self.editor.cursorForPosition(pos).blockNumber()
+        region = self.region_at_line(line)
+        if region is not None:
+            text = "Unfold Here" if region.is_folded else "Fold Here"
+            add_menu_action(fold_menu, text, lambda: self.toggle_fold(region))
+            fold_menu.addSeparator()
+
+        add_menu_action(fold_menu, "Fold All", self.fold_all, FOLD_ALL_SHORTCUT)
+        add_menu_action(fold_menu, "Unfold All", self.unfold_all, UNFOLD_ALL_SHORTCUT)
+        level_menu = fold_menu.addMenu("Fold to Level")
+        for i in FOLD_LEVELS:
+            add_menu_action(
+                level_menu, str(i), partial(self.fold_to_level, i), f"Ctrl+{i}"
+            )
+        # A manual fold works without any regions
+        add_menu_action(
+            menu,
+            "Create Manual Fold",
+            self.create_manual_fold,
+            MANUAL_FOLD_SHORTCUT,
+            self._manual_fold_lines() is not None,
+        )

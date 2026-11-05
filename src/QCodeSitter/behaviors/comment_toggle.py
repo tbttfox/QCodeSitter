@@ -4,11 +4,14 @@ from typing import TYPE_CHECKING
 
 from ..cursors.line_edits import replace_lines_at_cursors
 from ..languages import language_spec
-from ..utils import leading_whitespace, make_shortcut_action
+from ..utils import add_menu_action, leading_whitespace, make_shortcut_action
 from . import Behavior
 
 if TYPE_CHECKING:
-    from Qt import QtGui
+    from Qt import QtCore, QtGui, QtWidgets
+
+SHORTCUT = "Ctrl+/"
+LABEL = "Toggle Comment"
 
 
 class CommentToggle(Behavior):
@@ -22,11 +25,12 @@ class CommentToggle(Behavior):
         return language_spec(self.editor.tree_manager.language).comment_prefix
 
     def get_hotkeys(self) -> list[QtGui.QAction]:
-        return [
-            make_shortcut_action(
-                self.editor, "Ctrl+/", self.toggle_comment, "Toggle Comment"
-            )
-        ]
+        return [make_shortcut_action(self.editor, SHORTCUT, self.toggle_comment, LABEL)]
+
+    def add_context_menu_actions(
+        self, menu: QtWidgets.QMenu, pos: QtCore.QPoint
+    ) -> None:
+        add_menu_action(menu, LABEL, self.toggle_comment, SHORTCUT)
 
     def toggle_comment(self) -> None:
         prefix = self.comment_prefix

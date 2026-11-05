@@ -7,13 +7,17 @@ The clipboard and drop tests are in test_clipboard.py.
 
 from __future__ import annotations
 
+import itertools
+
 import pytest
 from Qt import QtCore, QtGui, QtWidgets
 
+from QCodeSitter.behaviors.comment_toggle import CommentToggle
 from QCodeSitter.cursors.state import CursorState
 from QCodeSitter.gui_colors import gui_color
 from tests.helpers import (
     assert_tree_matches_fresh_parse,
+    menu_actions,
     set_cursor_position,
     set_cursor_selection,
     simulate_keypress,
@@ -401,11 +405,53 @@ class TestEditsOutsideTheKeyHandlers:
         editor.setPlainText("ab\nab")
         editor.cursors.replace_all([CursorState(0, 1), CursorState(3, 4)])
         menu = editor.create_context_menu()
-        actions = {a.text(): a for a in menu.actions()}
+        actions = menu_actions(menu)
         assert not actions["&Undo"].isEnabled()
         actions["Cu&t"].trigger()
         assert editor.toPlainText() == "b\nb"
         assert_tree_matches_fresh_parse(editor)
+
+    def test_context_menu_shows_shortcuts(self, editor):
+        undo = menu_actions(editor.create_context_menu())["&Undo"]
+        native = QtGui.QKeySequence("Ctrl+Z").toString(
+            QtGui.QKeySequence.SequenceFormat.NativeText
+        )
+        assert undo.text() == f"&Undo\t{native}"
+        # The shortcut is only shown, so it can't clash with the editor's
+        assert undo.shortcut().isEmpty()
+
+    def test_context_menu_adds_next_occurrence(self, editor):
+        editor.setPlainText("ab ab")
+        set_cursor_selection(editor, 0, 2)
+        actions = menu_actions(editor.create_context_menu())
+        assert not actions["Multi-Cursor/Clear Extra Cursors"].isEnabled()
+        actions["Multi-Cursor/Add Next Occurrence"].trigger()
+        assert len(editor.cursors.secondary) == 1
+
+        actions = menu_actions(editor.create_context_menu())
+        actions["Multi-Cursor/Clear Extra Cursors"].trigger()
+        assert editor.cursors.secondary == []
+
+    def test_line_ends_needs_a_selection(self, editor):
+        editor.setPlainText("ab\nab")
+        set_cursor_position(editor, 0)
+        actions = menu_actions(editor.create_context_menu())
+        assert not actions["Multi-Cursor/Cursors to Line Ends"].isEnabled()
+
+    def test_context_menu_has_behavior_actions(self, editor):
+        assert "Toggle Comment" in menu_actions(editor.create_context_menu())
+        editor.remove_behavior(CommentToggle)
+        assert "Toggle Comment" not in menu_actions(editor.create_context_menu())
+
+    def test_context_menu_has_no_stray_separators(self, editor):
+        for bh in list(editor._behaviors):
+            editor.remove_behavior(type(bh))
+        actions = editor.create_context_menu().actions()
+        assert not actions[0].isSeparator()
+        assert not actions[-1].isSeparator()
+        assert not any(
+            a.isSeparator() and b.isSeparator() for a, b in itertools.pairwise(actions)
+        )
 
     def test_right_click_opens_the_context_menu(self, editor, monkeypatch):
         # QMenu.exec_ doesn't exist on PyQt6, so this runs the event handler
@@ -415,13 +461,20 @@ class TestEditsOutsideTheKeyHandlers:
             def exec(self, pos):
                 shown.append(pos)
 
-        monkeypatch.setattr(editor, "create_context_menu", lambda: RecordingMenu())
+        menu_positions = []
+
+        def create_context_menu(menu_pos=None):
+            menu_positions.append(menu_pos)
+            return RecordingMenu()
+
+        monkeypatch.setattr(editor, "create_context_menu", create_context_menu)
         pos = QtCore.QPoint(5, 5)
         event = QtGui.QContextMenuEvent(
             QtGui.QContextMenuEvent.Reason.Mouse, pos, editor.mapToGlobal(pos)
         )
         editor.contextMenuEvent(event)
         assert shown == [editor.mapToGlobal(pos)]
+        assert menu_positions == [pos]
 
     def test_input_method_text_rebuilds_the_tree(self, editor):
         self.two_cursors(editor)

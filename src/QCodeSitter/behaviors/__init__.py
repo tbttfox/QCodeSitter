@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from ..editor_options import check_option_keys
 
 if TYPE_CHECKING:
-    from Qt import QtCore, QtGui
+    from Qt import QtCore, QtGui, QtWidgets
 
     from ..code_editor import CodeEditor
     from ..editor_options import EditorOptions, OptionHandlers
@@ -84,6 +84,19 @@ class Behavior:
     def get_hotkeys(self) -> list[QtGui.QAction]:
         """The shortcut actions to add to the editor"""
         return []
+
+    def add_context_menu_actions(
+        self, menu: QtWidgets.QMenu, pos: QtCore.QPoint
+    ) -> None:
+        """Add this behavior's actions to the editor's right click menu
+
+        The editor puts a separator before each behavior's actions. Use
+        `utils.add_menu_action` to show the hotkey that runs each one
+
+        Args:
+            menu: The menu being built
+            pos: Where the menu was opened, in viewport coordinates
+        """
 
     def handle_key_press(self, event: QtGui.QKeyEvent) -> bool:
         """Handle a key press, before the editor's own key handling
