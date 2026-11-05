@@ -449,17 +449,25 @@ class CodeFolding(Behavior):
             )
         return actions
 
-    def add_context_menu_actions(
-        self, menu: QtWidgets.QMenu, pos: QtCore.QPoint
+    def add_menu_actions(
+        self, menu: QtWidgets.QMenu, pos: QtCore.QPoint | None
     ) -> None:
         fold_menu = menu.addMenu("Folding")
         fold_menu.setEnabled(bool(self.regions))
 
-        line = self.editor.cursorForPosition(pos).blockNumber()
+        # Fold where the menu was opened, or at the text cursor
+        if pos is None:
+            line = self.editor.textCursor().blockNumber()
+            where = "at Cursor"
+        else:
+            line = self.editor.cursorForPosition(pos).blockNumber()
+            where = "Here"
         region = self.region_at_line(line)
         if region is not None:
-            text = "Unfold Here" if region.is_folded else "Fold Here"
-            add_menu_action(fold_menu, text, lambda: self.toggle_fold(region))
+            verb = "Unfold" if region.is_folded else "Fold"
+            add_menu_action(
+                fold_menu, f"{verb} {where}", partial(self.toggle_fold, region)
+            )
             fold_menu.addSeparator()
 
         add_menu_action(fold_menu, "Fold All", self.fold_all, FOLD_ALL_SHORTCUT)

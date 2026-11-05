@@ -27,8 +27,8 @@ class CommentToggle(Behavior):
     def get_hotkeys(self) -> list[QtGui.QAction]:
         return [make_shortcut_action(self.editor, SHORTCUT, self.toggle_comment, LABEL)]
 
-    def add_context_menu_actions(
-        self, menu: QtWidgets.QMenu, pos: QtCore.QPoint
+    def add_menu_actions(
+        self, menu: QtWidgets.QMenu, pos: QtCore.QPoint | None
     ) -> None:
         add_menu_action(menu, LABEL, self.toggle_comment, SHORTCUT)
 

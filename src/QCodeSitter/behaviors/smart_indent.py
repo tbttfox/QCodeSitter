@@ -26,8 +26,8 @@ class SmartIndent(Behavior):
     def _width(self) -> int:
         return self.options["space_indent_width"]
 
-    def add_context_menu_actions(
-        self, menu: QtWidgets.QMenu, pos: QtCore.QPoint
+    def add_menu_actions(
+        self, menu: QtWidgets.QMenu, pos: QtCore.QPoint | None
     ) -> None:
         add_menu_action(menu, "Indent", self.insert_indent, "Tab")
         add_menu_action(menu, "Unindent", self.unindent, "Shift+Tab")

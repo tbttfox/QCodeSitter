@@ -13,7 +13,11 @@ from QCodeSitter.integrations.preditor_interface import (
     CodeSitterTextEdit,
 )
 from QCodeSitter.themes import DARK_THEME, LIGHT_THEME, read_theme
-from tests.helpers import assert_tree_matches_fresh_parse, set_cursor_selection
+from tests.helpers import (
+    assert_tree_matches_fresh_parse,
+    menu_actions,
+    set_cursor_selection,
+)
 
 TEXT = "first line\n    second line\nthird line\n"
 
@@ -122,10 +126,21 @@ class TestWorkboxText:
         assert workbox.__cursor_position__() == (0, 4)
         assert_tree_matches_fresh_parse(workbox)
 
-    def test_comment_toggle(self, workbox):
+    def test_populate_edit_menu(self, workbox):
+        """LoggerWindow's Workbox menu comes from __populate_edit_menu__"""
+        menu = QtWidgets.QMenu()
         set_cursor_selection(workbox, 0, 0)
-        workbox.__comment_toggle__()
+        workbox.__populate_edit_menu__(menu)
+        actions = menu_actions(menu)
+        assert "Multi-Cursor/Add Next Occurrence" in actions
+        actions["Toggle Comment"].trigger()
         assert workbox.__text_part__(lineNum=0) == "# first line"
+
+    def test_edit_menu_shortcuts_are_not_bound(self, workbox):
+        """The window's menu must not take the keys when the workbox isn't focused"""
+        menu = QtWidgets.QMenu()
+        workbox.__populate_edit_menu__(menu)
+        assert all(a.shortcut().isEmpty() for a in menu_actions(menu).values())
 
 
 class TestWorkboxSettings:

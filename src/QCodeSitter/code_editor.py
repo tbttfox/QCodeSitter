@@ -301,7 +301,10 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                 self.tree_manager.parse_from_scratch()
 
     def contextMenuEvent(self, event: QtGui.QContextMenuEvent) -> None:
-        self.create_context_menu(event.pos()).exec(event.globalPos())
+        menu = self.create_context_menu(event.pos())
+        menu.exec(event.globalPos())
+        # A new menu is made for every right click
+        menu.deleteLater()
 
     def _multi_cursor_commands(
         self,
@@ -318,20 +321,37 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         )
 
     def create_context_menu(self, pos: QtCore.QPoint | None = None) -> QtWidgets.QMenu:
-        """Make the right click menu, with the editing commands and then each
-        behavior's actions
+        """Make the right click menu
 
         Its actions call this editor's methods. Qt's standard menu calls the
         C++ slots instead, which only edit the primary cursor, and don't
         update the tree
 
         Args:
-            pos: Where the menu opens, in viewport coordinates. Defaults to the
-                text cursor
+            pos: Where the menu was opened, in viewport coordinates, or None to
+                act on the text cursor
         """
-        if pos is None:
-            pos = self.cursorRect().center()
         menu = QtWidgets.QMenu(self)
+        self.populate_edit_menu(menu, pos)
+        return menu
+
+    def populate_edit_menu(
+        self, menu: QtWidgets.QMenu, pos: QtCore.QPoint | None = None
+    ) -> None:
+        """Add the editing commands and then each behavior's actions to a menu
+
+        This builds the right click menu, and menus outside the editor like a
+        window's menu bar. The actions only show their shortcuts, without binding
+        them, so the menu never steals the editor's keys. Build the menu just
+        before it's shown, since which actions are enabled depends on the editor's
+        state, like whether there's a selection
+
+        Args:
+            menu: The menu to add to
+            pos: Where a right click opened the menu, in viewport coordinates.
+                None for a menu that wasn't opened at a point in the text, so
+                the actions use the text cursor instead
+        """
         doc = self.document()
         selected = self.textCursor().hasSelection()
         sections = (
@@ -373,9 +393,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
         for behavior in self._behaviors:
             menu.addSeparator()
-            behavior.add_context_menu_actions(menu, pos)
+            behavior.add_menu_actions(menu, pos)
         tidy_separators(menu)
-        return menu
 
     def dropEvent(self, event: QtGui.QDropEvent) -> None:
         """Drop text through a TrackedCursor, so the tree sees the edit"""

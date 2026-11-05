@@ -6,7 +6,6 @@ from preditor.gui.workbox_mixin import WorkboxMixin
 from Qt import QtCore, QtGui, QtWidgets
 
 from .. import CodeEditor
-from ..behaviors.comment_toggle import CommentToggle
 from ..behaviors.tab_completion import TabCompletion
 from ..defaults import (
     default_options,
@@ -191,10 +190,13 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
         self.clear()
         self.__set_last_saved_text__(self.__text__())
 
-    def __comment_toggle__(self) -> None:
-        behavior = self.get_behavior(CommentToggle)
-        if behavior is not None:
-            behavior.toggle_comment()
+    def __populate_edit_menu__(self, menu: QtWidgets.QMenu) -> None:
+        """Fill PrEditor's Workbox menu, which it clears before every time it's shown
+
+        The menu isn't opened at a point in the text, so the actions that work
+        on a place in the document use the text cursor
+        """
+        self.populate_edit_menu(menu)
 
     def __copy_indents_as_spaces__(self) -> bool:
         """Whether copying code converts its leading tabs to spaces"""

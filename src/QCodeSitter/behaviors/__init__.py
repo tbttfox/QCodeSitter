@@ -85,17 +85,21 @@ class Behavior:
         """The shortcut actions to add to the editor"""
         return []
 
-    def add_context_menu_actions(
-        self, menu: QtWidgets.QMenu, pos: QtCore.QPoint
+    def add_menu_actions(
+        self, menu: QtWidgets.QMenu, pos: QtCore.QPoint | None
     ) -> None:
-        """Add this behavior's actions to the editor's right click menu
+        """Add this behavior's actions to the editor's right click menu, or to a
+        menu outside the editor like a window's menu bar
 
         The editor puts a separator before each behavior's actions. Use
-        `utils.add_menu_action` to show the hotkey that runs each one
+        `utils.add_menu_action` to show the hotkey that runs each one without
+        binding it. Actions created here should be parented to the menu
 
         Args:
             menu: The menu being built
-            pos: Where the menu was opened, in viewport coordinates
+            pos: Where a right click opened the menu, in viewport coordinates.
+                None when it wasn't opened at a point in the text, so act on the
+                text cursor instead
         """
 
     def handle_key_press(self, event: QtGui.QKeyEvent) -> bool:

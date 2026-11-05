@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from Qt import QtCore
+from Qt import QtCore, QtWidgets
 
 from QCodeSitter.behaviors.code_folding import (
     CodeFolding,
@@ -48,6 +48,15 @@ class TestCodeFolding:
         menu = editor.create_context_menu(line_pos(editor, 8))
         menu_actions(menu)["Folding/Unfold Here"].trigger()
         assert _hidden_lines(editor) == []
+
+    def test_window_menu_folds_at_the_cursor(self, editor_with_text):
+        """A menu that isn't opened at a click, like a menu bar's, uses the cursor"""
+        editor = editor_with_text
+        set_cursor_position(editor, editor.document().findBlockByNumber(8).position())
+        menu = QtWidgets.QMenu()
+        editor.populate_edit_menu(menu)
+        menu_actions(menu)["Folding/Fold at Cursor"].trigger()
+        assert _hidden_lines(editor) == [9]
 
     def test_context_menu_folds_all(self, editor_with_text):
         editor = editor_with_text
