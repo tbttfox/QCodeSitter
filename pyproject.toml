@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=45", "wheel"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -14,6 +14,17 @@ dependencies = [
     "tree-sitter>=0.25.2,<0.26",
     "tree-sitter-python>=0.23,<0.26",
 ]
+authors = [
+  { name="Tyler Fox", email="tyler@blur.com" },
+]
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE.txt"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
 
 [project.optional-dependencies]
 pyside6 = ["PySide6"]
@@ -24,6 +35,9 @@ preditor = ["preditor"]
 
 [project.entry-points."preditor.plug.editors"]
 QCodeSitter = "QCodeSitter.integrations.preditor_interface:CodeSitterTextEdit"
+
+[project.urls]
+Homepage = "https://github.com/tbttfox/qcodesitter"
 
 [tool.setuptools.packages.find]
 where = ["src"]
