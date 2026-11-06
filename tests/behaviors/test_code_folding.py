@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from Qt import QtCore, QtWidgets
+from Qt import QtCore, QtGui, QtWidgets
 
 from QCodeSitter.behaviors.code_folding import (
     CodeFolding,
@@ -142,6 +142,61 @@ class TestCodeFolding:
         assert (manual.start_line, manual.end_line) == (2, 5)
         # The gutter toggles the manual fold, not the tree's region on its line
         assert folding.folding_area.region_starts[2] is manual
+
+    def test_manual_fold_menu_removes_the_fold(self, editor_with_text):
+        folding = editor_with_text.get_behavior(CodeFolding)
+        doc = editor_with_text.document()
+        set_cursor_selection(
+            editor_with_text,
+            doc.findBlockByNumber(1).position(),
+            doc.findBlockByNumber(4).position(),
+        )
+        folding.create_manual_fold()
+        manual = next(r for r in folding.regions if r.is_manual)
+        menu = folding.manual_fold_menu(manual)
+        menu_actions(menu)["Remove Fold"].trigger()
+        assert _hidden_lines(editor_with_text) == []
+        assert not any(r.is_manual for r in folding.regions)
+        assert 1 not in folding.folding_area.region_starts
+
+    def test_right_click_on_manual_fold_requests_its_menu(self, editor_with_text):
+        folding = editor_with_text.get_behavior(CodeFolding)
+        area = folding.folding_area
+        doc = editor_with_text.document()
+        set_cursor_selection(
+            editor_with_text,
+            doc.findBlockByNumber(8).position(),
+            doc.findBlockByNumber(11).position(),
+        )
+        folding.create_manual_fold()
+        manual = next(r for r in folding.regions if r.is_manual)
+        # Record the request instead of opening a blocking menu
+        area.regionMenuRequested.disconnect()
+        requested = []
+        area.regionMenuRequested.connect(lambda r, _pos: requested.append(r))
+
+        def right_click(line: int) -> bool:
+            block = doc.findBlockByNumber(line)
+            top = editor_with_text.blockBoundingGeometry(block).translated(
+                editor_with_text.contentOffset()
+            )
+            pos = QtCore.QPoint(area.width() // 2, int(top.center().y()))
+            event = QtGui.QContextMenuEvent(
+                QtGui.QContextMenuEvent.Reason.Mouse, pos, area.mapToGlobal(pos)
+            )
+            area.contextMenuEvent(event)
+            return event.isAccepted()
+
+        assert right_click(8)
+        assert requested == [manual]
+        # A tree-sitter region's indicator has no menu
+        assert not right_click(7)
+        assert requested == [manual]
+
+    def test_manual_fold_indicator_has_its_own_color(self, editor_with_text):
+        area = editor_with_text.get_behavior(CodeFolding).folding_area
+        assert area.manual_color.isValid()
+        assert area.manual_color != area.fg_color
 
     def test_manual_fold_needs_two_lines(self, editor_with_text):
         folding = editor_with_text.get_behavior(CodeFolding)

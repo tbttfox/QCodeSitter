@@ -324,6 +324,7 @@ class CodeSitterTextEdit(WorkboxMixin, CodeEditor):
     guiGutter              = _theme_property("gui", "gutter")
     guiGutterFg            = _theme_property("gui", "gutter_fg")
     guiHlDim               = _theme_property("gui", "hl_dim")
+    guiManualFold          = _theme_property("gui", "manual_fold")
     guiMatchHl             = _theme_property("gui", "match_hl")
     guiMenu                = _theme_property("gui", "menu")
     guiOutsideBg           = _theme_property("gui", "outside_bg")

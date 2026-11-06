@@ -24,6 +24,7 @@ GUI_COLOR_DEFAULTS: GuiColors = {
     "bg_dim": "#503C3C3C",
     "fg_dim": "#C8787878",
     "hl_dim": "#96464646",
+    "manual_fold": "#D7BA7D",
     "match_hl": "#50FFFF00",
     "menu": "#2B2B2B",
     "pair_hl": "#C8C8C8",

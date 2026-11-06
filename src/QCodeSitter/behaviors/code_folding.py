@@ -76,9 +76,15 @@ class FoldableRegion:
 
 
 class FoldingGutterArea(GutterWidget):
-    """The gutter column that shows fold indicators and toggles them on click"""
+    """The gutter column that shows fold indicators and toggles them on click
+
+    Indicators of folds the user made are drawn in the "manual_fold" color,
+    and right clicking one offers to remove it
+    """
 
     regionClicked = QtCore.Signal(FoldableRegion)
+    # The region, and the global position to open its menu at
+    regionMenuRequested = QtCore.Signal(FoldableRegion, QtCore.QPoint)
     ICON_SIZE = 9
     PADDING = 2
 
@@ -86,6 +92,7 @@ class FoldingGutterArea(GutterWidget):
         super().__init__(editor)
         # The outermost region starting on each line
         self.region_starts: dict[int, FoldableRegion] = {}
+        self.manual_color = QtGui.QColor()
 
     def width_hint(self) -> int:
         return self.ICON_SIZE + 4 * self.PADDING
@@ -93,11 +100,13 @@ class FoldingGutterArea(GutterWidget):
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:
         painter = QtGui.QPainter(self)
         painter.fillRect(event.rect(), self.bg_color)
-        painter.setPen(QtGui.QPen(self.fg_color, 1.5))
+        tree_pen = QtGui.QPen(self.fg_color, 1.5)
+        manual_pen = QtGui.QPen(self.manual_color, 1.5)
         painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
         for block, top, bottom in self.visible_blocks(event.rect().bottom()):
             region = self.region_starts.get(block.blockNumber())
             if region is not None and bottom >= event.rect().top():
+                painter.setPen(manual_pen if region.is_manual else tree_pen)
                 self._draw_fold_indicator(painter, top, region.is_folded)
 
     def _draw_fold_indicator(
@@ -114,16 +123,27 @@ class FoldingGutterArea(GutterWidget):
             corners = [(cx - size, cy - half), (cx, cy + half), (cx + size, cy - half)]
         painter.drawPolygon([QtCore.QPoint(x, y) for x, y in corners])
 
+    def region_at(self, y: float) -> FoldableRegion | None:
+        """The region whose indicator is at a y position in the gutter"""
+        for block, top, bottom in self.visible_blocks(y):
+            if top <= y < bottom:
+                return self.region_starts.get(block.blockNumber())
+        return None
+
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
-            click_y = event_pos(event).y()
-            for block, top, bottom in self.visible_blocks(click_y):
-                if top <= click_y < bottom:
-                    region = self.region_starts.get(block.blockNumber())
-                    if region is not None:
-                        self.regionClicked.emit(region)
-                    break
+            region = self.region_at(event_pos(event).y())
+            if region is not None:
+                self.regionClicked.emit(region)
         super().mousePressEvent(event)
+
+    def contextMenuEvent(self, event: QtGui.QContextMenuEvent) -> None:
+        region = self.region_at(event.pos().y())
+        if region is not None and region.is_manual:
+            self.regionMenuRequested.emit(region, event.globalPos())
+            event.accept()
+        else:
+            event.ignore()
 
 
 class CodeFolding(Behavior):
@@ -143,6 +163,7 @@ class CodeFolding(Behavior):
 
         self.folding_area = FoldingGutterArea(self.editor)
         self.folding_area.regionClicked.connect(self.toggle_fold)
+        self.folding_area.regionMenuRequested.connect(self._show_manual_fold_menu)
         self.watch_options(
             {"font": self.folding_area.setFont, "colors": self._set_colors}
         )
@@ -157,6 +178,7 @@ class CodeFolding(Behavior):
         )
 
     def _set_colors(self, colors: GuiColors) -> None:
+        self.folding_area.manual_color = gui_color(colors, "manual_fold")
         self.folding_area.set_gutter_colors(colors)
         self.fold_line_bg_color = gui_color(colors, "bg_dim")
         self.fold_ellipsis_bg_color = gui_color(colors, "hl_dim")
@@ -351,6 +373,27 @@ class CodeFolding(Behavior):
         self._set_regions([*self.regions, region])
         self.set_folded(region, True)
         return True
+
+    def remove_manual_fold(self, region: FoldableRegion) -> None:
+        """Unfold a fold the user made, and take away its indicator"""
+        if region not in self.regions:
+            return
+        self.set_folded(region, False)
+        self._set_regions([r for r in self.regions if r is not region])
+
+    def manual_fold_menu(self, region: FoldableRegion) -> QtWidgets.QMenu:
+        """Make the right click menu for a manual fold's gutter indicator"""
+        menu = QtWidgets.QMenu(self.editor)
+        add_menu_action(menu, "Remove Fold", partial(self.remove_manual_fold, region))
+        return menu
+
+    def _show_manual_fold_menu(
+        self, region: FoldableRegion, global_pos: QtCore.QPoint
+    ) -> None:
+        menu = self.manual_fold_menu(region)
+        menu.exec(global_pos)
+        # A new menu is made for every right click
+        menu.deleteLater()
 
     def _manual_fold_lines(self) -> tuple[int, int] | None:
         """The first and last line of the selection, if it can be folded by hand"""
