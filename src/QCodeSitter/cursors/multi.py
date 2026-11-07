@@ -126,12 +126,16 @@ class MultiCursor(QtCore.QObject):
         search_text = cursor.selectedText()
         all_cursors = self._primary_first()
         next_pos = self._find(search_text, max(c.selectionEnd() for c in all_cursors))
+        length = len16(search_text)
         if next_pos < 0:
-            # Wrap around to the start, but only up to the first cursor
+            # Wrap around to the start, skipping occurrences that have a cursor
+            taken = {c.selectionStart() for c in all_cursors}
             next_pos = self._find(search_text, 0)
-            if next_pos < 0 or next_pos >= min(c.selectionStart() for c in all_cursors):
+            while next_pos in taken:
+                next_pos = self._find(search_text, next_pos + length)
+            if next_pos < 0:
                 return False
-        end = next_pos + len16(search_text)
+        end = next_pos + length
         added = self._add([*all_cursors, CursorState(next_pos, end)])
         if added:
             self._scroll_to(end)
