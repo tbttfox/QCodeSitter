@@ -26,8 +26,8 @@ class TreeManager(QtCore.QObject):
         # Whether an edit was made while paused, so unpausing has to reparse
         self._reparse_pending = False
 
-        # The (first, last) rows touched by edits since the last parse
-        self._edit_rows: tuple[int, int] | None = None
+        # The (first, last) rows of each edit since the last parse
+        self._edit_rows: list[tuple[int, int]] = []
         # The (first, last) row ranges that changed in the last parse
         # None means the whole document changed
         self.changed_rows: list[tuple[int, int]] | None = None
@@ -42,6 +42,11 @@ class TreeManager(QtCore.QObject):
     def is_paused(self) -> bool:
         return self._pause_depth > 0
 
+    @property
+    def reparse_pending(self) -> bool:
+        """Whether edits are held by a pause, and the tree is out of date"""
+        return self._pause_depth > 0 and self._reparse_pending
+
     def set_language(self, language: Language | None) -> None:
         """Change the language, and parse the document again"""
         self._set_parser(language)
@@ -51,7 +56,7 @@ class TreeManager(QtCore.QObject):
     def _set_parser(self, language: Language | None) -> None:
         self.parser = Parser(language) if language is not None else None
         self.tree = None
-        self._edit_rows = None
+        self._edit_rows = []
         self.changed_rows = None
 
     def treesitter_source_callback(self, _byte_offset: int, ts_point: Point) -> bytes:
@@ -73,7 +78,7 @@ class TreeManager(QtCore.QObject):
     def parse_from_scratch(self) -> None:
         """Parse the whole document from scratch. Without a language there is no tree"""
         self.tree = self._parse(self.parser) if self.parser is not None else None
-        self._edit_rows = None
+        self._edit_rows = []
         self.changed_rows = None
         self.reparsed.emit()
 
@@ -97,20 +102,22 @@ class TreeManager(QtCore.QObject):
     def _track_edit_rows(
         self, start_row: int, old_end_row: int, new_end_row: int
     ) -> None:
-        """Grow the span of edited rows to include this edit
+        """Add this edit's rows to the edited spans
 
-        The span is kept in the current document's rows, so rows after
-        the edit shift by the number of lines it added or removed
+        Spans are kept separate, so edits far apart (ie: multi-cursor) don't
+        mark every row between them. They're kept in the current document's
+        rows, so earlier spans shift by the lines this edit added or removed
         """
-        if self._edit_rows is None:
-            self._edit_rows = (start_row, new_end_row)
-            return
-        lo, hi = self._edit_rows
-        if hi > old_end_row:
-            hi += new_end_row - old_end_row
-        else:
-            hi = new_end_row
-        self._edit_rows = (min(lo, start_row), hi)
+        delta = new_end_row - old_end_row
+
+        def shift(row: int) -> int:
+            if row > old_end_row:
+                return row + delta
+            # A row inside a removed range collapses to the edit's end
+            return min(row, new_end_row) if row > start_row else row
+
+        self._edit_rows = [(shift(lo), shift(hi)) for lo, hi in self._edit_rows]
+        self._edit_rows.append((start_row, new_end_row))
 
     def apply_edit(
         self,
@@ -145,7 +152,7 @@ class TreeManager(QtCore.QObject):
             return
 
         if self.parser is None:
-            self._edit_rows = None
+            self._edit_rows = []
             return
 
         old_tree = self.tree
@@ -159,10 +166,9 @@ class TreeManager(QtCore.QObject):
                 (r.start_point.row, r.end_point.row)
                 for r in old_tree.changed_ranges(self.tree)
             ]
-            if self._edit_rows is not None:
-                rows.append(self._edit_rows)
+            rows.extend(self._edit_rows)
             self.changed_rows = rows
-        self._edit_rows = None
+        self._edit_rows = []
         self.reparsed.emit()
 
     def node_at_byte(self, byte_offset: int) -> Node | None:

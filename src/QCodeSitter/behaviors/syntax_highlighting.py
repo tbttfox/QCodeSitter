@@ -81,6 +81,12 @@ class TreeSitterHighlighter(QtGui.QSyntaxHighlighter):
         block = self.currentBlock()
         if tree is None or not block.isValid():
             return
+        if self.tree_manager.reparse_pending:
+            # Qt highlights every block between the first and last edit of an
+            # edit block. Keep their formats, the reparse redoes the edited rows
+            for fmt_range in block.layout().formats():
+                self.setFormat(fmt_range.start, fmt_range.length, fmt_range.format)
+            return
 
         # Qt positions are UTF-16 code units, but python's len counts code points
         # so they differ when the text contains characters outside the BMP
