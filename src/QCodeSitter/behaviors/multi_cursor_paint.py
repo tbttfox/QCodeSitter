@@ -67,7 +67,7 @@ class MultiCursorPaint(Behavior):
         states = [*self.editor.cursors.secondary, self.editor.cursors.primary()]
 
         fmt = QtGui.QTextCharFormat()
-        fmt.setBackground(self.secondary_selection_color.lighter(150))
+        fmt.setBackground(self.secondary_selection_color)
         doc = self.editor.document()
         selections = []
         for state in states:

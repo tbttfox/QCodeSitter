@@ -31,7 +31,7 @@ GUI_COLOR_DEFAULTS: GuiColors = {
     "primary_cursor": "#FFFFFFFF",
     "secondary_cursor": "#B4B4B4",
     "selection": "#094771",
-    "secondary_selection": "#B4B4B4",
+    "secondary_selection": "#264F78",
 }
 
 # Gui color name -> its default, made from the other colors

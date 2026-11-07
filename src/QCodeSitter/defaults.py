@@ -12,6 +12,7 @@ from .behaviors.code_folding import CodeFolding
 from .behaviors.comment_toggle import CommentToggle
 from .behaviors.highlight_matching_brackets import HighlightMatchingBrackets
 from .behaviors.highlight_matching_selection import HighlightMatchingSelection
+from .behaviors.line_commands import LineCommands
 from .behaviors.line_numbers import LineNumbers
 from .behaviors.multi_cursor_paint import MultiCursorPaint
 from .behaviors.overscroll import Overscroll
@@ -38,6 +39,7 @@ DEFAULT_BEHAVIORS: tuple[type[Behavior], ...] = (
     MultiCursorPaint,
     CodeFolding,
     CommentToggle,
+    LineCommands,
 )
 
 # The built-in behaviors that are off by default

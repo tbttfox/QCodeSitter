@@ -132,7 +132,24 @@ class MultiCursor(QtCore.QObject):
             if next_pos < 0 or next_pos >= min(c.selectionStart() for c in all_cursors):
                 return False
         end = next_pos + len16(search_text)
-        return self._add([*all_cursors, CursorState(next_pos, end)])
+        added = self._add([*all_cursors, CursorState(next_pos, end)])
+        if added:
+            self._scroll_to(end)
+        return added
+
+    def _scroll_to(self, position: int) -> None:
+        """Scroll to show a position, leaving the primary cursor where it is"""
+        # Qt only scrolls to the primary cursor, so borrow it to find the scroll
+        editor = self.editor
+        primary = editor.textCursor()
+        bars = (editor.horizontalScrollBar(), editor.verticalScrollBar())
+        editor.setTextCursor(
+            CursorState(position, position).build_cursor(editor.document())
+        )
+        values = [bar.value() for bar in bars]
+        editor.setTextCursor(primary)
+        for bar, value in zip(bars, values):
+            bar.setValue(value)
 
     def _find(self, search_text: str, start_pos: int) -> int:
         """Find the position of search_text after start_pos, or -1 if there is none

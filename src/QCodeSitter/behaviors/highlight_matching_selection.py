@@ -22,6 +22,8 @@ class HighlightMatchingSelection(Behavior):
         super().__init__(editor)
         self.watch_options({"colors": self._set_colors})
         self.connect(self.editor.selectionChanged, self.highlight_occurrences)
+        # Ctrl+D adds cursors without changing the primary selection
+        self.connect(self.editor.cursors.changed, self.highlight_occurrences)
 
     def _set_colors(self, colors: GuiColors) -> None:
         self._match_hl = gui_color(colors, "match_hl")
@@ -41,6 +43,12 @@ class HighlightMatchingSelection(Behavior):
             fmt.setBackground(self._match_hl)
             doc = self.editor.document()
             search_cursor = QtGui.QTextCursor(doc)
+            # Qt or MultiCursorPaint already draws the cursors' own selections, and
+            # a highlight over them would hide which occurrences are selected
+            selected = {
+                (state.selectionStart(), state.selectionEnd())
+                for state in (cursor, *self.editor.cursors.secondary)
+            }
             case_sensitive = QtGui.QTextDocument.FindFlag.FindCaseSensitively
 
             while True:
@@ -48,9 +56,8 @@ class HighlightMatchingSelection(Behavior):
                 if search_cursor.isNull():
                     break
 
-                # Qt already highlights the selection itself
                 found = (search_cursor.selectionStart(), search_cursor.selectionEnd())
-                if found != (cursor.selectionStart(), cursor.selectionEnd()):
+                if found not in selected:
                     selection = QtWidgets.QTextEdit.ExtraSelection()
                     selection.cursor = search_cursor
                     selection.format = fmt
