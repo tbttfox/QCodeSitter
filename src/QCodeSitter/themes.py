@@ -38,6 +38,7 @@ DARK_THEME: Theme = {
         "yellow":          "#F1FA8C",
         "faint_yellow":    "#40F1FA8C",
         "green":           "#50fa7b",
+        "faint_green":     "#4050fa7b",
         "purple":          "#BD93F9",
         "cyan":            "#8BE9FD",
         "pink":            "#FF79C6",
@@ -64,7 +65,7 @@ DARK_THEME: Theme = {
         "dark_slate":      "#21222C",
     },
 
-    "gui" : {
+    "gui": {
         "bg":                  "mid_dark_slate",
         "bg_dim":              "slate2",
         "fg":                  "cream",
@@ -76,14 +77,14 @@ DARK_THEME: Theme = {
         "match_hl":            "faint_yellow",
         "menu":                "dark_slate",
         "outside_bg":          "dark_slate",
-        "pair_hl":             "mid_gray",
+        "pair_hl":             "faint_green",
         "primary_cursor":      "bright_white",
         "secondary_cursor":    "half_mid_gray",
         "selection":           "mid_light_slate",
         "secondary_selection": "light_slate",
     },
 
-    "syntax" : {
+    "syntax": {
         "attribute":             {"color": "cyan"},
         "attribute.builtin":     {"color": "cyan"},
         "boolean":               {"color": "purple"},
